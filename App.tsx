@@ -30,6 +30,8 @@ import { translations } from './translations';
 import { saveKeysEncrypted, loadKeysDecrypted, clearAllKeyData, migrateLegacyKeys } from './utils/keyVault';
 import { recordApiUsage, getUsageSummary, formatCost, type KeyUsageSummary } from './utils/usageMonitor';
 import { getCompactChromeMetrics } from './utils/uiScale';
+import termsRaw from './TERMS_OF_SERVICE.md?raw';
+import privacyRaw from './PRIVACY_POLICY.md?raw';
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -481,6 +483,8 @@ const App: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
+    const [legalModal, setLegalModal] = useState<'terms' | 'privacy' | null>(null);
+    const [legalContent, setLegalContent] = useState('');
     const [isLayerMinimized, setIsLayerMinimized] = useState(() => {
         const saved = localStorage.getItem('layerPanelMinimized');
         return saved === 'true';
@@ -979,6 +983,11 @@ const App: React.FC = () => {
         setActiveCharacterLockId(next.id);
         setError(null);
     }, [selectedSingleImage, characterLocks.length]);
+
+    const openLegalModal = useCallback((type: 'terms' | 'privacy') => {
+        setLegalModal(type);
+        setLegalContent(type === 'terms' ? termsRaw : privacyRaw);
+    }, []);
 
     const handleEnhancePrompt = useCallback(async (payload: {
         prompt: string;
@@ -4582,6 +4591,31 @@ const App: React.FC = () => {
                             batchCount={batchCount}
                             onBatchCountChange={setBatchCount}
                         />
+                    </div>
+                    {/* 底部法律链接 */}
+                    <div className="pointer-events-auto flex items-center gap-2 mt-1 text-[10px] opacity-40 hover:opacity-70 transition-opacity select-none">
+                        <button className="underline-offset-2 hover:underline cursor-pointer bg-transparent border-none p-0 text-inherit text-[10px]" onClick={() => openLegalModal('terms')}>使用条款</button>
+                        <span>·</span>
+                        <button className="underline-offset-2 hover:underline cursor-pointer bg-transparent border-none p-0 text-inherit text-[10px]" onClick={() => openLegalModal('privacy')}>隐私政策</button>
+                    </div>
+                </div>
+            )}
+
+            {/* 法律文档弹窗 */}
+            {legalModal && (
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setLegalModal(null)}>
+                    <div
+                        className="relative w-[90vw] max-w-[680px] max-h-[80vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+                        style={{ background: resolvedTheme === 'dark' ? '#1e1e24' : '#fff', color: resolvedTheme === 'dark' ? '#e0e0e0' : '#222' }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: resolvedTheme === 'dark' ? '#333' : '#e5e5e5' }}>
+                            <h2 className="text-lg font-semibold m-0">{legalModal === 'terms' ? '使用条款' : '隐私政策'}</h2>
+                            <button className="text-2xl leading-none cursor-pointer bg-transparent border-none p-1" style={{ color: resolvedTheme === 'dark' ? '#888' : '#666' }} onClick={() => setLegalModal(null)}>×</button>
+                        </div>
+                        <div className="overflow-y-auto px-6 py-5 text-sm leading-relaxed legal-markdown" style={{ whiteSpace: 'pre-wrap' }}>
+                            {legalContent || '加载中…'}
+                        </div>
                     </div>
                 </div>
             )}

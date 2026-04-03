@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { AssetCategory, AssetItem, AssetLibrary, GenerationHistoryItem, UserApiKey } from '../types';
 import { AgentChatPanel } from './AgentChatPanel';
+import { rhGetWebAppNodes, rhRunWebApp, rhUploadWebAppDataUrl, type RHWebAppNodeInfo, type RHWebAppOutputItem, type RHWebAppTaskStatus } from '../services/runningHubService';
 
-type RightPanelTab = 'history' | 'inspiration' | 'agent';
+type RightPanelTab = 'history' | 'inspiration' | 'agent' | 'runningHub';
 
 interface RightPanelProps {
     theme: 'light' | 'dark';
@@ -62,6 +63,231 @@ const EmptyHistory: React.FC = () => (
         </div>
     </div>
 );
+
+/**
+ * RunningHub WebApp 面板 — AI 应用工作流接入
+ *
+ * 用户输入 API Key + WebApp ID → 获取可修改节点 → 修改参数 → 提交任务 → 显示结果
+ */
+const RunningHubWebAppPanel: React.FC<{ theme: 'light' | 'dark'; compactMode: boolean }> = ({ theme, compactMode }) => {
+    const isDark = theme === 'dark';
+    const [apiKey, setApiKey] = useState(() => localStorage.getItem('rh_webapp_apikey') || '');
+    const [webappId, setWebappId] = useState(() => localStorage.getItem('rh_webapp_id') || '');
+    const [nodes, setNodes] = useState<RHWebAppNodeInfo[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [taskStatus, setTaskStatus] = useState<RHWebAppTaskStatus | null>(null);
+    const [outputs, setOutputs] = useState<RHWebAppOutputItem[]>([]);
+
+    const inputClass = `w-full rounded-xl border px-3 py-2 text-xs outline-none transition ${
+        isDark
+            ? 'border-[#2A3140] bg-[#161A22] text-[#F3F4F6] placeholder:text-[#667085] focus:border-[#4B5B78]'
+            : 'border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400'
+    }`;
+
+    const btnClass = `rounded-xl px-4 py-2 text-xs font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed ${
+        isDark ? 'bg-orange-600 text-white hover:bg-orange-500' : 'bg-orange-500 text-white hover:bg-orange-600'
+    }`;
+
+    // 持久化 apiKey & webappId
+    useEffect(() => { localStorage.setItem('rh_webapp_apikey', apiKey); }, [apiKey]);
+    useEffect(() => { localStorage.setItem('rh_webapp_id', webappId); }, [webappId]);
+
+    // 获取节点列表
+    const handleFetchNodes = async () => {
+        if (!apiKey.trim() || !webappId.trim()) return;
+        setLoading(true);
+        setError(null);
+        setNodes([]);
+        try {
+            const list = await rhGetWebAppNodes(apiKey.trim(), webappId.trim());
+            setNodes(list);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : '获取节点失败');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // 修改节点值
+    const handleNodeValueChange = (nodeId: string, fieldName: string, newValue: string) => {
+        setNodes(prev => prev.map(n =>
+            n.nodeId === nodeId && n.fieldName === fieldName
+                ? { ...n, fieldValue: newValue }
+                : n
+        ));
+    };
+
+    // 提交任务
+    const handleSubmit = async () => {
+        if (!apiKey.trim() || !webappId.trim() || nodes.length === 0) return;
+        setLoading(true);
+        setError(null);
+        setTaskStatus('QUEUED');
+        setOutputs([]);
+        try {
+            const result = await rhRunWebApp(
+                apiKey.trim(),
+                webappId.trim(),
+                nodes,
+                (status) => setTaskStatus(status),
+            );
+            setOutputs(result);
+            setTaskStatus('SUCCESS');
+        } catch (e) {
+            setError(e instanceof Error ? e.message : '任务执行失败');
+            setTaskStatus('FAILED');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const statusLabel: Record<RHWebAppTaskStatus, string> = {
+        QUEUED: '⏳ 排队中...',
+        RUNNING: '⚡ 运行中...',
+        SUCCESS: '✅ 完成',
+        FAILED: '❌ 失败',
+        UNKNOWN: '❓ 未知',
+    };
+
+    return (
+        <div className={`flex h-full flex-col ${compactMode ? 'gap-3 p-3' : 'gap-4 p-4'} overflow-y-auto`}>
+            {/* 标题 */}
+            <div>
+                <h3 className={`text-sm font-bold ${isDark ? 'text-gray-200' : 'text-neutral-900'}`}>
+                    🚀 RunningHub AI 应用
+                </h3>
+                <p className={`mt-1 text-xs ${isDark ? 'text-gray-500' : 'text-neutral-500'}`}>
+                    接入 RunningHub WebApp 工作流，输入 WebApp ID 即可调用。
+                </p>
+            </div>
+
+            {/* API Key */}
+            <div>
+                <label className={`mb-1.5 block text-[11px] font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-neutral-500'}`}>
+                    API Key
+                </label>
+                <input
+                    value={apiKey}
+                    onChange={e => setApiKey(e.target.value)}
+                    type="password"
+                    placeholder="粘贴 RunningHub API Key"
+                    className={inputClass}
+                />
+                <a
+                    href="https://www.runninghub.cn/enterprise-api/sharedApi"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 block text-[10px] text-blue-500 hover:underline"
+                >
+                    获取 API Key ↗
+                </a>
+            </div>
+
+            {/* WebApp ID */}
+            <div>
+                <label className={`mb-1.5 block text-[11px] font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-neutral-500'}`}>
+                    WebApp ID
+                </label>
+                <input
+                    value={webappId}
+                    onChange={e => setWebappId(e.target.value)}
+                    placeholder="如: 1937084629516193794"
+                    className={inputClass}
+                />
+                <p className={`mt-1 text-[10px] ${isDark ? 'text-gray-600' : 'text-neutral-400'}`}>
+                    WebApp 链接末尾的数字，如 runninghub.cn/ai-detail/<strong>1937...</strong>
+                </p>
+            </div>
+
+            {/* 获取节点 */}
+            <button
+                type="button"
+                onClick={handleFetchNodes}
+                disabled={loading || !apiKey.trim() || !webappId.trim()}
+                className={btnClass}
+            >
+                {loading && nodes.length === 0 && !taskStatus ? '获取中...' : '获取工作流节点'}
+            </button>
+
+            {/* 错误提示 */}
+            {error && (
+                <div className={`rounded-xl px-3 py-2 text-xs ${isDark ? 'bg-red-900/30 text-red-300' : 'bg-red-50 text-red-600'}`}>
+                    ✗ {error}
+                </div>
+            )}
+
+            {/* 节点列表 */}
+            {nodes.length > 0 && (
+                <div className={`rounded-xl border ${isDark ? 'border-[#2A3140]' : 'border-neutral-200'}`}>
+                    <div className={`px-3 py-2 text-[11px] font-semibold ${isDark ? 'bg-[#161A22] text-gray-400' : 'bg-neutral-50 text-neutral-500'} rounded-t-xl`}>
+                        可修改节点 ({nodes.length})
+                    </div>
+                    <div className="max-h-[300px] overflow-y-auto divide-y divide-neutral-100">
+                        {nodes.map((node, i) => (
+                            <div key={`${node.nodeId}-${node.fieldName}-${i}`} className={`px-3 py-2.5 ${isDark ? 'divide-[#2A3140]' : ''}`}>
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className={`text-[11px] font-medium ${isDark ? 'text-gray-300' : 'text-neutral-700'}`}>
+                                        {node.description || node.nodeName}
+                                    </span>
+                                    <span className={`rounded px-1.5 py-0.5 text-[9px] font-mono ${
+                                        isDark ? 'bg-[#1B2330] text-gray-500' : 'bg-neutral-100 text-neutral-400'
+                                    }`}>
+                                        {node.fieldType}
+                                    </span>
+                                </div>
+                                {node.fieldType === 'IMAGE' || node.fieldType === 'AUDIO' || node.fieldType === 'VIDEO' ? (
+                                    <div className={`text-[10px] italic ${isDark ? 'text-gray-600' : 'text-neutral-400'}`}>
+                                        📎 {node.fieldValue || '未设置'}
+                                    </div>
+                                ) : (
+                                    <input
+                                        value={node.fieldValue}
+                                        onChange={e => handleNodeValueChange(node.nodeId, node.fieldName, e.target.value)}
+                                        className={`${inputClass} mt-0.5`}
+                                        placeholder={`输入 ${node.fieldName}`}
+                                    />
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* 提交按钮 */}
+            {nodes.length > 0 && (
+                <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={loading}
+                    className={btnClass + ' w-full'}
+                >
+                    {loading && taskStatus ? statusLabel[taskStatus] || '处理中...' : '▶ 提交任务'}
+                </button>
+            )}
+
+            {/* 输出结果 */}
+            {outputs.length > 0 && (
+                <div className={`rounded-xl border ${isDark ? 'border-green-800 bg-green-900/20' : 'border-green-200 bg-green-50'} p-3`}>
+                    <div className={`mb-2 text-xs font-semibold ${isDark ? 'text-green-300' : 'text-green-700'}`}>
+                        🎉 生成结果
+                    </div>
+                    {outputs.map((out, i) => (
+                        <a
+                            key={i}
+                            href={out.fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mb-1 block truncate text-xs text-blue-500 hover:underline"
+                        >
+                            {out.fileUrl}
+                        </a>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
 
 export const RightPanel: React.FC<RightPanelProps> = ({
     theme,
@@ -285,6 +511,17 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                         >
                             素材库
                         </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab('runningHub')}
+                            className={`rounded-xl ${compactMode ? 'px-2.5 py-1.5 text-[13px]' : 'px-3 py-1.5 text-sm'} transition-all ${
+                                activeTab === 'runningHub'
+                                    ? isDark ? 'bg-orange-600 text-white' : 'bg-orange-500 text-white'
+                                    : isDark ? 'text-gray-400 hover:bg-gray-800' : 'text-neutral-600 hover:bg-neutral-100'
+                            }`}
+                        >
+                            🚀 RH
+                        </button>
                     </div>
                     <button
                         type="button"
@@ -449,6 +686,10 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                             onFinalPrompt={onAgentFinalPrompt || (() => {})}
                             onGenerateImage={onAgentGenerateImage || (() => {})}
                         />
+                    )}
+
+                    {activeTab === 'runningHub' && (
+                        <RunningHubWebAppPanel theme={theme} compactMode={compactMode} />
                     )}
                 </div>
             </div>

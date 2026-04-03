@@ -210,3 +210,11 @@ body {
         transition-duration: 0.01ms !important;
     }
 }
+
+/* 法律文档弹窗 markdown 基础排版 */
+.legal-markdown h1 { font-size: 1.35em; font-weight: 700; margin: 1.2em 0 0.5em; }
+.legal-markdown h2 { font-size: 1.15em; font-weight: 600; margin: 1em 0 0.4em; }
+.legal-markdown h3 { font-size: 1.05em; font-weight: 600; margin: 0.8em 0 0.3em; }
+.legal-markdown hr { border: none; border-top: 1px solid currentColor; opacity: 0.15; margin: 1em 0; }
+.legal-markdown ul, .legal-markdown ol { padding-left: 1.5em; margin: 0.4em 0; }
+.legal-markdown li { margin: 0.2em 0; }

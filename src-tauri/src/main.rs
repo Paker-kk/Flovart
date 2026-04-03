@@ -4,5 +4,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    making_lovart_lib::run()
+    flovart_lib::run()
 }
