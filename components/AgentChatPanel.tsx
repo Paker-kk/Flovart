@@ -165,16 +165,16 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                 <button
                     onClick={() => setShowTeam(!showTeam)}
                     className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-colors ${
-                        isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'
+                        isDark ? 'hover:bg-[#1B2029]' : 'hover:bg-neutral-100'
                     }`}
                 >
                     <span className="text-sm">🤖</span>
-                    <span className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{enabledCount} 位 Agent</span>
-                    <svg className={`h-3 w-3 transition-transform ${showTeam ? 'rotate-180' : ''} ${isDark ? 'text-gray-500' : 'text-gray-400'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6" /></svg>
+                    <span className={`text-xs ${isDark ? 'text-[#D0D5DD]' : 'text-neutral-600'}`}>{enabledCount} 位 Agent</span>
+                    <svg className={`h-3 w-3 transition-transform ${showTeam ? 'rotate-180' : ''} ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6" /></svg>
                 </button>
                 {/* Budget indicator */}
                 <div className={`flex items-center gap-1.5 shrink-0 ${compactMode ? 'text-[10px]' : 'text-xs'}`}>
-                    <div className={`w-16 h-1.5 rounded-full overflow-hidden ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                    <div className={`w-16 h-1.5 rounded-full overflow-hidden ${isDark ? 'bg-[#2A3140]' : 'bg-neutral-200'}`}>
                         <div
                             className="h-full rounded-full transition-all duration-300"
                             style={{
@@ -183,7 +183,7 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                             }}
                         />
                     </div>
-                    <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>
+                    <span className={isDark ? 'text-[#98A2B3]' : 'text-neutral-500'}>
                         ${liveBudget.currentCost.toFixed(3)}
                     </span>
                 </div>
@@ -191,20 +191,20 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
 
             {/* Expandable team panel */}
             {showTeam && (
-                <div className={`rounded-2xl border p-3 space-y-2 ${isDark ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'}`}>
+                <div className={`rounded-2xl border p-3 space-y-2 ${isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-neutral-200 bg-neutral-50'}`}>
                     {agents.map(agent => {
                         const role = getRoleById(agent.roleId);
                         if (!role) return null;
                         return (
                             <div key={agent.id} className={`flex items-center gap-2 py-1 ${!agent.enabled ? 'opacity-40' : ''}`}>
                                 <span className="text-sm">{role.emoji}</span>
-                                <span className={`text-xs flex-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{role.name}</span>
-                                <span className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{role.description}</span>
+                                <span className={`text-xs flex-1 ${isDark ? 'text-[#D0D5DD]' : 'text-neutral-700'}`}>{role.name}</span>
+                                <span className={`text-[10px] ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`}>{role.description}</span>
                                 <button
                                     onClick={() => !isRunning && toggleAgent(agent.id)}
                                     disabled={isRunning}
                                     className={`w-8 h-4 rounded-full transition-colors relative ${
-                                        agent.enabled ? 'bg-blue-500' : isDark ? 'bg-gray-600' : 'bg-gray-300'
+                                        agent.enabled ? 'bg-blue-500' : isDark ? 'bg-[#2A3140]' : 'bg-neutral-300'
                                     }`}
                                 >
                                     <div className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${
@@ -216,20 +216,20 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                     })}
                     {/* Skills / 自定义 Agent — Coming Soon */}
                     <div className={`flex items-center gap-2 rounded-xl border border-dashed px-3 py-2 ${
-                        isDark ? 'border-gray-600 bg-gray-800/30' : 'border-gray-300 bg-gray-50/50'
+                        isDark ? 'border-[#2A3140] bg-[#1B2029]' : 'border-neutral-300 bg-neutral-50/50'
                     }`}>
                         <span className="text-sm">🧩</span>
                         <div className="flex-1 min-w-0">
-                            <span className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>自定义 Skills</span>
-                            <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>创建你自己的 Agent / GPTs</p>
+                            <span className={`text-xs font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-neutral-600'}`}>自定义 Skills</span>
+                            <p className={`text-[10px] ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`}>创建你自己的 Agent / GPTs</p>
                         </div>
                         <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                            isDark ? 'bg-indigo-900/40 text-indigo-400' : 'bg-indigo-50 text-indigo-500'
+                            isDark ? 'bg-[#1e2a4a] text-[#7CB4FF]' : 'bg-indigo-50 text-indigo-500'
                         }`}>Coming Soon</span>
                     </div>
 
-                    <div className={`flex items-center gap-2 pt-2 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-                        <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>预算 $</span>
+                    <div className={`flex items-center gap-2 pt-2 border-t ${isDark ? 'border-[#2A3140]' : 'border-neutral-200'}`}>
+                        <span className={`text-xs ${isDark ? 'text-[#98A2B3]' : 'text-neutral-500'}`}>预算 $</span>
                         <input
                             type="number"
                             min="0.01"
@@ -238,10 +238,10 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                             value={budget.maxCost}
                             onChange={e => setBudget(prev => ({ ...prev, maxCost: Math.max(0.01, parseFloat(e.target.value) || 0.5) }))}
                             className={`w-14 text-xs rounded-lg px-2 py-1 border outline-none ${
-                                isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-white border-gray-200 text-gray-800'
+                                isDark ? 'bg-[#1B2029] border-[#2A3140] text-[#D0D5DD]' : 'bg-white border-neutral-200 text-neutral-800'
                             }`}
                         />
-                        <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>轮数</span>
+                        <span className={`text-xs ${isDark ? 'text-[#98A2B3]' : 'text-neutral-500'}`}>轮数</span>
                         <input
                             type="number"
                             min="1"
@@ -249,7 +249,7 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                             value={budget.maxRounds}
                             onChange={e => setBudget(prev => ({ ...prev, maxRounds: Math.max(1, Math.min(10, parseInt(e.target.value) || 5)) }))}
                             className={`w-12 text-xs rounded-lg px-2 py-1 border outline-none ${
-                                isDark ? 'bg-gray-700 border-gray-600 text-gray-200' : 'bg-white border-gray-200 text-gray-800'
+                                isDark ? 'bg-[#1B2029] border-[#2A3140] text-[#D0D5DD]' : 'bg-white border-neutral-200 text-neutral-800'
                             }`}
                         />
                     </div>
@@ -259,9 +259,9 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
             {/* Messages area */}
             <div className={`flex-1 min-h-0 overflow-y-auto space-y-2 ${compactMode ? 'pr-0.5' : 'pr-1'}`}>
                 {messages.length === 0 && (
-                    <div className={`flex flex-col items-center justify-center h-full ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                        <div className="text-3xl mb-3">🤖</div>
-                        <p className="text-sm font-medium">Multi-Agent 协作</p>
+                    <div className={`flex flex-col items-center justify-center h-full ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`}>
+                        <div className={`flex h-14 w-14 items-center justify-center rounded-2xl text-2xl ${isDark ? 'bg-[#1B2029]' : 'bg-neutral-100'}`}>🤖</div>
+                        <p className={`text-sm font-medium mt-3 ${isDark ? 'text-[#D0D5DD]' : 'text-neutral-700'}`}>Multi-Agent 协作</p>
                         <p className="text-xs mt-1 text-center max-w-[200px]">
                             输入任务，{enabledCount} 位 Agent 将协作讨论并自动生成图片
                         </p>
@@ -269,7 +269,7 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                             {agents.filter(a => a.enabled).map(a => {
                                 const role = getRoleById(a.roleId);
                                 return role ? (
-                                    <span key={a.id} className={`text-[10px] px-2 py-0.5 rounded-full ${isDark ? 'bg-gray-800 text-gray-400' : 'bg-gray-100 text-gray-500'}`}>
+                                    <span key={a.id} className={`text-[10px] px-2 py-0.5 rounded-full ${isDark ? 'bg-[#1B2029] text-[#98A2B3]' : 'bg-neutral-100 text-neutral-500'}`}>
                                         {role.emoji} {role.name}
                                     </span>
                                 ) : null;
@@ -289,7 +289,7 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                         </div>
                         {/* Bubble */}
                         <div className={`flex flex-col max-w-[80%] ${msg.role === 'user' ? 'items-end' : ''}`}>
-                            <span className={`text-[10px] mb-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                            <span className={`text-[10px] mb-0.5 ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`}>
                                 {msg.agentName}
                             </span>
                             <div
@@ -297,15 +297,15 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                                     msg.role === 'user'
                                         ? 'bg-blue-500 text-white rounded-tr-md'
                                         : msg.role === 'system'
-                                            ? isDark ? 'bg-gray-800 text-gray-400 border border-gray-700' : 'bg-gray-100 text-gray-500 border border-gray-200'
-                                            : isDark ? 'bg-gray-800 text-gray-200' : 'bg-white text-gray-800 shadow-sm border border-gray-100'
+                                            ? isDark ? 'bg-[#161A22] text-[#667085] border border-[#2A3140]' : 'bg-neutral-100 text-neutral-500 border border-neutral-200'
+                                            : isDark ? 'bg-[#1B2029] text-[#D0D5DD]' : 'bg-white text-neutral-800 shadow-sm border border-neutral-100'
                                 } ${msg.isGenerating ? 'animate-pulse' : ''}`}
                                 style={{
                                     borderLeft: msg.role === 'agent' ? `3px solid ${msg.agentColor}` : undefined,
                                 }}
                             >
                                 {msg.isGenerating ? (
-                                    <span className={isDark ? 'text-gray-500' : 'text-gray-400'}>思考中...</span>
+                                    <span className={isDark ? 'text-[#667085]' : 'text-neutral-400'}>思考中...</span>
                                 ) : (
                                     msg.content
                                 )}
@@ -317,11 +317,11 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                 {/* Round indicator */}
                 {isRunning && currentRound > 0 && (
                     <div className="flex items-center justify-center gap-2 py-1">
-                        <div className={`h-px flex-1 ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`} />
-                        <span className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                        <div className={`h-px flex-1 ${isDark ? 'bg-[#2A3140]' : 'bg-neutral-200'}`} />
+                        <span className={`text-[10px] ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`}>
                             第 {currentRound}/{budget.maxRounds} 轮
                         </span>
-                        <div className={`h-px flex-1 ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`} />
+                        <div className={`h-px flex-1 ${isDark ? 'bg-[#2A3140]' : 'bg-neutral-200'}`} />
                     </div>
                 )}
 
@@ -330,7 +330,7 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
 
             {/* Input area */}
             <div className={`shrink-0 rounded-2xl border ${
-                isDark ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
+                isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-neutral-200 bg-neutral-50'
             }`}>
                 <textarea
                     ref={textareaRef}
@@ -339,13 +339,13 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                     onKeyDown={handleKeyDown}
                     placeholder={isRunning ? 'Agent 正在讨论...' : '描述你要生成的画面，Agent 团队会协作讨论...'}
                     disabled={isRunning}
-                    className={`w-full resize-none border-none bg-transparent px-3 py-2.5 text-xs outline-none placeholder:text-gray-400 ${
-                        isDark ? 'text-gray-200' : 'text-gray-800'
+                    className={`w-full resize-none border-none bg-transparent px-3 py-2.5 text-xs outline-none placeholder:text-[#667085] ${
+                        isDark ? 'text-[#D0D5DD]' : 'text-neutral-800'
                     } ${isRunning ? 'opacity-50' : ''}`}
                     style={{ minHeight: '40px' }}
                 />
                 <div className="flex items-center justify-between px-3 pb-2">
-                    <div className={`flex items-center gap-2 text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                    <div className={`flex items-center gap-2 text-[10px] ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`}>
                         {isRunning && (
                             <span className="flex items-center gap-1">
                                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
@@ -372,7 +372,7 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                                 disabled={!task.trim() || enabledCount === 0}
                                 className={`flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-medium text-white transition-colors ${
                                     !task.trim() || enabledCount === 0
-                                        ? 'bg-gray-300 cursor-not-allowed'
+                                        ? 'bg-neutral-300 cursor-not-allowed'
                                         : 'bg-blue-500 hover:bg-blue-600'
                                 }`}
                             >

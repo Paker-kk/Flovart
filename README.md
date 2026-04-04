@@ -5,7 +5,7 @@
 <h1 align="center">🔴 Flovart</h1>
 
 <p align="center">
-  <strong>开源 AI 设计工作台 — 自带 Key，接入所有模型，在无限画布上创作</strong>
+  <strong>开源版 Lovart — 自带 Key，接入所有模型，在无限画布上创作</strong>
 </p>
 
 <p align="center">
@@ -124,15 +124,18 @@ npm run ext:build
 - [x] Docker 部署
 
 ### 进行中 🚧
+- [ ] App.tsx 模块化拆分（hooks 抽离：useCanvas / useGeneration / useElements / useMask）
 - [ ] Chrome / Edge 商店上架
-- [ ] 自定义 Skills（类 GPTs 自定义 Agent）
+- [ ] 扩展端 API Key 加密存储 + 删除同步
 - [ ] ComfyUI / RunningHub 集成（本地模型）
-- [ ] Agent 工作流可视化编排
 
 ### 规划中 📝
+- [ ] LangGraph.js Agent 编排 + 自定义 Skills（类 GPTs）
+- [ ] Agent 工作流可视化编排
+- [ ] Canvas 2D / WebGL 画布迁移（Konva.js / PixiJS）
 - [ ] 多页面/画板导航
-- [ ] 实时协作（多人编辑）
 - [ ] AI 短剧一键生图流水线
+- [ ] 实时协作（多人编辑）
 - [ ] 移动端适配
 - [ ] 插件市场
 

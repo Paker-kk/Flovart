@@ -323,9 +323,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 title={t('toolbar.strokeWidth')}
                 value={drawingOptions.strokeWidth}
                 onChange={(event) => setDrawingOptions({ ...drawingOptions, strokeWidth: Number(event.target.value) })}
-                className="h-20 w-9 cursor-pointer appearance-none bg-transparent [writing-mode:vertical-lr]"
+                className="toolbar-range h-20 w-9 cursor-pointer [writing-mode:vertical-lr]"
             />
-            <span className="text-xs text-white/60">{drawingOptions.strokeWidth}</span>
+            <span className={`text-[10px] font-medium tabular-nums ${isDark ? 'text-[#98A2B3]' : 'text-neutral-500'}`}>{drawingOptions.strokeWidth}</span>
 
             <div className={`my-0.5 h-px w-7 ${isDark ? 'bg-white/10' : 'bg-neutral-200'}`} />
 

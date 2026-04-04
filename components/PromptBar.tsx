@@ -553,7 +553,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
 
                                             {canvasElements.length > 0 && (
                                                 <div className={`rounded-2xl px-3 py-3 text-sm ${isDark ? 'bg-[#1B2029] text-[#98A2B3]' : 'bg-[#F9FAFB] text-[#667085]'}`}>
-                                                    在输入框里输入 <span className={`font-semibold ${isDark ? 'text-[#F3F4F6]' : 'text-[#344054]'}`}>@</span>，可直接引用白板里的元素卡片。
+                                                    在输入框里输入 <span className={`font-semibold ${isDark ? 'text-[#F3F4F6]' : 'text-[#344054]'}`}>@</span>，可直接引用画布里的元素卡片。
                                                 </div>
                                             )}
                                         </div>

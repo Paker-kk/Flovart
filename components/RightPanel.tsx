@@ -31,15 +31,17 @@ const CATEGORY_LABELS: Record<AssetCategory, string> = {
     prop: '道具',
 };
 
-const CategoryTabs: React.FC<{ value: AssetCategory; onChange: (c: AssetCategory) => void }> = ({ value, onChange }) => (
-    <div className="inline-flex rounded-2xl bg-neutral-100 p-1">
+const CategoryTabs: React.FC<{ value: AssetCategory; onChange: (c: AssetCategory) => void; isDark?: boolean }> = ({ value, onChange, isDark }) => (
+    <div className={`inline-flex rounded-xl p-0.5 ${isDark ? 'bg-[#1B2029]' : 'bg-neutral-100'}`}>
         {(Object.keys(CATEGORY_LABELS) as AssetCategory[]).map(category => (
             <button
                 key={category}
                 type="button"
                 onClick={() => onChange(category)}
-                className={`rounded-2xl px-3 py-1.5 text-xs transition-all ${
-                    value === category ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-800'
+                className={`rounded-[10px] px-3 py-1.5 text-xs font-medium transition-all ${
+                    value === category
+                        ? isDark ? 'bg-[#2A3140] text-[#F3F4F6] shadow-sm' : 'bg-white text-neutral-900 shadow-sm'
+                        : isDark ? 'text-[#667085] hover:text-[#D0D5DD]' : 'text-neutral-500 hover:text-neutral-800'
                 }`}
             >
                 {CATEGORY_LABELS[category]}
@@ -48,18 +50,22 @@ const CategoryTabs: React.FC<{ value: AssetCategory; onChange: (c: AssetCategory
     </div>
 );
 
-const EmptyHistory: React.FC = () => (
-    <div className="flex flex-1 items-center justify-center rounded-[24px] border border-dashed border-neutral-200 bg-neutral-50 px-6 py-10 text-center">
+const EmptyHistory: React.FC<{ isDark?: boolean }> = ({ isDark }) => (
+    <div className={`flex flex-1 items-center justify-center rounded-2xl border border-dashed px-6 py-10 text-center ${
+        isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-neutral-200 bg-neutral-50'
+    }`}>
         <div>
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-neutral-300 shadow-sm">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <div className={`mx-auto flex h-12 w-12 items-center justify-center rounded-xl ${
+                isDark ? 'bg-[#1B2029] text-[#667085]' : 'bg-white text-neutral-300 shadow-sm'
+            }`}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                     <rect x="3" y="3" width="18" height="18" rx="3" />
                     <circle cx="8.5" cy="8.5" r="1.5" />
                     <path d="M21 15l-5-5L5 21" />
                 </svg>
             </div>
-            <p className="mt-4 text-sm font-medium text-neutral-700">还没有历史生成内容</p>
-            <p className="mt-1 text-xs text-neutral-500">新的图片生成后会自动保存到本地，并显示在这里。</p>
+            <p className={`mt-3 text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-neutral-700'}`}>还没有历史生成内容</p>
+            <p className={`mt-1 text-xs ${isDark ? 'text-[#667085]' : 'text-neutral-500'}`}>新的图片生成后会自动保存到本地，并显示在这里。</p>
         </div>
     </div>
 );
@@ -154,17 +160,17 @@ const RunningHubWebAppPanel: React.FC<{ theme: 'light' | 'dark'; compactMode: bo
         <div className={`flex h-full flex-col ${compactMode ? 'gap-3 p-3' : 'gap-4 p-4'} overflow-y-auto`}>
             {/* 标题 */}
             <div>
-                <h3 className={`text-sm font-bold ${isDark ? 'text-gray-200' : 'text-neutral-900'}`}>
+                <h3 className={`text-sm font-bold ${isDark ? 'text-[#F3F4F6]' : 'text-neutral-900'}`}>
                     🚀 RunningHub AI 应用
                 </h3>
-                <p className={`mt-1 text-xs ${isDark ? 'text-gray-500' : 'text-neutral-500'}`}>
+                <p className={`mt-1 text-xs ${isDark ? 'text-[#667085]' : 'text-neutral-500'}`}>
                     接入 RunningHub WebApp 工作流，输入 WebApp ID 即可调用。
                 </p>
             </div>
 
             {/* API Key */}
             <div>
-                <label className={`mb-1.5 block text-[11px] font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-neutral-500'}`}>
+                <label className={`mb-1.5 block text-[11px] font-semibold uppercase tracking-wider ${isDark ? 'text-[#98A2B3]' : 'text-neutral-500'}`}>
                     API Key
                 </label>
                 <input
@@ -186,7 +192,7 @@ const RunningHubWebAppPanel: React.FC<{ theme: 'light' | 'dark'; compactMode: bo
 
             {/* WebApp ID */}
             <div>
-                <label className={`mb-1.5 block text-[11px] font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-neutral-500'}`}>
+                <label className={`mb-1.5 block text-[11px] font-semibold uppercase tracking-wider ${isDark ? 'text-[#98A2B3]' : 'text-neutral-500'}`}>
                     WebApp ID
                 </label>
                 <input
@@ -195,7 +201,7 @@ const RunningHubWebAppPanel: React.FC<{ theme: 'light' | 'dark'; compactMode: bo
                     placeholder="如: 1937084629516193794"
                     className={inputClass}
                 />
-                <p className={`mt-1 text-[10px] ${isDark ? 'text-gray-600' : 'text-neutral-400'}`}>
+                <p className={`mt-1 text-[10px] ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`}>
                     WebApp 链接末尾的数字，如 runninghub.cn/ai-detail/<strong>1937...</strong>
                 </p>
             </div>
@@ -220,24 +226,24 @@ const RunningHubWebAppPanel: React.FC<{ theme: 'light' | 'dark'; compactMode: bo
             {/* 节点列表 */}
             {nodes.length > 0 && (
                 <div className={`rounded-xl border ${isDark ? 'border-[#2A3140]' : 'border-neutral-200'}`}>
-                    <div className={`px-3 py-2 text-[11px] font-semibold ${isDark ? 'bg-[#161A22] text-gray-400' : 'bg-neutral-50 text-neutral-500'} rounded-t-xl`}>
+                    <div className={`px-3 py-2 text-[11px] font-semibold ${isDark ? 'bg-[#1B2029] text-[#98A2B3]' : 'bg-neutral-50 text-neutral-500'} rounded-t-xl`}>
                         可修改节点 ({nodes.length})
                     </div>
                     <div className="max-h-[300px] overflow-y-auto divide-y divide-neutral-100">
                         {nodes.map((node, i) => (
                             <div key={`${node.nodeId}-${node.fieldName}-${i}`} className={`px-3 py-2.5 ${isDark ? 'divide-[#2A3140]' : ''}`}>
                                 <div className="flex items-center justify-between mb-1">
-                                    <span className={`text-[11px] font-medium ${isDark ? 'text-gray-300' : 'text-neutral-700'}`}>
+                                    <span className={`text-[11px] font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-neutral-700'}`}>
                                         {node.description || node.nodeName}
                                     </span>
                                     <span className={`rounded px-1.5 py-0.5 text-[9px] font-mono ${
-                                        isDark ? 'bg-[#1B2330] text-gray-500' : 'bg-neutral-100 text-neutral-400'
+                                        isDark ? 'bg-[#1B2029] text-[#667085]' : 'bg-neutral-100 text-neutral-400'
                                     }`}>
                                         {node.fieldType}
                                     </span>
                                 </div>
                                 {node.fieldType === 'IMAGE' || node.fieldType === 'AUDIO' || node.fieldType === 'VIDEO' ? (
-                                    <div className={`text-[10px] italic ${isDark ? 'text-gray-600' : 'text-neutral-400'}`}>
+                                    <div className={`text-[10px] italic ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`}>
                                         📎 {node.fieldValue || '未设置'}
                                     </div>
                                 ) : (
@@ -476,106 +482,76 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                     onPointerDown={handleResizePointerDown}
                 />
 
-                <div className={`flex items-center justify-between border-b border-neutral-200 ${compactMode ? 'px-3 py-2.5' : 'px-4 py-3'}`}>
-                    <div className={`flex items-center ${compactMode ? 'gap-1.5' : 'gap-2'}`}>
-                        <button
-                            type="button"
-                            onClick={() => setActiveTab('agent')}
-                            className={`rounded-xl ${compactMode ? 'px-2.5 py-1.5 text-[13px]' : 'px-3 py-1.5 text-sm'} transition-all ${
-                                activeTab === 'agent'
-                                    ? isDark ? 'bg-indigo-600 text-white' : 'bg-neutral-900 text-white'
-                                    : isDark ? 'text-gray-400 hover:bg-gray-800' : 'text-neutral-600 hover:bg-neutral-100'
-                            }`}
-                        >
-                            🤖 Agent
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setActiveTab('history')}
-                            className={`rounded-xl ${compactMode ? 'px-2.5 py-1.5 text-[13px]' : 'px-3 py-1.5 text-sm'} transition-all ${
-                                activeTab === 'history'
-                                    ? isDark ? 'bg-neutral-700 text-white' : 'bg-neutral-900 text-white'
-                                    : isDark ? 'text-gray-400 hover:bg-gray-800' : 'text-neutral-600 hover:bg-neutral-100'
-                            }`}
-                        >
-                            历史
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setActiveTab('inspiration')}
-                            className={`rounded-xl ${compactMode ? 'px-2.5 py-1.5 text-[13px]' : 'px-3 py-1.5 text-sm'} transition-all ${
-                                activeTab === 'inspiration'
-                                    ? isDark ? 'bg-neutral-700 text-white' : 'bg-neutral-900 text-white'
-                                    : isDark ? 'text-gray-400 hover:bg-gray-800' : 'text-neutral-600 hover:bg-neutral-100'
-                            }`}
-                        >
-                            素材库
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setActiveTab('runningHub')}
-                            className={`rounded-xl ${compactMode ? 'px-2.5 py-1.5 text-[13px]' : 'px-3 py-1.5 text-sm'} transition-all ${
-                                activeTab === 'runningHub'
-                                    ? isDark ? 'bg-orange-600 text-white' : 'bg-orange-500 text-white'
-                                    : isDark ? 'text-gray-400 hover:bg-gray-800' : 'text-neutral-600 hover:bg-neutral-100'
-                            }`}
-                        >
-                            🚀 RH
-                        </button>
+                <div className={`flex items-center justify-between border-b ${isDark ? 'border-[#2A3140]' : 'border-neutral-200/60'} ${compactMode ? 'px-3 py-2' : 'px-4 py-2.5'}`}>
+                    <div className={`flex items-center rounded-xl ${isDark ? 'bg-[#1B2029]' : 'bg-neutral-100'} p-0.5 ${compactMode ? 'gap-0' : 'gap-0'}`}>
+                        {([
+                            { key: 'agent' as RightPanelTab, label: 'Agent', icon: '🤖' },
+                            { key: 'history' as RightPanelTab, label: '历史', icon: null },
+                            { key: 'inspiration' as RightPanelTab, label: '素材库', icon: null },
+                            { key: 'runningHub' as RightPanelTab, label: 'RH', icon: '🚀' },
+                        ]).map(tab => (
+                            <button
+                                key={tab.key}
+                                type="button"
+                                onClick={() => setActiveTab(tab.key)}
+                                className={`right-panel-tab ${activeTab === tab.key ? 'active' : ''} ${compactMode ? 'px-2.5 py-1.5 text-[12px]' : ''}`}
+                            >
+                                {tab.icon ? `${tab.icon} ${tab.label}` : tab.label}
+                            </button>
+                        ))}
                     </div>
                     <button
                         type="button"
                         onClick={onToggleMinimize}
-                        className={`rounded-xl border border-neutral-200 ${compactMode ? 'p-2' : 'p-2.5'} text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900`}
+                        className={`rounded-lg p-1.5 transition-colors ${isDark ? 'text-[#667085] hover:bg-[#1B2029] hover:text-[#D0D5DD]' : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700'}`}
                         title="收起"
                     >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <rect x="3" y="3" width="18" height="18" rx="3" />
-                            <path d="M19 12H5" />
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M18 6 6 18" /><path d="m6 6 12 12" />
                         </svg>
                     </button>
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-hidden">
                     {activeTab === 'history' && (
-                        <div className={`flex h-full min-h-0 flex-col ${compactMode ? 'gap-3 p-3' : 'gap-4 p-4'}`}>
+                        <div className={`flex h-full min-h-0 flex-col ${compactMode ? 'gap-3 p-3' : 'gap-3 p-4'}`}>
                             <div className="flex min-h-0 flex-1 flex-col">
                                 <div className="mb-3 flex items-center justify-between">
                                     <div>
-                                        <h3 className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-neutral-900'}`}>历史生成</h3>
-                                        <p className={`mt-1 text-xs ${isDark ? 'text-gray-500' : 'text-neutral-500'}`}>自动保存到本地，可直接拖到白板。</p>
+                                        <h3 className={`text-sm font-semibold ${isDark ? 'text-[#F3F4F6]' : 'text-neutral-900'}`}>历史生成</h3>
+                                        <p className={`mt-0.5 text-xs ${isDark ? 'text-[#667085]' : 'text-neutral-500'}`}>自动保存到本地，可直接拖到画布。</p>
                                     </div>
-                                    <span className={`rounded-full px-2.5 py-1 text-[11px] ${isDark ? 'bg-gray-800 text-gray-400' : 'bg-neutral-100 text-neutral-500'}`}>
-                                        {generationHistory.length} 条
+                                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${isDark ? 'bg-[#1B2029] text-[#98A2B3]' : 'bg-neutral-100 text-neutral-500'}`}>
+                                        {generationHistory.length}
                                     </span>
                                 </div>
 
-                                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                                <div className="min-h-0 flex-1 overflow-y-auto pr-0.5">
                                     {generationHistory.length === 0 ? (
-                                        <EmptyHistory />
+                                        <EmptyHistory isDark={isDark} />
                                     ) : (
-                                        <div className={`grid ${compactMode ? 'grid-cols-1 gap-2.5' : 'grid-cols-2 gap-3'}`}>
+                                        <div className={`grid ${compactMode ? 'grid-cols-1 gap-2.5' : 'grid-cols-2 gap-2.5'}`}>
                                             {generationHistory.map(item => (
                                                 <div
                                                     key={item.id}
-                                                    className={`group cursor-grab rounded-[22px] border p-2 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing ${
-                                                        isDark ? 'border-gray-700 bg-gray-800' : 'border-neutral-200 bg-white'
+                                                    className={`history-card group border ${
+                                                        isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-neutral-100 bg-white'
                                                     }`}
                                                     draggable
                                                     onDragStart={event => handleHistoryDragStart(event, item)}
                                                 >
-                                                    <div className={`overflow-hidden rounded-[16px] ${isDark ? 'bg-gray-700' : 'bg-neutral-100'}`}>
+                                                    <div className={`history-card-img m-1.5 ${isDark ? 'bg-[#1B2029]' : 'bg-neutral-50'}`}>
                                                         <img
                                                             src={item.dataUrl}
                                                             alt={item.name || item.prompt}
                                                             className={`w-full object-cover ${compactMode ? 'aspect-[4/3]' : 'aspect-square'}`}
                                                         />
                                                     </div>
-                                                    <div className="px-1 pb-1 pt-2">
-                                                        <p className={`line-clamp-2 text-xs font-medium leading-5 ${isDark ? 'text-gray-200' : 'text-neutral-800'}`}>
+                                                    <div className="px-2.5 pb-2.5 pt-1">
+                                                        <p className={`line-clamp-2 text-xs font-medium leading-[1.4] ${isDark ? 'text-[#D0D5DD]' : 'text-neutral-800'}`}>
                                                             {item.name || item.prompt}
                                                         </p>
-                                                        <div className={`mt-2 flex items-center justify-between text-[11px] ${isDark ? 'text-gray-500' : 'text-neutral-400'}`}>
+                                                        <div className={`mt-1.5 flex items-center justify-between text-[10px] ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`}>
                                                             <span>{item.width}×{item.height}</span>
                                                             <span>{formatTime(item.createdAt)}</span>
                                                         </div>
@@ -591,33 +567,35 @@ export const RightPanel: React.FC<RightPanelProps> = ({
 
                     {activeTab === 'inspiration' && (
                         <div className="flex h-full min-h-0 flex-col">
-                            <div className={`flex items-center justify-between border-b border-neutral-200 ${compactMode ? 'px-3 py-2.5' : 'px-4 py-3'}`}>
-                                <CategoryTabs value={category} onChange={setCategory} />
-                                <span className="text-xs text-neutral-500">{items.length} 项</span>
+                            <div className={`flex items-center justify-between border-b ${isDark ? 'border-[#2A3140]' : 'border-neutral-200/60'} ${compactMode ? 'px-3 py-2' : 'px-4 py-2.5'}`}>
+                                <CategoryTabs value={category} onChange={setCategory} isDark={isDark} />
+                                <span className={`text-[11px] tabular-nums ${isDark ? 'text-[#667085]' : 'text-neutral-500'}`}>{items.length} 项</span>
                             </div>
 
                             <div className={`min-h-0 flex-1 overflow-y-auto ${compactMode ? 'p-2.5' : 'p-3'}`}>
                                 {items.length === 0 ? (
-                                    <div className="flex h-full items-center justify-center text-neutral-400">
+                                    <div className={`flex h-full items-center justify-center ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`}>
                                         <div className="text-center">
-                                            <svg className="mx-auto mb-3 h-16 w-16 opacity-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                            <svg className="mx-auto mb-3 h-14 w-14 opacity-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                                                 <rect x="3" y="7" width="7" height="10" rx="1" />
                                                 <rect x="14" y="4" width="7" height="16" rx="1" />
                                             </svg>
                                             <p className="text-sm">暂无{CATEGORY_LABELS[category]}</p>
-                                            <p className="mt-1 text-xs">可把历史生成内容拖到白板，或稍后继续扩展素材库。</p>
+                                            <p className="mt-1 text-xs opacity-70">可把历史生成内容拖到画布，或稍后继续扩展素材库。</p>
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className={compactMode ? 'space-y-2.5' : 'columns-2 gap-3'}>
+                                    <div className={`inspiration-grid ${compactMode ? 'compact' : ''}`}>
                                         {items.map(item => (
                                             <div
                                                 key={item.id}
-                                                className={`group relative break-inside-avoid overflow-hidden border border-neutral-200 bg-neutral-50 transition-all hover:shadow-md ${compactMode ? 'rounded-[18px]' : 'mb-3 inline-block w-full rounded-lg'}`}
+                                                className={`inspiration-item group relative cursor-grab border active:cursor-grabbing ${
+                                                    isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-neutral-100 bg-white'
+                                                }`}
                                                 draggable
                                                 onDragStart={event => handleLibraryDragStart(event, item)}
                                             >
-                                                <img src={item.dataUrl} alt={item.name || ''} className="w-full bg-neutral-50 object-contain" />
+                                                <img src={item.dataUrl} alt={item.name || ''} className={`w-full object-contain ${isDark ? 'bg-[#1B2029]' : 'bg-neutral-50'}`} />
 
                                                 {editingId === item.id ? (
                                                     <div className="absolute inset-x-2 bottom-2 flex items-center gap-2">
@@ -636,7 +614,9 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                                                                     setEditingName('');
                                                                 }
                                                             }}
-                                                            className="min-w-0 flex-1 rounded-lg border border-blue-400 bg-white/95 px-2 py-1 text-xs outline-none shadow-lg"
+                                                            className={`min-w-0 flex-1 rounded-lg border px-2 py-1 text-xs outline-none shadow-lg ${
+                                                                isDark ? 'border-[#4B5B78] bg-[#161A22]/95 text-[#F3F4F6]' : 'border-blue-400 bg-white/95 text-neutral-900'
+                                                            }`}
                                                             placeholder="输入名称"
                                                             aria-label="素材名称"
                                                             title="素材名称"
@@ -644,7 +624,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                                                     </div>
                                                 ) : (
                                                     <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100">
-                                                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
+                                                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
                                                         <div className="absolute bottom-2 left-2 right-2 flex items-end justify-between gap-2 text-white">
                                                             <div className="pointer-events-auto min-w-0 cursor-text" onDoubleClick={() => handleDoubleClick(item)}>
                                                                 <div className="truncate text-xs font-medium">{item.name || '未命名'}</div>

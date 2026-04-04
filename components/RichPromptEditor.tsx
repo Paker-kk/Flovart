@@ -148,7 +148,7 @@ export interface RichPromptEditorProps {
 }
 
 const RichPromptEditor = forwardRef<RichPromptEditorHandle, RichPromptEditorProps>(
-    ({ canvasItems, placeholder = '输入提示词，@ 引用白板元素...', disabled, onTextChange, onSubmit, initialText = '' }, ref) => {
+    ({ canvasItems, placeholder = '输入提示词，@ 引用画布元素...', disabled, onTextChange, onSubmit, initialText = '' }, ref) => {
         const canvasItemsRef = useRef(canvasItems);
 
         useEffect(() => {

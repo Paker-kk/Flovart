@@ -211,6 +211,128 @@ body {
     }
 }
 
+/* ── Range slider (toolbar brush-size etc.) ── */
+input[type='range'].toolbar-range {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+}
+
+input[type='range'].toolbar-range::-webkit-slider-runnable-track {
+    background: var(--border-color);
+    border-radius: 999px;
+    height: 4px;
+}
+
+input[type='range'].toolbar-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-primary);
+    border: 2px solid var(--panel-bg);
+    margin-top: -5px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+    transition: transform 0.15s ease;
+}
+
+input[type='range'].toolbar-range::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+}
+
+input[type='range'].toolbar-range::-moz-range-track {
+    background: var(--border-color);
+    border-radius: 999px;
+    height: 4px;
+}
+
+input[type='range'].toolbar-range::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-primary);
+    border: 2px solid var(--panel-bg);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+    transition: transform 0.15s ease;
+}
+
+input[type='range'].toolbar-range::-moz-range-thumb:hover {
+    transform: scale(1.2);
+}
+
+/* ── Right panel tab bar pill design ── */
+.right-panel-tab {
+    position: relative;
+    border-radius: 10px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+}
+
+.right-panel-tab.active {
+    background: var(--primary-bg);
+    color: var(--primary-text);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.right-panel-tab:not(.active) {
+    color: var(--text-muted);
+}
+
+.right-panel-tab:not(.active):hover {
+    background: var(--panel-muted);
+    color: var(--text-primary);
+}
+
+/* ── History card ── */
+.history-card {
+    border-radius: 16px;
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    cursor: grab;
+}
+
+.history-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-soft);
+}
+
+.history-card:active {
+    cursor: grabbing;
+}
+
+.history-card .history-card-img {
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+/* ── Inspiration masonry grid ── */
+.inspiration-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+
+.inspiration-grid.compact {
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+
+.inspiration-item {
+    border-radius: 14px;
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.inspiration-item:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-soft);
+}
+
 /* 法律文档弹窗 markdown 基础排版 */
 .legal-markdown h1 { font-size: 1.35em; font-weight: 700; margin: 1.2em 0 0.5em; }
 .legal-markdown h2 { font-size: 1.15em; font-weight: 600; margin: 1em 0 0.4em; }
