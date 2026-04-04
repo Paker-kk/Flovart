@@ -406,6 +406,78 @@ const App: React.FC = () => {
         );
     }, []);
 
+    // ── Board mutation helpers (needed before useCanvasInteraction) ──
+    const updateActiveBoard = (updater: (board: Board) => Board) => {
+        setBoards(prevBoards => prevBoards.map(board =>
+            board.id === activeBoardId ? updater(board) : board
+        ));
+    };
+
+    const setElements = (updater: (prev: Element[]) => Element[], commit: boolean = true) => {
+        updateActiveBoard(board => {
+            const newElements = updater(board.elements);
+            if (commit) {
+                const newHistory = [...board.history.slice(0, board.historyIndex + 1), newElements];
+                return {
+                    ...board,
+                    elements: newElements,
+                    history: newHistory,
+                    historyIndex: newHistory.length - 1,
+                };
+            } else {
+                 const tempHistory = [...board.history];
+                 tempHistory[board.historyIndex] = newElements;
+                 return { ...board, elements: newElements, history: tempHistory };
+            }
+        });
+    };
+    
+    const commitAction = useCallback((updater: (prev: Element[]) => Element[]) => {
+        updateActiveBoard(board => {
+            const newElements = updater(board.elements);
+            const newHistory = [...board.history.slice(0, board.historyIndex + 1), newElements];
+            return {
+                ...board,
+                elements: newElements,
+                history: newHistory,
+                historyIndex: newHistory.length - 1,
+            };
+        });
+    }, [activeBoardId]);
+
+    // ── Paint mask callback (needed by useCanvasInteraction) ──
+    const paintMask = useCallback((canvasX: number, canvasY: number) => {
+        const el = elements.find(e => e.id === maskEditingId && e.type === 'image') as ImageElement | undefined;
+        if (!el || !maskCanvasRef.current) return;
+        const ctx = maskCanvasRef.current.getContext('2d');
+        if (!ctx) return;
+        const localX = (canvasX - el.x) / el.width * maskCanvasRef.current.width;
+        const localY = (canvasY - el.y) / el.height * maskCanvasRef.current.height;
+        const brushR = maskBrushSize / el.width * maskCanvasRef.current.width;
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = maskBrushMode === 'erase' ? '#000000' : '#ffffff';
+        ctx.beginPath();
+        ctx.arc(localX, localY, brushR / 2, 0, Math.PI * 2);
+        ctx.fill();
+        const dataUrl = maskCanvasRef.current.toDataURL('image/png');
+        setElements(prev => prev.map(e =>
+            e.id === maskEditingId && e.type === 'image' ? { ...e, mask: dataUrl } : e
+        ));
+    }, [maskEditingId, maskBrushSize, maskBrushMode, elements, setElements]);
+
+    // ── getDescendants (needed by useCanvasInteraction) ──
+    const getDescendants = useCallback((elementId: string, allElements: Element[]): Element[] => {
+        const descendants: Element[] = [];
+        const children = allElements.filter(el => el.parentId === elementId);
+        for (const child of children) {
+            descendants.push(child);
+            if (child.type === 'group') {
+                descendants.push(...getDescendants(child.id, allElements));
+            }
+        }
+        return descendants;
+    }, []);
+
     // ── Extracted: canvas interaction (mouse, selection, refs) ──
     const {
         handleMouseDown, handleMouseMove, handleMouseUp, handleWheel,
@@ -535,45 +607,7 @@ const App: React.FC = () => {
         document.body.style.backgroundColor = themePalette.appBackground;
     }, [resolvedTheme, themePalette]);
 
-    // (moved below commitAction)
-
-    const updateActiveBoard = (updater: (board: Board) => Board) => {
-        setBoards(prevBoards => prevBoards.map(board =>
-            board.id === activeBoardId ? updater(board) : board
-        ));
-    };
-
-    const setElements = (updater: (prev: Element[]) => Element[], commit: boolean = true) => {
-        updateActiveBoard(board => {
-            const newElements = updater(board.elements);
-            if (commit) {
-                const newHistory = [...board.history.slice(0, board.historyIndex + 1), newElements];
-                return {
-                    ...board,
-                    elements: newElements,
-                    history: newHistory,
-                    historyIndex: newHistory.length - 1,
-                };
-            } else {
-                 const tempHistory = [...board.history];
-                 tempHistory[board.historyIndex] = newElements;
-                 return { ...board, elements: newElements, history: tempHistory };
-            }
-        });
-    };
-    
-    const commitAction = useCallback((updater: (prev: Element[]) => Element[]) => {
-        updateActiveBoard(board => {
-            const newElements = updater(board.elements);
-            const newHistory = [...board.history.slice(0, board.historyIndex + 1), newElements];
-            return {
-                ...board,
-                elements: newElements,
-                history: newHistory,
-                historyIndex: newHistory.length - 1,
-            };
-        });
-    }, [activeBoardId]);
+    // (updateActiveBoard, setElements, commitAction moved up before useCanvasInteraction)
 
     const handleUndo = useCallback(() => {
         updateActiveBoard(board => {
@@ -623,18 +657,6 @@ const App: React.FC = () => {
             }
         } catch {}
     };
-
-    const getDescendants = useCallback((elementId: string, allElements: Element[]): Element[] => {
-        const descendants: Element[] = [];
-        const children = allElements.filter(el => el.parentId === elementId);
-        for (const child of children) {
-            descendants.push(child);
-            if (child.type === 'group') {
-                descendants.push(...getDescendants(child.id, allElements));
-            }
-        }
-        return descendants;
-    }, []);
 
     const handleDeleteSelection = useCallback(() => {
         if (selectedElementIds.length === 0) return;
@@ -1034,28 +1056,6 @@ const App: React.FC = () => {
         setMaskEditingId(null);
         maskCanvasRef.current = null;
     }, [maskEditingId, commitAction]);
-
-    /** Paint on mask canvas at a given canvas-space point */
-    const paintMask = useCallback((canvasX: number, canvasY: number) => {
-        const el = elements.find(e => e.id === maskEditingId && e.type === 'image') as ImageElement | undefined;
-        if (!el || !maskCanvasRef.current) return;
-        const ctx = maskCanvasRef.current.getContext('2d');
-        if (!ctx) return;
-        // Convert canvas point to element-local coordinates
-        const localX = (canvasX - el.x) / el.width * maskCanvasRef.current.width;
-        const localY = (canvasY - el.y) / el.height * maskCanvasRef.current.height;
-        const brushR = maskBrushSize / el.width * maskCanvasRef.current.width;
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.fillStyle = maskBrushMode === 'erase' ? '#000000' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(localX, localY, brushR / 2, 0, Math.PI * 2);
-        ctx.fill();
-        // Live-update the element mask for preview
-        const dataUrl = maskCanvasRef.current.toDataURL('image/png');
-        setElements(prev => prev.map(e =>
-            e.id === maskEditingId && e.type === 'image' ? { ...e, mask: dataUrl } : e
-        ));
-    }, [maskEditingId, maskBrushSize, maskBrushMode, elements, setElements]);
 
     const handleCanvasImageDragStart = useCallback((image: ImageElement, e: React.DragEvent<SVGGElement>) => {
         const payload = {
