@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import type {
     Element, ImageElement, PathElement, GroupElement, VideoElement,
     UserApiKey, ModelPreference, PromptEnhanceMode, GenerationHistoryItem,
-    CharacterLockProfile, ChatAttachment,
+    CharacterLockProfile, ChatAttachment, AICapability, AIProvider,
 } from '../types';
 import { editImage, generateVideo } from '../services/geminiService';
 import { splitImageByBanana, runBananaImageAgent } from '../services/bananaService';
@@ -50,7 +50,7 @@ export interface UseGenerationParams {
     setInpaintState: (v: null) => void;
     setInpaintPrompt: (v: string) => void;
     commitAction: (updater: (prev: Element[]) => Element[]) => void;
-    getPreferredApiKey: (capability: string, provider?: string) => string;
+    getPreferredApiKey: (capability: AICapability, provider?: AIProvider) => UserApiKey | undefined;
 }
 
 /* ------------------------------------------------------------------ */
@@ -985,13 +985,13 @@ export function useGeneration(params: UseGenerationParams) {
             setError(friendlyMessage);
             console.error('Generation failed:', error);
 
-            const usageKey = userApiKeys.find(k => k.provider === (generationMode === 'video' ? videoProvider : imageProvider));
+            const usageKey = userApiKeys.find(k => k.provider === neededProvider);
             if (usageKey) {
                 recordApiUsage({
                     keyId: usageKey.id,
                     provider: usageKey.provider,
-                    model: generationMode === 'video' ? modelPreference.videoModel : modelPreference.imageModel,
-                    type: generationMode === 'video' ? 'video' : 'image',
+                    model: neededCapability === 'video' ? modelPreference.videoModel : modelPreference.imageModel,
+                    type: neededCapability,
                     success: false,
                     error: error.message,
                 });

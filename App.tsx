@@ -24,7 +24,7 @@ import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/as
 import { loadGenerationHistory, addGenerationHistoryItem } from './utils/generationHistory';
 import { setGeminiRuntimeConfig } from './services/geminiService';
 import { setBananaRuntimeConfig } from './services/bananaService';
-// aiGateway imports moved to hooks
+import { inferProviderFromModel, isGoogleImageEditModel, isGoogleTextToImageModel } from './services/aiGateway';
 import { fileToDataUrl } from './utils/fileUtils';
 import { translations } from './translations';
 // keyVault imports moved to hooks/useApiKeys.ts
@@ -245,19 +245,10 @@ const App: React.FC = () => {
     const {
         userApiKeys, setUserApiKeys, apiKeysLoaded, showOnboarding, setShowOnboarding,
         clearKeysOnExit, setClearKeysOnExit, modelPreference, setModelPreference,
-        activeUserKeyId, activeUserModelId, handleUserKeyChange,
+        activeUserKeyId, activeUserModelId, setActiveUserModelId, handleUserKeyChange,
         dynamicModelOptions, usageSummaryMap, getPreferredApiKey,
         handleAddApiKey, handleDeleteApiKey, handleUpdateApiKey, handleSetDefaultApiKey,
     } = useApiKeys(isSettingsPanelOpen);
-
-
-    useEffect(() => {
-        setSelectedElementIds([]);
-        setEditingElement(null);
-        setCroppingState(null);
-        setSelectionBox(null);
-        setPrompt('');
-    }, [activeBoardId]);
 
     useEffect(() => {
         if (!boards.length) return;
@@ -482,7 +473,7 @@ const App: React.FC = () => {
     const {
         handleMouseDown, handleMouseMove, handleMouseUp, handleWheel,
         getCanvasPoint, getSelectableElement,
-        selectionBox, alignmentGuides, lassoPath,
+        selectionBox, setSelectionBox, alignmentGuides, lassoPath,
         svgRef, editingTextareaRef, elementsRef, interactionMode, previousToolRef, spacebarDownTime,
     } = useCanvasInteraction({
         elements, zoom, panOffset,
@@ -514,6 +505,14 @@ const App: React.FC = () => {
         setIsSettingsPanelOpen, setGenerationHistory, setInpaintState, setInpaintPrompt,
         commitAction, getPreferredApiKey,
     });
+
+    useEffect(() => {
+        setSelectedElementIds([]);
+        setEditingElement(null);
+        setCroppingState(null);
+        setSelectionBox(null);
+        setPrompt('');
+    }, [activeBoardId, setSelectionBox]);
 
 
     const addChatAttachment = useCallback((payload: Omit<ChatAttachment, 'id'>) => {
@@ -628,7 +627,7 @@ const App: React.FC = () => {
     }, [activeBoardId]);
 
     // Handle drop from AssetLibraryPanel (after commitAction and getCanvasPoint are defined)
-    const handleAssetDropRef = useRef<(e: React.DragEvent) => void>();
+    const handleAssetDropRef = useRef<((e: React.DragEvent) => void) | null>(null);
     handleAssetDropRef.current = (e: React.DragEvent) => {
         const payload = e.dataTransfer.getData('text/plain');
         try {
@@ -1080,7 +1079,7 @@ const App: React.FC = () => {
     const handlePropertyChange = (elementId: string, updates: Partial<Element>) => {
         commitAction(prev => prev.map(el => {
             if (el.id === elementId) {
-                 return { ...el, ...updates };
+                 return { ...el, ...updates } as Element;
             }
             return el;
         }));

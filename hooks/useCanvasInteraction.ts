@@ -658,6 +658,7 @@ export function useCanvasInteraction(params: UseCanvasInteractionParams) {
         getSelectableElement,
         // Interaction-only state
         selectionBox,
+        setSelectionBox,
         alignmentGuides,
         lassoPath,
         // Refs needed by parent

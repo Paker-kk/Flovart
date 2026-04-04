@@ -317,6 +317,7 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
         setModelPreference,
         activeUserKeyId,
         activeUserModelId,
+        setActiveUserModelId,
         handleUserKeyChange,
         dynamicModelOptions,
         usageSummaryMap,
