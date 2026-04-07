@@ -22,7 +22,7 @@ describe('geminiService - API Key 配置', () => {
         });
         const result = await validateGeminiApiKey('invalid-key');
         expect(result.ok).toBe(false);
-        expect(result.message).toContain('API key not valid');
+        expect(result.message).toContain('API Key 无效');
     });
 
     it('validateGeminiApiKey 对有效 key 返回成功', async () => {

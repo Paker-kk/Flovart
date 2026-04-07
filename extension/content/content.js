@@ -26,7 +26,7 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
               <rect x="2" y="2" width="20" height="20" rx="6" fill="url(#fg1)" />
               <path d="M7 12l3 3 7-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-              <defs><linearGradient id="fg1" x1="2" y1="2" x2="22" y2="22"><stop stop-color="#6366F1"/><stop offset="1" stop-color="#A855F7"/></linearGradient></defs>
+              <defs><linearGradient id="fg1" x1="2" y1="2" x2="22" y2="22"><stop stop-color="#DC2626"/><stop offset="1" stop-color="#F43F5E"/></linearGradient></defs>
             </svg>
             <span>AI 反推 Prompt</span>
           </div>
@@ -116,7 +116,7 @@
 
     if (provider === 'google') {
       // Gemini Vision API
-      const model = 'gemini-2.0-flash';
+      const model = 'gemini-2.5-flash';
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const body = {
         contents: [{

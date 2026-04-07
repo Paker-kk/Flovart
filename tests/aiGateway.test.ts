@@ -4,7 +4,7 @@
  * 2026 模型名更新：Gemini 3, GPT-5.4, Claude Opus 4.6, Veo 3.1
  */
 import { describe, it, expect } from 'vitest';
-import { inferCapabilityFromModel, inferProviderFromModel, isGoogleImageEditModel, isGoogleTextToImageModel, diagnoseKeyCapabilities } from '../services/aiGateway';
+import { diagnoseKeyCapabilities, inferCapabilityFromModel, inferProviderFromModel, isGoogleImageEditModel, isGoogleTextToImageModel, supportsMaskImageEditing, supportsReferenceImageEditing } from '../services/aiGateway';
 import type { UserApiKey } from '../types';
 
 describe('inferProviderFromModel', () => {
@@ -68,6 +68,19 @@ describe('inferProviderFromModel', () => {
         expect(isGoogleImageEditModel('imagen-4.0-generate-001')).toBe(false);
         expect(isGoogleTextToImageModel('imagen-4.0-generate-001')).toBe(true);
         expect(isGoogleTextToImageModel('gemini-2.5-flash-image')).toBe(false);
+    });
+
+    it('识别 OpenRouter 和图像编辑能力矩阵', () => {
+        expect(inferProviderFromModel('openai/gpt-image-1')).toBe('openrouter');
+        expect(inferCapabilityFromModel('openai/gpt-image-1')).toBe('image');
+        expect(inferCapabilityFromModel('google/gemini-3-flash-preview')).toBe('text');
+        expect(inferCapabilityFromModel('google/imagen-4.0-generate-001')).toBe('image');
+        expect(supportsReferenceImageEditing('gemini-3.1-flash-image-preview')).toBe(true);
+        expect(supportsReferenceImageEditing('gpt-image-1')).toBe(true);
+        expect(supportsReferenceImageEditing('openai/gpt-image-1')).toBe(true);
+        expect(supportsReferenceImageEditing('dall-e-3')).toBe(false);
+        expect(supportsMaskImageEditing('gpt-image-1')).toBe(true);
+        expect(supportsMaskImageEditing('openai/gpt-image-1')).toBe(false);
     });
 
     it('未知模型回退到 custom', () => {

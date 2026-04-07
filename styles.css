@@ -262,30 +262,33 @@ input[type='range'].toolbar-range::-moz-range-thumb:hover {
     transform: scale(1.2);
 }
 
-/* ── Right panel tab bar pill design ── */
+/* ── Right panel tab bar flat design ── */
 .right-panel-tab {
     position: relative;
-    border-radius: 10px;
-    padding: 6px 12px;
-    font-size: 13px;
-    font-weight: 500;
+    padding: 8px 2px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
     transition: all 0.2s ease;
-    border: 1px solid transparent;
+    border: none;
+    border-bottom: 1.5px solid transparent;
+    background: transparent;
 }
 
 .right-panel-tab.active {
-    background: var(--primary-bg);
-    color: var(--primary-text);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    background: transparent;
+    color: var(--text-primary);
+    border-bottom-color: var(--text-primary);
+    box-shadow: none;
 }
 
 .right-panel-tab:not(.active) {
-    color: var(--text-muted);
+    color: var(--text-subtle);
 }
 
 .right-panel-tab:not(.active):hover {
-    background: var(--panel-muted);
-    color: var(--text-primary);
+    background: transparent;
+    color: var(--text-secondary);
 }
 
 /* ── History card ── */
@@ -340,3 +343,30 @@ input[type='range'].toolbar-range::-moz-range-thumb:hover {
 .legal-markdown hr { border: none; border-top: 1px solid currentColor; opacity: 0.15; margin: 1em 0; }
 .legal-markdown ul, .legal-markdown ol { padding-left: 1.5em; margin: 0.4em 0; }
 .legal-markdown li { margin: 0.2em 0; }
+
+/* ── Tippy mention popup theme ── */
+.tippy-box[data-theme~='mention-popup'] {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+.tippy-box[data-theme~='mention-popup'] .tippy-content {
+    padding: 0;
+}
+
+/* ── Rich prompt editor ── */
+.rich-prompt-editor .ProseMirror {
+    outline: none;
+    min-height: 1.4em;
+    color: var(--text-primary);
+}
+.rich-prompt-editor .ProseMirror p {
+    margin: 0;
+}
+.rich-prompt-editor .ProseMirror .mention-node {
+    color: #6366f1;
+    background: rgba(99, 102, 241, 0.12);
+    border-radius: 4px;
+    padding: 1px 4px;
+    font-weight: 500;
+}

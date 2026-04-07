@@ -24,7 +24,7 @@ import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/as
 import { loadGenerationHistory, addGenerationHistoryItem } from './utils/generationHistory';
 import { setGeminiRuntimeConfig } from './services/geminiService';
 import { setBananaRuntimeConfig } from './services/bananaService';
-import { inferProviderFromModel, isGoogleImageEditModel, isGoogleTextToImageModel } from './services/aiGateway';
+import { inferProviderFromModel, isGoogleImageEditModel, isGoogleTextToImageModel, reversePromptStreamWithProvider } from './services/aiGateway';
 import { fileToDataUrl } from './utils/fileUtils';
 import { translations } from './translations';
 // keyVault imports moved to hooks/useApiKeys.ts
@@ -65,6 +65,12 @@ const loadBoardsFromStorage = (): Board[] => {
 };
 
 const App: React.FC = () => {
+    const appVersionLabel = useMemo(() => {
+        const version = import.meta.env.VITE_APP_VERSION || 'dev';
+        const commitSha = import.meta.env.VITE_APP_COMMIT_SHA?.slice(0, 7);
+        return commitSha ? `v${version} · ${commitSha}` : `v${version}`;
+    }, []);
+
     const [boards, setBoards] = useState<Board[]>(() => loadBoardsFromStorage());
     const [activeBoardId, setActiveBoardId] = useState<string>(() => {
         try {
@@ -911,6 +917,90 @@ const App: React.FC = () => {
         document.body.removeChild(link);
     };
 
+    const [reversePromptLoading, setReversePromptLoading] = useState(false);
+    const reversePromptAbortRef = useRef<AbortController | null>(null);
+
+    const handleReversePrompt = async (imageHref: string, mimeType: string, imgWidth?: number, imgHeight?: number) => {
+        const textProvider = inferProviderFromModel(modelPreference.textModel);
+        const key = getPreferredApiKey('text', textProvider);
+        if (!key) {
+            setError('请先配置支持视觉功能的文本模型 API Key（如 Gemini、GPT-5.4、Claude）。');
+            return;
+        }
+        // 取消上一次进行中的请求
+        reversePromptAbortRef.current?.abort();
+        const abortCtrl = new AbortController();
+        reversePromptAbortRef.current = abortCtrl;
+
+        setReversePromptLoading(true);
+        setPrompt('');
+        setProgressMessage(language === 'zho' ? '正在分析图片...' : 'Analyzing image...');
+
+        // 节流缓冲: 攒 chunk 后按 ~60ms 间隔 flush, 降低 React 重渲染频次
+        let chunkBuffer = '';
+        let flushTimer: ReturnType<typeof setTimeout> | null = null;
+        let firstChunkReceived = false;
+        const flushBuffer = () => {
+            if (chunkBuffer) {
+                const text = chunkBuffer;
+                chunkBuffer = '';
+                setPrompt(prev => prev + text);
+            }
+            flushTimer = null;
+        };
+        const onChunk = (chunk: string) => {
+            if (!firstChunkReceived) {
+                firstChunkReceived = true;
+                setProgressMessage(language === 'zho' ? '正在生成...' : 'Generating...');
+            }
+            chunkBuffer += chunk;
+            if (!flushTimer) {
+                flushTimer = setTimeout(flushBuffer, 60);
+            }
+        };
+
+        let partialReceived = false;
+        try {
+            const result = await reversePromptStreamWithProvider(
+                imageHref,
+                mimeType,
+                modelPreference.textModel,
+                key,
+                (chunk) => { partialReceived = true; onChunk(chunk); },
+                abortCtrl.signal,
+                language,
+                imgWidth && imgHeight ? { width: imgWidth, height: imgHeight } : undefined,
+            );
+            // flush 剩余缓冲
+            if (flushTimer) { clearTimeout(flushTimer); flushBuffer(); }
+            if (!result && !abortCtrl.signal.aborted) {
+                setError(language === 'zho' ? '反推 Prompt 未返回结果，请重试。' : 'Reverse prompt returned no result. Please retry.');
+            }
+            setProgressMessage('');
+        } catch (err) {
+            if (flushTimer) { clearTimeout(flushTimer); flushBuffer(); }
+            if ((err as Error).name === 'AbortError') return; // 用户取消
+            // 网络中断且已有部分内容: 追加视觉提示
+            if (partialReceived) {
+                setPrompt(prev => prev + (language === 'zho' ? '\n⚠️ [传输中断，内容不完整]' : '\n⚠️ [Stream interrupted, content incomplete]'));
+            }
+            setError(`${language === 'zho' ? '反推 Prompt 失败' : 'Reverse prompt failed'}: ${(err as Error).message}`);
+        } finally {
+            if (reversePromptAbortRef.current === abortCtrl) {
+                reversePromptAbortRef.current = null;
+            }
+            setReversePromptLoading(false);
+            setProgressMessage('');
+        }
+    };
+
+    const cancelReversePrompt = () => {
+        reversePromptAbortRef.current?.abort();
+        reversePromptAbortRef.current = null;
+        setReversePromptLoading(false);
+        setProgressMessage('');
+    };
+
 
 
 
@@ -1480,6 +1570,7 @@ const App: React.FC = () => {
                 onAgentGenerateImage={(finalPrompt: string) => {
                     handleGenerate(finalPrompt, 'agent');
                 }}
+                onReversePrompt={handleReversePrompt}
             />
             <CanvasSettings 
                 isOpen={isSettingsPanelOpen} 
@@ -1994,14 +2085,14 @@ const App: React.FC = () => {
                                     style={{ transform: `scale(${1 / zoom})`, transformOrigin: 'top left', width: `${toolbarScreenWidth}px`, height: `${toolbarScreenHeight}px` }}
                                     onMouseDown={(e) => e.stopPropagation()}
                                 >
-                                    <div className="p-1.5 bg-white rounded-lg shadow-lg flex items-center justify-start space-x-2 border border-gray-200 text-gray-800 overflow-x-auto">
-                                        <button title={t('contextMenu.alignment.alignLeft')} onClick={() => handleAlignSelection('left')} className="p-2 rounded hover:bg-gray-100"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="4" y1="21" x2="4" y2="3"></line><rect x="8" y="6" width="8" height="4" rx="1"></rect><rect x="8" y="14" width="12" height="4" rx="1"></rect></svg></button>
-                                        <button title={t('contextMenu.alignment.alignCenter')} onClick={() => handleAlignSelection('center')} className="p-2 rounded hover:bg-gray-100"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="21" x2="12" y2="3" strokeDasharray="2 2"></line><rect x="7" y="6" width="10" height="4" rx="1"></rect><rect x="4" y="14" width="16" height="4" rx="1"></rect></svg></button>
-                                        <button title={t('contextMenu.alignment.alignRight')} onClick={() => handleAlignSelection('right')} className="p-2 rounded hover:bg-gray-100"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="20" y1="21" x2="20" y2="3"></line><rect x="12" y="6" width="8" height="4" rx="1"></rect><rect x="8" y="14" width="12" height="4" rx="1"></rect></svg></button>
-                                        <div className="h-6 w-px bg-gray-200"></div>
-                                        <button title={t('contextMenu.alignment.alignTop')} onClick={() => handleAlignSelection('top')} className="p-2 rounded hover:bg-gray-100"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="4" x2="21" y2="4"></line><rect x="6" y="8" width="4" height="8" rx="1"></rect><rect x="14" y="8" width="4" height="12" rx="1"></rect></svg></button>
-                                        <button title={t('contextMenu.alignment.alignMiddle')} onClick={() => handleAlignSelection('middle')} className="p-2 rounded hover:bg-gray-100"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="12" x2="21" y2="12" strokeDasharray="2 2"></line><rect x="6" y="7" width="4" height="10" rx="1"></rect><rect x="14" y="4" width="4" height="16" rx="1"></rect></svg></button>
-                                        <button title={t('contextMenu.alignment.alignBottom')} onClick={() => handleAlignSelection('bottom')} className="p-2 rounded hover:bg-gray-100"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="20" x2="21" y2="20"></line><rect x="6" y="12" width="4" height="8" rx="1"></rect><rect x="14" y="8" width="4" height="12" rx="1"></rect></svg></button>
+                                    <div className={`p-1.5 rounded-lg shadow-lg flex items-center justify-start space-x-2 border overflow-x-auto ${resolvedTheme === 'dark' ? 'bg-[#1B2029] border-[#2A3140] text-[#F3F4F6]' : 'bg-white border-gray-200 text-gray-800'}`}>
+                                        <button title={t('contextMenu.alignment.alignLeft')} onClick={() => handleAlignSelection('left')} className={`p-2 rounded ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="4" y1="21" x2="4" y2="3"></line><rect x="8" y="6" width="8" height="4" rx="1"></rect><rect x="8" y="14" width="12" height="4" rx="1"></rect></svg></button>
+                                        <button title={t('contextMenu.alignment.alignCenter')} onClick={() => handleAlignSelection('center')} className={`p-2 rounded ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="21" x2="12" y2="3" strokeDasharray="2 2"></line><rect x="7" y="6" width="10" height="4" rx="1"></rect><rect x="4" y="14" width="16" height="4" rx="1"></rect></svg></button>
+                                        <button title={t('contextMenu.alignment.alignRight')} onClick={() => handleAlignSelection('right')} className={`p-2 rounded ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="20" y1="21" x2="20" y2="3"></line><rect x="12" y="6" width="8" height="4" rx="1"></rect><rect x="8" y="14" width="12" height="4" rx="1"></rect></svg></button>
+                                        <div className={`h-6 w-px ${resolvedTheme === 'dark' ? 'bg-[#2A3140]' : 'bg-gray-200'}`}></div>
+                                        <button title={t('contextMenu.alignment.alignTop')} onClick={() => handleAlignSelection('top')} className={`p-2 rounded ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="4" x2="21" y2="4"></line><rect x="6" y="8" width="4" height="8" rx="1"></rect><rect x="14" y="8" width="4" height="12" rx="1"></rect></svg></button>
+                                        <button title={t('contextMenu.alignment.alignMiddle')} onClick={() => handleAlignSelection('middle')} className={`p-2 rounded ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="12" x2="21" y2="12" strokeDasharray="2 2"></line><rect x="6" y="7" width="4" height="10" rx="1"></rect><rect x="14" y="4" width="4" height="16" rx="1"></rect></svg></button>
+                                        <button title={t('contextMenu.alignment.alignBottom')} onClick={() => handleAlignSelection('bottom')} className={`p-2 rounded ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="20" x2="21" y2="20"></line><rect x="6" y="12" width="4" height="8" rx="1"></rect><rect x="14" y="8" width="4" height="12" rx="1"></rect></svg></button>
                                     </div>
                                 </div>;
                                 return (
@@ -2034,32 +2125,32 @@ const App: React.FC = () => {
                                     style={{ transform: `scale(${1 / zoom})`, transformOrigin: 'top left', width: `${toolbarScreenWidth}px`, height: `${toolbarScreenHeight}px` }}
                                     onMouseDown={(e) => e.stopPropagation()}
                                 >
-                                    <div className="p-1.5 bg-white rounded-lg shadow-lg flex items-center justify-start space-x-2 border border-gray-200 text-gray-800 overflow-x-auto">
-                                        <button title={t('contextMenu.copy')} onClick={() => handleCopyElement(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-                                        {element.type === 'image' && <button title={t('contextMenu.download')} onClick={() => handleDownloadImage(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>}
+                                    <div className={`p-1.5 rounded-lg shadow-lg flex items-center justify-start space-x-2 border overflow-x-auto ${resolvedTheme === 'dark' ? 'bg-[#1B2029] border-[#2A3140] text-[#F3F4F6]' : 'bg-white border-gray-200 text-gray-800'}`}>
+                                        <button title={t('contextMenu.copy')} onClick={() => handleCopyElement(element)} className={`p-2 rounded flex items-center justify-center ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+                                        {element.type === 'image' && <button title={t('contextMenu.download')} onClick={() => handleDownloadImage(element)} className={`p-2 rounded flex items-center justify-center ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>}
                                         {element.type === 'image' && <button title="Add to asset library" onClick={async () => {
                                                 const { href, mimeType, width, height } = { href: (element as ImageElement).href, mimeType: (element as ImageElement).mimeType, width: (element as ImageElement).width, height: (element as ImageElement).height };
                                                 setAddAssetModal({ open: true, dataUrl: href, mimeType, width, height });
-                                            }} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center">
+                                            }} className={`p-2 rounded flex items-center justify-center ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
                                             </button>}
-                                        {element.type === 'image' && <button title="Split into layers with BANANA" onClick={() => handleSplitImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
+                                        {element.type === 'image' && <button title="Split into layers with BANANA" onClick={() => handleSplitImageWithBanana(element)} className={`p-2 rounded flex items-center justify-center disabled:opacity-50 ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`} disabled={isLoading}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="8" height="8" rx="1"></rect><rect x="13" y="3" width="8" height="8" rx="1"></rect><rect x="3" y="13" width="8" height="8" rx="1"></rect><path d="M13 17h8"></path><path d="M17 13v8"></path></svg>
                                             </button>}
-                                        {element.type === 'image' && <button title="BANANA Agent: upscale x2" onClick={() => handleUpscaleImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
+                                        {element.type === 'image' && <button title="BANANA Agent: upscale x2" onClick={() => handleUpscaleImageWithBanana(element)} className={`p-2 rounded flex items-center justify-center disabled:opacity-50 ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`} disabled={isLoading}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
                                             </button>}
-                                        {element.type === 'image' && <button title="BANANA Agent: remove background" onClick={() => handleRemoveBackgroundWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
+                                        {element.type === 'image' && <button title="BANANA Agent: remove background" onClick={() => handleRemoveBackgroundWithBanana(element)} className={`p-2 rounded flex items-center justify-center disabled:opacity-50 ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`} disabled={isLoading}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l18 18"></path><path d="M20 12a8 8 0 0 1-11.31 7.31"></path><path d="M4 12a8 8 0 0 1 11.31-7.31"></path></svg>
                                             </button>}
-                                        {element.type === 'video' && <a title={t('contextMenu.download')} href={element.href} download={`video-${element.id}.mp4`} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>}
-                                        {element.type === 'image' && <button title={t('contextMenu.crop')} onClick={() => handleStartCrop(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"></path><path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"></path></svg></button>}
-                                        {element.type === 'image' && <button title="调色 / Filters" onClick={() => setFilterPanelElementId(filterPanelElementId === element.id ? null : element.id)} className={`p-2 rounded flex items-center justify-center ${filterPanelElementId === element.id ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'}`}>
+                                        {element.type === 'video' && <a title={t('contextMenu.download')} href={element.href} download={`video-${element.id}.mp4`} className={`p-2 rounded flex items-center justify-center ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>}
+                                        {element.type === 'image' && <button title={t('contextMenu.crop')} onClick={() => handleStartCrop(element)} className={`p-2 rounded flex items-center justify-center ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"></path><path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"></path></svg></button>}
+                                        {element.type === 'image' && <button title="调色 / Filters" onClick={() => setFilterPanelElementId(filterPanelElementId === element.id ? null : element.id)} className={`p-2 rounded flex items-center justify-center ${filterPanelElementId === element.id ? 'bg-blue-100 text-blue-600' : resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r="2.5"></circle><circle cx="17.5" cy="10.5" r="2.5"></circle><circle cx="8.5" cy="7.5" r="2.5"></circle><circle cx="6.5" cy="12.5" r="2.5"></circle><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path></svg>
                                             </button>}
                                         {element.type === 'image' && (
                                             <div style={{ position: 'relative' }}>
-                                                <button title="AI 扩图 / Outpaint" onClick={() => setOutpaintMenuId(outpaintMenuId === element.id ? null : element.id)} className={`p-2 rounded flex items-center justify-center ${outpaintMenuId === element.id ? 'bg-green-100 text-green-600' : 'hover:bg-gray-100'}`} disabled={isLoading}>
+                                                <button title="AI 扩图 / Outpaint" onClick={() => setOutpaintMenuId(outpaintMenuId === element.id ? null : element.id)} className={`p-2 rounded flex items-center justify-center ${outpaintMenuId === element.id ? 'bg-green-100 text-green-600' : resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`} disabled={isLoading}>
                                                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
                                                 </button>
                                                 {outpaintMenuId === element.id && (
@@ -2068,14 +2159,15 @@ const App: React.FC = () => {
                                                         top: '100%',
                                                         left: '50%',
                                                         transform: 'translateX(-50%)',
-                                                        background: 'white',
+                                                        background: resolvedTheme === 'dark' ? '#1B2029' : 'white',
                                                         borderRadius: 10,
-                                                        boxShadow: '0 8px 24px rgba(0,0,0,0.16)',
-                                                        border: '1px solid #e5e7eb',
+                                                        boxShadow: resolvedTheme === 'dark' ? '0 8px 24px rgba(0,0,0,0.4)' : '0 8px 24px rgba(0,0,0,0.16)',
+                                                        border: `1px solid ${resolvedTheme === 'dark' ? '#2A3140' : '#e5e7eb'}`,
                                                         padding: 8,
                                                         zIndex: 100,
                                                         whiteSpace: 'nowrap',
                                                         minWidth: 140,
+                                                        color: resolvedTheme === 'dark' ? '#F3F4F6' : undefined,
                                                     }}>
                                                         {([
                                                             { dir: 'all' as const, label: '↔ 全方向扩展', icon: '🔄' },
@@ -2098,7 +2190,7 @@ const App: React.FC = () => {
                                                                     cursor: 'pointer',
                                                                     fontSize: 13,
                                                                 }}
-                                                                onMouseEnter={e => (e.currentTarget.style.background = '#f3f4f6')}
+                                                                onMouseEnter={e => (e.currentTarget.style.background = resolvedTheme === 'dark' ? '#2A3140' : '#f3f4f6')}
                                                                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                                                             >
                                                                 {opt.label}
@@ -2109,25 +2201,44 @@ const App: React.FC = () => {
                                             </div>
                                         )}
                                         {element.type === 'image' && (
-                                            <button title="图层蒙版 / Layer Mask" onClick={() => startMaskEditing(element.id)} className={`p-2 rounded flex items-center justify-center ${maskEditingId === element.id ? 'bg-purple-100 text-purple-600' : 'hover:bg-gray-100'}`}>
+                                            <button title="图层蒙版 / Layer Mask" onClick={() => startMaskEditing(element.id)} className={`p-2 rounded flex items-center justify-center ${maskEditingId === element.id ? 'bg-purple-100 text-purple-600' : resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M12 3v18"></path><path d="M3 12h9"></path></svg>
                                             </button>
+                                        )}
+                                        {element.type === 'image' && (
+                                            reversePromptLoading ? (
+                                                <button
+                                                    title={language === 'zho' ? '取消分析' : 'Cancel analysis'}
+                                                    onClick={cancelReversePrompt}
+                                                    className="p-2 rounded flex items-center justify-center text-red-500 hover:bg-red-50 animate-pulse"
+                                                >
+                                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg>
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    title="反推 Prompt / Reverse Prompt"
+                                                    onClick={() => handleReversePrompt(element.href, element.mimeType, element.width, element.height)}
+                                                    className={`p-2 rounded flex items-center justify-center ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}
+                                                >
+                                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/><path d="M8 12l-2-2"/><path d="M16 12l2-2"/></svg>
+                                                </button>
+                                            )
                                         )}
                                         
                                         {element.type === 'shape' && (
                                             <>
                                                 <input type="color" title={t('contextMenu.fillColor')} value={element.fillColor} onChange={e => handlePropertyChange(element.id, { fillColor: e.target.value })} className="w-7 h-7 p-0 border-none rounded cursor-pointer" />
-                                                <div className="h-6 w-px bg-gray-200"></div>
+                                                <div className={`h-6 w-px ${resolvedTheme === 'dark' ? 'bg-[#2A3140]' : 'bg-gray-200'}`}></div>
                                                 <input type="color" title={t('contextMenu.strokeColor')} value={element.strokeColor} onChange={e => handlePropertyChange(element.id, { strokeColor: e.target.value })} className="w-7 h-7 p-0 border-none rounded cursor-pointer" />
-                                                <div className="h-6 w-px bg-gray-200"></div>
-                                                <div title={t('contextMenu.strokeStyle')} className="flex items-center space-x-1 p-1 bg-gray-100 rounded-md">
-                                                    <button title={t('contextMenu.solid')} onClick={() => handlePropertyChange(element.id, { strokeDashArray: undefined })} className={`p-1 rounded ${!element.strokeDashArray ? 'bg-blue-200' : 'hover:bg-gray-200'}`}>
+                                                <div className={`h-6 w-px ${resolvedTheme === 'dark' ? 'bg-[#2A3140]' : 'bg-gray-200'}`}></div>
+                                                <div title={t('contextMenu.strokeStyle')} className={`flex items-center space-x-1 p-1 rounded-md ${resolvedTheme === 'dark' ? 'bg-[#2A3140]' : 'bg-gray-100'}`}>
+                                                    <button title={t('contextMenu.solid')} onClick={() => handlePropertyChange(element.id, { strokeDashArray: undefined })} className={`p-1 rounded ${!element.strokeDashArray ? 'bg-blue-200' : resolvedTheme === 'dark' ? 'hover:bg-[#384050]' : 'hover:bg-gray-200'}`}>
                                                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                                                     </button>
-                                                    <button title={t('contextMenu.dashed')} onClick={() => handlePropertyChange(element.id, { strokeDashArray: [10, 10] })} className={`p-1 rounded ${element.strokeDashArray?.toString() === '10,10' ? 'bg-blue-200' : 'hover:bg-gray-200'}`}>
+                                                    <button title={t('contextMenu.dashed')} onClick={() => handlePropertyChange(element.id, { strokeDashArray: [10, 10] })} className={`p-1 rounded ${element.strokeDashArray?.toString() === '10,10' ? 'bg-blue-200' : resolvedTheme === 'dark' ? 'hover:bg-[#384050]' : 'hover:bg-gray-200'}`}>
                                                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="9" y2="12"></line><line x1="15" y1="12" x2="19" y2="12"></line></svg>
                                                     </button>
-                                                    <button title={t('contextMenu.dotted')} onClick={() => handlePropertyChange(element.id, { strokeDashArray: [2, 6] })} className={`p-1 rounded ${element.strokeDashArray?.toString() === '2,6' ? 'bg-blue-200' : 'hover:bg-gray-200'}`}>
+                                                    <button title={t('contextMenu.dotted')} onClick={() => handlePropertyChange(element.id, { strokeDashArray: [2, 6] })} className={`p-1 rounded ${element.strokeDashArray?.toString() === '2,6' ? 'bg-blue-200' : resolvedTheme === 'dark' ? 'hover:bg-[#384050]' : 'hover:bg-gray-200'}`}>
                                                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="5" y1="12" x2="5.01" y2="12"></line><line x1="12" y1="12" x2="12.01" y2="12"></line><line x1="19" y1="12" x2="19.01" y2="12"></line></svg>
                                                     </button>
                                                 </div>
@@ -2135,10 +2246,10 @@ const App: React.FC = () => {
                                         )}
                                          
                                         {element.type === 'text' && <input type="color" title={t('contextMenu.fontColor')} value={element.fontColor} onChange={e => handlePropertyChange(element.id, { fontColor: e.target.value })} className="w-7 h-7 p-0 border-none rounded cursor-pointer" />}
-                                        {element.type === 'text' && <input type="number" title={t('contextMenu.fontSize')} value={element.fontSize} onChange={e => handlePropertyChange(element.id, { fontSize: parseInt(e.target.value, 10) || 16 })} className="w-16 p-1 border rounded bg-gray-100 text-gray-800" />}
+                                        {element.type === 'text' && <input type="number" title={t('contextMenu.fontSize')} value={element.fontSize} onChange={e => handlePropertyChange(element.id, { fontSize: parseInt(e.target.value, 10) || 16 })} className={`w-16 p-1 border rounded ${resolvedTheme === 'dark' ? 'bg-[#2A3140] text-[#F3F4F6] border-[#384050]' : 'bg-gray-100 text-gray-800'}`} />}
                                         {(element.type === 'arrow' || element.type === 'line') && <input type="color" title={t('contextMenu.strokeColor')} value={element.strokeColor} onChange={e => handlePropertyChange(element.id, { strokeColor: e.target.value })} className="w-7 h-7 p-0 border-none rounded cursor-pointer" />}
                                         {(element.type === 'arrow' || element.type === 'line') && <input type="range" title={t('contextMenu.strokeWidth')} min="1" max="50" value={element.strokeWidth} onChange={e => handlePropertyChange(element.id, { strokeWidth: parseInt(e.target.value, 10) })} className="w-20" />}
-                                        <div className="h-6 w-px bg-gray-200"></div>
+                                        <div className={`h-6 w-px ${resolvedTheme === 'dark' ? 'bg-[#2A3140]' : 'bg-gray-200'}`}></div>
                                         <button title={t('contextMenu.delete')} onClick={() => handleDeleteElement(element.id)} className="p-2 rounded hover:bg-red-100 hover:text-red-600 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
                                     </div>
                                 </div>;
@@ -2290,6 +2401,29 @@ const App: React.FC = () => {
                                     </>
                                 );
                             })()}
+                            {/* Reverse Prompt: show for image elements */}
+                            {contextMenu.elementId && (() => {
+                                const ctxEl = elements.find(e => e.id === contextMenu.elementId);
+                                if (!ctxEl || ctxEl.type !== 'image') return null;
+                                return (
+                                    <>
+                                        <div className="border-t border-gray-100 my-1"></div>
+                                        <button
+                                            disabled={reversePromptLoading}
+                                            onClick={() => {
+                                                if (reversePromptLoading) { cancelReversePrompt(); }
+                                                else {
+                                                    handleReversePrompt((ctxEl as ImageElement).href, (ctxEl as ImageElement).mimeType, (ctxEl as ImageElement).width, (ctxEl as ImageElement).height);
+                                                }
+                                                setContextMenu(null);
+                                            }}
+                                            className="block w-full text-left px-4 py-1.5 hover:bg-gray-100 disabled:opacity-50"
+                                        >
+                                            {reversePromptLoading ? (language === 'zho' ? '分析中...' : 'Analyzing...') : (language === 'zho' ? '反推 Prompt' : 'Reverse Prompt')}
+                                        </button>
+                                    </>
+                                );
+                            })()}
                         </div>
                     );
                 })()}
@@ -2370,7 +2504,11 @@ const App: React.FC = () => {
                         />
                     </div>
                     {/* 底部法律链接 */}
-                    <div className="pointer-events-auto flex items-center gap-2 mt-1 text-[10px] opacity-40 hover:opacity-70 transition-opacity select-none">
+                    <div className="pointer-events-auto mt-1 flex items-center gap-2 text-[10px] opacity-55 hover:opacity-80 transition-opacity select-none">
+                        <span className="rounded-full border border-current/15 px-2 py-0.5 font-medium tracking-[0.04em]">
+                            {appVersionLabel}
+                        </span>
+                        <span>·</span>
                         <button className="underline-offset-2 hover:underline cursor-pointer bg-transparent border-none p-0 text-inherit text-[10px]" onClick={() => openLegalModal('terms')}>使用条款</button>
                         <span>·</span>
                         <button className="underline-offset-2 hover:underline cursor-pointer bg-transparent border-none p-0 text-inherit text-[10px]" onClick={() => openLegalModal('privacy')}>隐私政策</button>

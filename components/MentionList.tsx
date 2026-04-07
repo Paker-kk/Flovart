@@ -129,10 +129,10 @@ export default MentionList;
 
 const styles: Record<string, React.CSSProperties> = {
     container: {
-        background: '#ffffff',
-        border: '1px solid #e5e7eb',
+        background: 'var(--panel-bg, #ffffff)',
+        border: '1px solid var(--border-color, #e5e7eb)',
         borderRadius: '12px',
-        boxShadow: '0 8px 28px rgba(0,0,0,0.12)',
+        boxShadow: '0 8px 28px rgba(0,0,0,0.18)',
         padding: '4px',
         minWidth: '200px',
         maxWidth: '260px',
@@ -143,7 +143,7 @@ const styles: Record<string, React.CSSProperties> = {
     header: {
         fontSize: '10px',
         fontWeight: 600,
-        color: '#9ca3af',
+        color: 'var(--text-muted, #9ca3af)',
         textTransform: 'uppercase',
         letterSpacing: '0.06em',
         padding: '4px 8px 3px',
@@ -160,9 +160,10 @@ const styles: Record<string, React.CSSProperties> = {
         cursor: 'pointer',
         textAlign: 'left',
         transition: 'background 0.12s',
+        color: 'var(--text-primary, #111827)',
     },
     itemActive: {
-        background: 'rgba(99, 102, 241, 0.12)',
+        background: 'rgba(99, 102, 241, 0.15)',
     },
     thumb: {
         flexShrink: 0,
@@ -170,8 +171,8 @@ const styles: Record<string, React.CSSProperties> = {
         height: '28px',
         borderRadius: '6px',
         overflow: 'hidden',
-        background: '#f3f4f6',
-        border: '1px solid #e5e7eb',
+        background: 'var(--panel-soft, #f3f4f6)',
+        border: '1px solid var(--border-color, #e5e7eb)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -193,19 +194,19 @@ const styles: Record<string, React.CSSProperties> = {
     label: {
         fontSize: '12px',
         fontWeight: 500,
-        color: '#111827',
+        color: 'var(--text-primary, #111827)',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
     },
     type: {
         fontSize: '10px',
-        color: '#9ca3af',
+        color: 'var(--text-muted, #9ca3af)',
         textTransform: 'capitalize',
     },
     empty: {
         padding: '10px 12px',
         fontSize: '12px',
-        color: '#9ca3af',
+        color: 'var(--text-muted, #9ca3af)',
     },
 };

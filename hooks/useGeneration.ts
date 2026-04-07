@@ -4,11 +4,11 @@ import type {
     UserApiKey, ModelPreference, PromptEnhanceMode, GenerationHistoryItem,
     CharacterLockProfile, ChatAttachment, AICapability, AIProvider,
 } from '../types';
-import { editImage, generateVideo } from '../services/geminiService';
+import { generateId, getElementBounds, rasterizeElement, rasterizeMask } from '../utils/canvasHelpers';
 import { splitImageByBanana, runBananaImageAgent } from '../services/bananaService';
 import {
-    enhancePromptWithProvider, generateImageWithProvider,
-    inferProviderFromModel, isGoogleImageEditModel, inferCapabilitiesByProvider, PROVIDER_LABELS,
+    editImageWithProvider, enhancePromptWithProvider, generateImageWithProvider, generateVideoWithProvider,
+    inferProviderFromModel, inferCapabilitiesByProvider, PROVIDER_LABELS, supportsMaskImageEditing, supportsReferenceImageEditing,
 } from '../services/aiGateway';
 import { addGenerationHistoryItem } from '../utils/generationHistory';
 import { recordApiUsage } from '../utils/usageMonitor';
@@ -342,10 +342,12 @@ export function useGeneration(params: UseGenerationParams) {
 
             setProgressMessage('AI 正在补全画面...');
 
-            const result = await editImage(
+            const result = await editImageWithProvider(
                 [{ href: expandedDataUrl, mimeType: 'image/png' }],
                 `Seamlessly extend the image content outward. Continue the existing scene, lighting, and style naturally into the new areas. Do not change or alter the original central area.`,
-                { href: maskDataUrl, mimeType: 'image/png' },
+                modelPreference.imageModel,
+                getPreferredApiKey('image', inferProviderFromModel(modelPreference.imageModel)),
+                { mask: { href: maskDataUrl, mimeType: 'image/png' } },
             );
 
             if (result && result.newImageBase64) {
@@ -469,10 +471,12 @@ export function useGeneration(params: UseGenerationParams) {
 
             setProgressMessage('正在 AI 局部重绘...');
 
-            const result = await editImage(
+            const result = await editImageWithProvider(
                 [{ href: targetImage.href, mimeType: targetImage.mimeType }],
                 inpaintPrompt.trim(),
-                { href: maskDataUrl, mimeType: 'image/png' },
+                modelPreference.imageModel,
+                getPreferredApiKey('image', imageProvider),
+                { mask: { href: maskDataUrl, mimeType: 'image/png' } },
             );
 
             if (result && result.newImageBase64) {
@@ -562,15 +566,12 @@ export function useGeneration(params: UseGenerationParams) {
         const attachmentReferenceImages = activeAttachments.map(item => ({ href: item.href, mimeType: item.mimeType }));
         const imageProvider = inferProviderFromModel(modelPreference.imageModel);
         const videoProvider = inferProviderFromModel(modelPreference.videoModel);
-        const supportsReferenceEditing = imageProvider === 'google' && isGoogleImageEditModel(modelPreference.imageModel);
+        const supportsReferenceEditing = supportsReferenceImageEditing(modelPreference.imageModel);
+        const supportsMaskEditing = supportsMaskImageEditing(modelPreference.imageModel);
         const imageOutputName = generationMode === 'keyframe' ? 'Keyframe' : 'Generated Image';
 
         if (generationMode === 'keyframe') {
             try {
-                if (videoProvider !== 'google') {
-                    throw new Error('首尾帧动画目前仅支持 Google Veo 模型，请先配置 Google 视频 API Key。');
-                }
-
                 const mentionedImages = mentionedElementIds
                     .map(id => elements.find(el => el.id === id))
                     .filter((el): el is ImageElement => !!el && el.type === 'image');
@@ -590,11 +591,15 @@ export function useGeneration(params: UseGenerationParams) {
                     : `Animate this image with smooth motion. ${effectivePrompt}`;
 
                 setProgressMessage('正在生成首尾帧过渡动画...');
-                const { videoBlob, mimeType } = await generateVideo(
+                const { videoBlob, mimeType } = await generateVideoWithProvider(
                     keyframePrompt,
-                    videoAspectRatio,
-                    (message) => setProgressMessage(message),
-                    { href: startFrame.href, mimeType: startFrame.mimeType },
+                    modelPreference.videoModel,
+                    getPreferredApiKey('video', videoProvider),
+                    {
+                        aspectRatio: videoAspectRatio,
+                        onProgress: (message) => setProgressMessage(message),
+                        image: { href: startFrame.href, mimeType: startFrame.mimeType },
+                    },
                 );
 
                 setProgressMessage('处理视频中...');
@@ -661,9 +666,6 @@ export function useGeneration(params: UseGenerationParams) {
 
         if (generationMode === 'video') {
             try {
-                if (videoProvider !== 'google') {
-                    throw new Error('Current video generation only supports Google Veo models. Please configure a Google video API key in settings.');
-                }
                 const selectedElements = elements.filter(el => selectedElementIds.includes(el.id));
                 const imageElement = selectedElements.find(el => el.type === 'image') as ImageElement | undefined;
                 const attachmentImage = activeAttachments[0];
@@ -686,11 +688,15 @@ export function useGeneration(params: UseGenerationParams) {
                     return;
                 }
 
-                const { videoBlob, mimeType } = await generateVideo(
+                const { videoBlob, mimeType } = await generateVideoWithProvider(
                     effectivePrompt,
-                    videoAspectRatio,
-                    (message) => setProgressMessage(message),
-                    baseVideoReference,
+                    modelPreference.videoModel,
+                    getPreferredApiKey('video', videoProvider),
+                    {
+                        aspectRatio: videoAspectRatio,
+                        onProgress: (message) => setProgressMessage(message),
+                        image: baseVideoReference,
+                    },
                 );
 
                 setProgressMessage('Processing video...');
@@ -776,7 +782,7 @@ export function useGeneration(params: UseGenerationParams) {
 
             if (isEditing) {
                 if (!supportsReferenceEditing) {
-                    setError('The current image model does not support whiteboard-based editing or compositing. Please switch to a Gemini or Imagen image model.');
+                    setError('当前图片模型不支持白板编辑或多图合成。请切换到支持参考图编辑的 Gemini、GPT Image 或 OpenRouter 图像模型。');
                     return;
                 }
                 const selectedElements = elements.filter(el => selectedElementIds.includes(el.id));
@@ -784,12 +790,18 @@ export function useGeneration(params: UseGenerationParams) {
                 const maskPaths = selectedElements.filter(el => el.type === 'path' && el.strokeOpacity && el.strokeOpacity < 1) as PathElement[];
 
                 if (imageElements.length === 1 && maskPaths.length > 0 && selectedElements.length === (1 + maskPaths.length)) {
+                    if (!supportsMaskEditing) {
+                        setError('当前图片模型不支持遮罩局部重绘。请切换到 Gemini 图像编辑模型或 GPT Image 模型。');
+                        return;
+                    }
                     const baseImage = imageElements[0];
                     const maskData = await rasterizeMask(maskPaths, baseImage);
-                    const result = await editImage(
+                    const result = await editImageWithProvider(
                         [{ href: baseImage.href, mimeType: baseImage.mimeType }],
                         effectivePrompt,
-                        { href: maskData.href, mimeType: maskData.mimeType },
+                        modelPreference.imageModel,
+                        getPreferredApiKey('image', imageProvider),
+                        { mask: { href: maskData.href, mimeType: maskData.mimeType } },
                     );
 
                     if (result.newImageBase64 && result.newImageMimeType) {
@@ -839,9 +851,11 @@ export function useGeneration(params: UseGenerationParams) {
                 const imagesToProcess = await Promise.all(imagePromises);
 
                 const { prompt: mentionPrompt, orderedMentionImages } = buildMentionAwarePrompt(effectivePrompt, mentionedImageElements);
-                const result = await editImage(
+                const result = await editImageWithProvider(
                     [...imagesToProcess, ...orderedMentionImages, ...attachmentReferenceImages, ...characterReferenceImages],
                     mentionPrompt,
+                    modelPreference.imageModel,
+                    getPreferredApiKey('image', imageProvider),
                 );
 
                 if (result.newImageBase64 && result.newImageMimeType) {
@@ -883,12 +897,17 @@ export function useGeneration(params: UseGenerationParams) {
 
             } else if (mentionedImageElements.length > 0) {
                 if (!supportsReferenceEditing) {
-                    setError('The current image model does not support @ reference image generation. Please switch to a Gemini or Imagen image model.');
+                    setError('当前图片模型不支持 @ 参考图生成。请切换到支持参考图编辑的 Gemini、GPT Image 或 OpenRouter 图像模型。');
                     return;
                 }
                 setProgressMessage('Generating with reference images...');
                 const { prompt: mentionPrompt2, orderedMentionImages: orderedRefs } = buildMentionAwarePrompt(effectivePrompt, mentionedImageElements);
-                const result = await editImage([...orderedRefs, ...attachmentReferenceImages, ...characterReferenceImages], mentionPrompt2);
+                const result = await editImageWithProvider(
+                    [...orderedRefs, ...attachmentReferenceImages, ...characterReferenceImages],
+                    mentionPrompt2,
+                    modelPreference.imageModel,
+                    getPreferredApiKey('image', imageProvider),
+                );
 
                 if (result.newImageBase64 && result.newImageMimeType) {
                     const { newImageBase64, newImageMimeType } = result;
@@ -925,11 +944,16 @@ export function useGeneration(params: UseGenerationParams) {
             } else {
                 const baseRefs = [...attachmentReferenceImages, ...characterReferenceImages];
                 if (baseRefs.length > 0 && !supportsReferenceEditing) {
-                    setError('The current image model does not support reference image generation. Please switch to a Gemini or Imagen image model.');
+                    setError('当前图片模型不支持参考图生成。请切换到支持参考图编辑的 Gemini、GPT Image 或 OpenRouter 图像模型。');
                     return;
                 }
                 const result = baseRefs.length > 0
-                    ? await editImage(baseRefs, effectivePrompt)
+                    ? await editImageWithProvider(
+                        baseRefs,
+                        effectivePrompt,
+                        modelPreference.imageModel,
+                        getPreferredApiKey('image', imageProvider),
+                    )
                     : await generateImageWithProvider(
                         effectivePrompt,
                         modelPreference.imageModel,

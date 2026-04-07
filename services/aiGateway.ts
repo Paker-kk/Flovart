@@ -1,5 +1,7 @@
 import type { AICapability, AIProvider, PromptEnhanceRequest, PromptEnhanceResult, UserApiKey } from '../types';
-import { enhancePromptWithGemini, generateImageFromText, validateGeminiApiKey } from './geminiService';
+import { editImage, enhancePromptWithGemini, generateImageFromText, generateVideo, validateGeminiApiKey } from './geminiService';
+
+type ImageInput = { href: string; mimeType: string };
 
 type ProviderModelMap = { text: string[]; image: string[]; video: string[]; agent?: string[] };
 
@@ -11,7 +13,7 @@ export const DEFAULT_PROVIDER_MODELS: Partial<Record<AIProvider, ProviderModelMa
     },
     openai: {
         text: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-4o-mini'],
-        image: [],
+        image: ['gpt-image-1', 'dall-e-3'],
         video: [],
     },
     anthropic: {
@@ -37,22 +39,22 @@ export const DEFAULT_PROVIDER_MODELS: Partial<Record<AIProvider, ProviderModelMa
     },
     siliconflow: {
         text: ['deepseek-ai/DeepSeek-V3', 'Qwen/Qwen2.5-72B-Instruct'],
-        image: ['stabilityai/stable-diffusion-3-5-large'],
+        image: [],
         video: [],
     },
     keling: {
         text: [],
-        image: ['kling-v1'],
-        video: ['kling-video-v1'],
+        image: [],
+        video: [],
     },
     flux: {
         text: [],
-        image: ['flux-1.1-pro', 'flux-1-schnell'],
+        image: [],
         video: [],
     },
     midjourney: {
         text: [],
-        image: ['midjourney-v6.1'],
+        image: [],
         video: [],
     },
     runningHub: {
@@ -70,6 +72,11 @@ export const DEFAULT_PROVIDER_MODELS: Partial<Record<AIProvider, ProviderModelMa
         image: [],
         video: [],
     },
+    openrouter: {
+        text: ['openrouter/auto', 'google/gemini-3-flash-preview', 'anthropic/claude-opus-4-6', 'deepseek/deepseek-r1'],
+        image: ['openai/gpt-image-1', 'google/imagen-4.0-generate-001'],
+        video: [],
+    },
 };
 
 /**
@@ -81,7 +88,7 @@ export async function validateApiKey(provider: AIProvider, apiKey: string, baseU
     }
 
     // OpenAI-compatible: 调用 /models 接口
-    if (provider === 'openai' || provider === 'qwen' || provider === 'deepseek' || provider === 'siliconflow' || provider === 'minimax' || provider === 'volcengine' || provider === 'custom') {
+    if (provider === 'openai' || provider === 'qwen' || provider === 'deepseek' || provider === 'siliconflow' || provider === 'minimax' || provider === 'volcengine' || provider === 'openrouter' || provider === 'custom') {
         try {
             const url = (baseUrl || DEFAULT_BASE_URLS[provider]).replace(/\/$/, '');
             const res = await fetch(`${url}/models`, {
@@ -163,6 +170,7 @@ const DEFAULT_BASE_URLS: Record<AIProvider, string> = {
     runningHub: 'https://www.runninghub.cn/openapi/v2',
     minimax: 'https://api.minimax.chat/v1',
     volcengine: 'https://ark.cn-beijing.volces.com/api/v3',
+    openrouter: 'https://openrouter.ai/api/v1',
     custom: '',
 };
 
@@ -173,6 +181,7 @@ export function inferProviderFromKey(apiKey: string): AIProvider | null {
     const trimmed = apiKey.trim();
     if (/^AIzaSy/i.test(trimmed)) return 'google';
     if (/^sk-ant-/i.test(trimmed)) return 'anthropic';
+    if (/^sk-or-/i.test(trimmed)) return 'openrouter';
     if (/^sk-proj-/i.test(trimmed) || /^sk-[a-zA-Z0-9]{20,}$/.test(trimmed)) return 'openai';
     if (/^sk-[a-f0-9]{32,}$/i.test(trimmed)) return 'deepseek';
     // Stability AI removed — sa- prefix keys no longer auto-detected
@@ -211,6 +220,7 @@ export const PROVIDER_LABELS: Record<AIProvider, string> = {
     runningHub: 'RunningHub',
     minimax: 'MiniMax',
     volcengine: '火山引擎 (豆包)',
+    openrouter: 'OpenRouter',
     custom: '自定义',
 };
 
@@ -229,14 +239,20 @@ function normalizeModelName(model: string): string {
     return model.trim().toLowerCase();
 }
 
-export function inferCapabilityFromModel(model: string): AICapability | undefined {
+function stripModelProviderPrefix(model: string): string {
     const normalized = normalizeModelName(model);
+    const parts = normalized.split('/');
+    return parts.length > 1 ? parts.slice(1).join('/') : normalized;
+}
+
+export function inferCapabilityFromModel(model: string): AICapability | undefined {
+    const normalized = stripModelProviderPrefix(model);
     if (!normalized) return undefined;
     if (/^veo([-.\d]|$)/.test(normalized)) return 'video';
     if (/^banana/.test(normalized)) return 'agent';
-    if (/^(imagen|dall-e|gpt-image)/.test(normalized)) return 'image';
+    if (/^(imagen|dall-e|gpt-image|flux|stable-diffusion|sdxl|midjourney)/.test(normalized)) return 'image';
     if (/^gemini/.test(normalized)) return normalized.includes('image') ? 'image' : 'text';
-    if (/^(gpt|o\d|claude|qwen)/.test(normalized)) return 'text';
+    if (/^(gpt|o\d|claude|qwen|deepseek|llama|command|mistral|doubao|abab|minimax)/.test(normalized)) return 'text';
     return undefined;
 }
 
@@ -247,6 +263,79 @@ export function isGoogleImageEditModel(model: string): boolean {
 
 export function isGoogleTextToImageModel(model: string): boolean {
     return inferProviderFromModel(model) === 'google' && /^imagen/.test(normalizeModelName(model));
+}
+
+function isOpenAIImageEditModel(model: string): boolean {
+    const normalized = normalizeModelName(model).replace(/^openai\//, '');
+    return /^(gpt-image-1(?:\.5|-mini)?|gpt-image-1)$/.test(normalized);
+}
+
+export function supportsReferenceImageEditing(model: string): boolean {
+    const provider = inferProviderFromModel(model);
+    if (provider === 'google') return isGoogleImageEditModel(model);
+    if (provider === 'openai' || provider === 'custom') return isOpenAIImageEditModel(model);
+    if (provider === 'openrouter') return true;
+    return false;
+}
+
+export function supportsMaskImageEditing(model: string): boolean {
+    const provider = inferProviderFromModel(model);
+    if (provider === 'google') return isGoogleImageEditModel(model);
+    if (provider === 'openai' || provider === 'custom') return isOpenAIImageEditModel(model);
+    return false;
+}
+
+function parseDataUrl(dataUrl: string, fallbackMimeType = 'image/png') {
+    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) {
+        return { mimeType: match[1], base64: match[2] };
+    }
+
+    const parts = dataUrl.split(',');
+    return {
+        mimeType: fallbackMimeType,
+        base64: parts.length > 1 ? parts[1] : parts[0],
+    };
+}
+
+function createBlobFromBase64(base64: string, mimeType: string) {
+    const binary = globalThis.atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: mimeType });
+}
+
+function decodeDataUrlImage(dataUrl: string) {
+    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) {
+        throw new Error('模型返回了无法识别的图片数据格式。');
+    }
+
+    return {
+        newImageMimeType: match[1],
+        newImageBase64: match[2],
+        textResponse: null,
+    };
+}
+
+function buildOpenRouterHeaders(apiKey: string) {
+    return {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'HTTP-Referer': globalThis.location?.origin || 'https://flovart.app',
+        'X-OpenRouter-Title': 'Flovart',
+    };
+}
+
+function resolveGenerationProvider(model: string, key?: UserApiKey): AIProvider {
+    if (key?.provider === 'custom') {
+        const endpointFlavor = key.extraConfig?.endpointFlavor;
+        if (endpointFlavor === 'openrouter-compatible') return 'openrouter';
+        if (endpointFlavor === 'openai-compatible') return 'custom';
+    }
+    return inferProviderFromModel(model);
 }
 
 function inferPromptModeHint(request: PromptEnhanceRequest) {
@@ -306,6 +395,7 @@ export function inferProviderFromModel(model: string): AIProvider {
     if (/^midjourney/i.test(model)) return 'midjourney';
     if (/^(minimax|abab|video-01)/i.test(model)) return 'minimax';
     if (/^(doubao|skylark|ep-)/i.test(model)) return 'volcengine';
+    if (/^(openrouter\/|google\/|anthropic\/|openai\/|meta-llama\/|x-ai\/)/i.test(model)) return 'openrouter';
     return 'custom';
 }
 
@@ -317,12 +407,15 @@ async function enhancePromptWithOpenAICompatible(
 ): Promise<PromptEnhanceResult> {
     const apiKey = requireApiKey(provider, key);
     const baseUrl = getBaseUrl(provider, key);
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
+    const headers: Record<string, string> = provider === 'openrouter'
+        ? buildOpenRouterHeaders(apiKey)
+        : {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${apiKey}`,
-        },
+        };
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers,
         body: JSON.stringify({
             model,
             temperature: 0.6,
@@ -407,6 +500,324 @@ export async function enhancePromptWithProvider(
 }
 
 /**
+ * 构建反推 Prompt 的系统指令。
+ * 根据 UI 语言 + 图片元数据动态生成，确保输出跟随用户语言偏好。
+ * 风格统一为 AI 图像生成器可直接使用的自然语言描述。
+ */
+function buildReversePromptInstruction(lang: 'en' | 'zho', meta?: { width?: number; height?: number }): string {
+    const metaHint = meta?.width && meta?.height
+        ? (lang === 'zho'
+            ? `\n图片尺寸 ${meta.width}×${meta.height}，宽高比约 ${(meta.width / meta.height).toFixed(2)}。请将宽高比信息融入描述。`
+            : `\nImage dimensions ${meta.width}×${meta.height}, aspect ratio ~${(meta.width / meta.height).toFixed(2)}. Incorporate aspect ratio context.`)
+        : '';
+    if (lang === 'zho') {
+        return [
+            '你是一名顶级 AI 图像提示词工程师。',
+            '分析给定图片，生成一段可用于 AI 图像生成器直接重现该图的详细提示词。',
+            '包含：主体、构图、拍摄角度、光线、色彩、情绪、艺术风格、媒介及精细细节。',
+            '如果画面中有明显应避免的元素（如水印、模糊、畸变），在末尾用「负面提示：」列出。',
+            '仅输出提示词文本，使用中文，不加解释、不加 markdown、不加前缀。',
+            metaHint,
+        ].filter(Boolean).join('\n');
+    }
+    return [
+        'You are an expert AI image prompt engineer.',
+        'Analyze the given image and generate a detailed prompt that could recreate it with an AI image generator.',
+        'Include: subject, composition, camera angle, lighting, color palette, mood, artistic style, medium, and fine details.',
+        'If there are obvious elements to avoid (e.g. watermarks, blur, distortion), append them at the end after "Negative prompt:".',
+        'Output ONLY the prompt text. No explanations, no markdown, no prefix.',
+        metaHint,
+    ].filter(Boolean).join('\n');
+}
+
+/**
+ * 【函数】图片反推提示词（Reverse Prompt / Describe Image）— 非流式版本
+ *
+ * 根据用户配置的 text model 路由到支持 vision 的 LLM，传入图片并返回描述提示词。
+ * 当前支持：google、openai（及兼容接口）、anthropic、openrouter。
+ */
+export async function reversePromptWithProvider(
+    imageHref: string,
+    mimeType: string,
+    model: string,
+    key?: UserApiKey,
+    lang: 'en' | 'zho' = 'en',
+    meta?: { width?: number; height?: number },
+): Promise<string> {
+    const instruction = buildReversePromptInstruction(lang, meta);
+    const provider = resolveGenerationProvider(model, key);
+
+    if (provider === 'google') {
+        const apiKey = requireApiKey(provider, key);
+        const effectiveModel = model || 'gemini-2.5-flash';
+        const base64Data = imageHref.includes(',') ? imageHref.split(',')[1] : imageHref;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(effectiveModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [
+                        { text: instruction },
+                        { inlineData: { mimeType, data: base64Data } },
+                    ],
+                }],
+            }),
+        });
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(`Google Vision 请求失败 (${response.status}): ${text || response.statusText}`);
+        }
+        const json = await response.json();
+        return json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    }
+
+    if (provider === 'anthropic') {
+        const apiKey = requireApiKey(provider, key);
+        const baseUrl = getBaseUrl(provider, key);
+        const base64Data = imageHref.includes(',') ? imageHref.split(',')[1] : imageHref;
+        const mediaType = mimeType || 'image/png';
+        const response = await fetch(`${baseUrl}/messages`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+                model: model || 'claude-sonnet-4-6',
+                max_tokens: 1024,
+                messages: [{
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: instruction },
+                        { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+                    ],
+                }],
+            }),
+        });
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(`Anthropic Vision 请求失败 (${response.status}): ${text || response.statusText}`);
+        }
+        const json = await response.json();
+        return (json?.content || []).map((b: { text?: string }) => b.text || '').join('\n').trim();
+    }
+
+    // OpenAI / OpenRouter / Custom / DeepSeek / Qwen / etc. (OpenAI-compatible vision)
+    const apiKey = requireApiKey(provider, key);
+    const baseUrl = getBaseUrl(provider, key);
+    const headers: Record<string, string> = provider === 'openrouter'
+        ? buildOpenRouterHeaders(apiKey)
+        : { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` };
+
+    const imageContent = imageHref.startsWith('data:')
+        ? { type: 'image_url' as const, image_url: { url: imageHref } }
+        : { type: 'image_url' as const, image_url: { url: imageHref } };
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+            model: model || 'gpt-5.4-mini',
+            max_tokens: 1024,
+            messages: [{
+                role: 'user',
+                content: [
+                    { type: 'text', text: instruction },
+                    imageContent,
+                ],
+            }],
+        }),
+    });
+    if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`${PROVIDER_LABELS[provider] || provider} Vision 请求失败 (${response.status}): ${text || response.statusText}`);
+    }
+    const json = await response.json();
+    return json?.choices?.[0]?.message?.content?.trim() || '';
+}
+
+/**
+ * 【函数】图片反推提示词 — 流式版本 (SSE Streaming)
+ *
+ * 逐 token 回传文本到 onChunk 回调，配合 AbortSignal 支持随时取消。
+ * Google 使用 streamGenerateContent，OpenAI/Anthropic 使用 SSE stream。
+ * 返回完整文本（所有 chunk 拼接）。
+ */
+export async function reversePromptStreamWithProvider(
+    imageHref: string,
+    mimeType: string,
+    model: string,
+    key: UserApiKey | undefined,
+    onChunk: (text: string) => void,
+    signal?: AbortSignal,
+    lang: 'en' | 'zho' = 'en',
+    meta?: { width?: number; height?: number },
+): Promise<string> {
+    const instruction = buildReversePromptInstruction(lang, meta);
+    const provider = resolveGenerationProvider(model, key);
+    let full = '';
+
+    if (provider === 'google') {
+        const apiKey = requireApiKey(provider, key);
+        const effectiveModel = model || 'gemini-2.5-flash';
+        const base64Data = imageHref.includes(',') ? imageHref.split(',')[1] : imageHref;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(effectiveModel)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal,
+            body: JSON.stringify({
+                contents: [{
+                    parts: [
+                        { text: instruction },
+                        { inlineData: { mimeType, data: base64Data } },
+                    ],
+                }],
+            }),
+        });
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(`Google Vision 请求失败 (${response.status}): ${text || response.statusText}`);
+        }
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('无法获取响应流');
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const payload = line.slice(6).trim();
+                if (payload === '[DONE]') continue;
+                try {
+                    const json = JSON.parse(payload);
+                    const chunk = json?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                    if (chunk) { full += chunk; onChunk(chunk); }
+                } catch { /* skip malformed JSON */ }
+            }
+        }
+        return full.trim();
+    }
+
+    if (provider === 'anthropic') {
+        const apiKey = requireApiKey(provider, key);
+        const baseUrl = getBaseUrl(provider, key);
+        const base64Data = imageHref.includes(',') ? imageHref.split(',')[1] : imageHref;
+        const mediaType = mimeType || 'image/png';
+        const response = await fetch(`${baseUrl}/messages`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+            },
+            signal,
+            body: JSON.stringify({
+                model: model || 'claude-sonnet-4-6',
+                max_tokens: 1024,
+                stream: true,
+                messages: [{
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: instruction },
+                        { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+                    ],
+                }],
+            }),
+        });
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(`Anthropic Vision 请求失败 (${response.status}): ${text || response.statusText}`);
+        }
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('无法获取响应流');
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const payload = line.slice(6).trim();
+                if (payload === '[DONE]') continue;
+                try {
+                    const json = JSON.parse(payload);
+                    if (json.type === 'content_block_delta') {
+                        const chunk = json.delta?.text || '';
+                        if (chunk) { full += chunk; onChunk(chunk); }
+                    }
+                } catch { /* skip malformed JSON */ }
+            }
+        }
+        return full.trim();
+    }
+
+    // OpenAI / OpenRouter / Custom / DeepSeek / Qwen / etc. (OpenAI-compatible SSE)
+    const apiKey = requireApiKey(provider, key);
+    const baseUrl = getBaseUrl(provider, key);
+    const headers: Record<string, string> = provider === 'openrouter'
+        ? buildOpenRouterHeaders(apiKey)
+        : { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` };
+
+    const imageContent = imageHref.startsWith('data:')
+        ? { type: 'image_url' as const, image_url: { url: imageHref } }
+        : { type: 'image_url' as const, image_url: { url: imageHref } };
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers,
+        signal,
+        body: JSON.stringify({
+            model: model || 'gpt-5.4-mini',
+            max_tokens: 1024,
+            stream: true,
+            messages: [{
+                role: 'user',
+                content: [
+                    { type: 'text', text: instruction },
+                    imageContent,
+                ],
+            }],
+        }),
+    });
+    if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`${PROVIDER_LABELS[provider] || provider} Vision 请求失败 (${response.status}): ${text || response.statusText}`);
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('无法获取响应流');
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6).trim();
+            if (payload === '[DONE]') continue;
+            try {
+                const json = JSON.parse(payload);
+                const chunk = json.choices?.[0]?.delta?.content || '';
+                if (chunk) { full += chunk; onChunk(chunk); }
+            } catch { /* skip malformed JSON */ }
+        }
+    }
+    return full.trim();
+}
+
+/**
  * 【函数】统一的图片生成入口
  *
  * 根据模型名称路由到 Google Imagen / OpenAI DALL-E 等。
@@ -421,11 +832,43 @@ export async function generateImageWithProvider(
     model: string,
     key?: UserApiKey
 ): Promise<{ newImageBase64: string | null; newImageMimeType: string | null; textResponse: string | null }> {
-    const provider = inferProviderFromModel(model);
+    const provider = resolveGenerationProvider(model, key);
 
     if (provider === 'google') {
         // 传入 key?.key 确保使用用户 UI 中配置的 API Key
         return generateImageFromText(prompt, key?.key);
+    }
+
+    if (provider === 'openrouter') {
+        const apiKey = requireApiKey(provider, key);
+        const baseUrl = getBaseUrl(provider, key);
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: buildOpenRouterHeaders(apiKey),
+            body: JSON.stringify({
+                model,
+                messages: [{ role: 'user', content: prompt }],
+                modalities: ['image', 'text'],
+                stream: false,
+            }),
+        });
+
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(`OpenRouter 图片生成失败 (${response.status}): ${text || response.statusText}`);
+        }
+
+        const json = await response.json();
+        const imageUrl = json?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+        if (!imageUrl) {
+            return {
+                newImageBase64: null,
+                newImageMimeType: null,
+                textResponse: json?.choices?.[0]?.message?.content || 'OpenRouter 未返回图片结果。',
+            };
+        }
+
+        return decodeDataUrlImage(imageUrl);
     }
 
     if (provider === 'openai' || provider === 'custom') {
@@ -458,7 +901,340 @@ export async function generateImageWithProvider(
         };
     }
 
-    throw new Error(`当前暂不支持使用 ${provider} 进行图片生成。`);
+    throw new Error(`当前暂不支持使用 ${PROVIDER_LABELS[provider] || provider} 进行图片生成。请切换到 Google Gemini、OpenAI 或 OpenRouter 图片模型。`);
+}
+
+export async function editImageWithProvider(
+    images: ImageInput[],
+    prompt: string,
+    model: string,
+    key?: UserApiKey,
+    options?: { mask?: ImageInput }
+): Promise<{ newImageBase64: string | null; newImageMimeType: string | null; textResponse: string | null }> {
+    const provider = resolveGenerationProvider(model, key);
+
+    if (provider === 'google') {
+        if (!supportsReferenceImageEditing(model)) {
+            throw new Error('当前 Google 图片模型只支持纯文本生图，请切换到 Gemini 图像编辑模型。');
+        }
+        return editImage(images, prompt, options?.mask, key?.key);
+    }
+
+    if (provider === 'openrouter') {
+        if (options?.mask) {
+            throw new Error('OpenRouter 当前不支持遮罩局部重绘。请切换到 Google Gemini 或 OpenAI GPT Image 模型。');
+        }
+
+        const apiKey = requireApiKey(provider, key);
+        const baseUrl = getBaseUrl(provider, key);
+        const content = [
+            { type: 'text', text: prompt },
+            ...images.map((image) => ({
+                type: 'image_url',
+                image_url: { url: image.href },
+            })),
+        ];
+
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: buildOpenRouterHeaders(apiKey),
+            body: JSON.stringify({
+                model,
+                messages: [{ role: 'user', content }],
+                modalities: ['image', 'text'],
+                stream: false,
+            }),
+        });
+
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(`OpenRouter 参考图生成失败 (${response.status}): ${text || response.statusText}`);
+        }
+
+        const json = await response.json();
+        const imageUrl = json?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+        if (!imageUrl) {
+            return {
+                newImageBase64: null,
+                newImageMimeType: null,
+                textResponse: json?.choices?.[0]?.message?.content || 'OpenRouter 未返回图片结果。',
+            };
+        }
+
+        return decodeDataUrlImage(imageUrl);
+    }
+
+    if (provider === 'openai' || provider === 'custom') {
+        if (!supportsReferenceImageEditing(model)) {
+            throw new Error('当前 OpenAI 图片模型不支持参考图编辑。请切换到 GPT Image 模型。');
+        }
+        if (options?.mask && !supportsMaskImageEditing(model)) {
+            throw new Error('当前模型不支持遮罩局部重绘。请切换到支持编辑的 GPT Image 或 Gemini 模型。');
+        }
+
+        const apiKey = requireApiKey(provider, key);
+        const baseUrl = getBaseUrl(provider, key);
+        const formData = new FormData();
+        formData.append('model', model);
+        formData.append('prompt', prompt);
+        formData.append('response_format', 'b64_json');
+
+        images.forEach((image, index) => {
+            const parsed = parseDataUrl(image.href, image.mimeType);
+            formData.append(
+                'image',
+                createBlobFromBase64(parsed.base64, image.mimeType),
+                `reference-${index}.${image.mimeType.split('/')[1] || 'png'}`,
+            );
+        });
+
+        if (options?.mask) {
+            const parsedMask = parseDataUrl(options.mask.href, options.mask.mimeType);
+            formData.append(
+                'mask',
+                createBlobFromBase64(parsedMask.base64, options.mask.mimeType),
+                `mask.${options.mask.mimeType.split('/')[1] || 'png'}`,
+            );
+        }
+
+        const response = await fetch(`${baseUrl}/images/edits`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${apiKey}`,
+            },
+            body: formData,
+        });
+
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(`${PROVIDER_LABELS[provider]} 图片编辑失败 (${response.status}): ${text || response.statusText}`);
+        }
+
+        const json = await response.json();
+        const firstImage = json?.data?.[0];
+        if (firstImage?.b64_json) {
+            return {
+                newImageBase64: firstImage.b64_json,
+                newImageMimeType: 'image/png',
+                textResponse: firstImage.revised_prompt || null,
+            };
+        }
+        if (firstImage?.url) {
+            return decodeDataUrlImage(firstImage.url);
+        }
+
+        return {
+            newImageBase64: null,
+            newImageMimeType: null,
+            textResponse: '图片编辑请求成功，但未返回图片结果。',
+        };
+    }
+
+    throw new Error(`当前模型 ${model} 暂不支持参考图编辑。`);
+}
+
+/**
+ * 【函数】统一的视频生成入口
+ *
+ * 根据模型名称路由到 Google Veo / MiniMax video-01 等。
+ * 当前支持：google、minimax、custom（OpenAI-compatible /videos）。
+ *
+ * @param prompt  - 视频描述提示词
+ * @param model   - 模型名称（如 veo-3.1-generate-preview, video-01）
+ * @param key     - 用户 API Key
+ * @param options - 可选参数：aspectRatio、onProgress、image（首帧图）
+ */
+export async function generateVideoWithProvider(
+    prompt: string,
+    model: string,
+    key?: UserApiKey,
+    options?: {
+        aspectRatio?: '16:9' | '9:16';
+        onProgress?: (message: string) => void;
+        image?: ImageInput;
+    },
+): Promise<{ videoBlob: Blob; mimeType: string }> {
+    const provider = resolveGenerationProvider(model, key);
+    const onProgress = options?.onProgress || (() => {});
+    const aspectRatio = options?.aspectRatio || '16:9';
+
+    if (provider === 'google') {
+        return generateVideo(prompt, aspectRatio, onProgress, options?.image, key?.key);
+    }
+
+    if (provider === 'minimax') {
+        const apiKey = requireApiKey(provider, key);
+        const baseUrl = getBaseUrl(provider, key);
+
+        // Step 1: Submit video generation task
+        onProgress('Submitting video generation task...');
+        const createBody: Record<string, unknown> = { model, prompt };
+        if (options?.image) {
+            createBody.first_frame_image = options.image.href;
+        }
+
+        const createRes = await fetch(`${baseUrl}/video_generation`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(createBody),
+        });
+
+        if (!createRes.ok) {
+            const text = await createRes.text().catch(() => '');
+            throw new Error(`MiniMax 视频生成请求失败 (${createRes.status}): ${text || createRes.statusText}`);
+        }
+
+        const createJson = await createRes.json();
+        const taskId = createJson?.task_id;
+        if (!taskId) {
+            throw new Error('MiniMax 视频生成未返回 task_id');
+        }
+
+        // Step 2: Poll for completion
+        const progressMessages = ['Rendering frames...', 'Compositing video...', 'Applying final touches...', 'Almost there...'];
+        let messageIndex = 0;
+        onProgress('Generation started, this may take a few minutes.');
+
+        let fileId: string | undefined;
+        while (true) {
+            onProgress(progressMessages[messageIndex % progressMessages.length]);
+            messageIndex++;
+            await new Promise(resolve => setTimeout(resolve, 10000));
+
+            const queryRes = await fetch(`${baseUrl}/query/video_generation?task_id=${encodeURIComponent(taskId)}`, {
+                headers: { Authorization: `Bearer ${apiKey}` },
+            });
+            if (!queryRes.ok) {
+                const text = await queryRes.text().catch(() => '');
+                throw new Error(`MiniMax 任务查询失败 (${queryRes.status}): ${text || queryRes.statusText}`);
+            }
+            const queryJson = await queryRes.json();
+            const status = queryJson?.status;
+
+            if (status === 'Fail' || status === 'fail') {
+                throw new Error(`MiniMax 视频生成失败: ${queryJson?.status_msg || 'Unknown error'}`);
+            }
+            if (status === 'Success' || status === 'success') {
+                fileId = queryJson?.file_id;
+                break;
+            }
+            // Otherwise still processing, continue polling
+        }
+
+        if (!fileId) {
+            throw new Error('MiniMax 视频生成完成但未返回 file_id');
+        }
+
+        // Step 3: Download via file retrieve endpoint
+        onProgress('Downloading generated video...');
+        const fileRes = await fetch(`${baseUrl}/files/retrieve?file_id=${encodeURIComponent(fileId)}`, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        if (!fileRes.ok) {
+            const text = await fileRes.text().catch(() => '');
+            throw new Error(`MiniMax 文件下载失败 (${fileRes.status}): ${text || fileRes.statusText}`);
+        }
+        const fileJson = await fileRes.json();
+        const downloadUrl = fileJson?.file?.download_url;
+        if (!downloadUrl) {
+            throw new Error('MiniMax 未返回视频下载链接');
+        }
+
+        const videoRes = await fetch(downloadUrl);
+        if (!videoRes.ok) {
+            throw new Error(`视频下载失败: ${videoRes.statusText}`);
+        }
+        const videoBlob = await videoRes.blob();
+        const mimeType = videoRes.headers.get('Content-Type') || 'video/mp4';
+        return { videoBlob, mimeType };
+    }
+
+    if (provider === 'keling') {
+        const apiKey = requireApiKey(provider, key);
+        const baseUrl = getBaseUrl(provider, key);
+
+        // Kling AI video generation
+        onProgress('Submitting video generation task...');
+        const createBody: Record<string, unknown> = {
+            model_name: model || 'kling-v1',
+            prompt,
+            cfg_scale: 0.5,
+            mode: 'std',
+            aspect_ratio: aspectRatio.replace(':', ':'),
+            duration: '5',
+        };
+        if (options?.image) {
+            createBody.image = options.image.href;
+            createBody.type = 'img2video';
+        } else {
+            createBody.type = 'text2video';
+        }
+
+        const createRes = await fetch(`${baseUrl}/videos/generations`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(createBody),
+        });
+
+        if (!createRes.ok) {
+            const text = await createRes.text().catch(() => '');
+            throw new Error(`Keling 视频生成请求失败 (${createRes.status}): ${text || createRes.statusText}`);
+        }
+
+        const createJson = await createRes.json();
+        const taskId = createJson?.data?.task_id;
+        if (!taskId) throw new Error('Keling 视频生成未返回 task_id');
+
+        // Poll for completion
+        const progressMessages = ['Rendering frames...', 'Compositing video...', 'Applying final touches...', 'Almost there...'];
+        let messageIndex = 0;
+        onProgress('Generation started, this may take a few minutes.');
+
+        let videoUrl: string | undefined;
+        while (true) {
+            onProgress(progressMessages[messageIndex % progressMessages.length]);
+            messageIndex++;
+            await new Promise(resolve => setTimeout(resolve, 10000));
+
+            const queryRes = await fetch(`${baseUrl}/videos/generations/${encodeURIComponent(taskId)}`, {
+                headers: { Authorization: `Bearer ${apiKey}` },
+            });
+            if (!queryRes.ok) {
+                const text = await queryRes.text().catch(() => '');
+                throw new Error(`Keling 任务查询失败 (${queryRes.status}): ${text || queryRes.statusText}`);
+            }
+            const queryJson = await queryRes.json();
+            const status = queryJson?.data?.task_status;
+
+            if (status === 'failed') {
+                throw new Error(`Keling 视频生成失败: ${queryJson?.data?.task_status_msg || 'Unknown error'}`);
+            }
+            if (status === 'succeed') {
+                videoUrl = queryJson?.data?.task_result?.videos?.[0]?.url;
+                break;
+            }
+        }
+
+        if (!videoUrl) throw new Error('Keling 视频生成完成但未返回下载链接');
+
+        onProgress('Downloading generated video...');
+        const videoRes = await fetch(videoUrl);
+        if (!videoRes.ok) throw new Error(`视频下载失败: ${videoRes.statusText}`);
+        const videoBlob = await videoRes.blob();
+        const mimeType = videoRes.headers.get('Content-Type') || 'video/mp4';
+        return { videoBlob, mimeType };
+    }
+
+    throw new Error(
+        `当前暂不支持使用 ${PROVIDER_LABELS[provider] || provider} 进行视频生成。` +
+        `请切换到 Google Veo、MiniMax video-01 或 Keling 视频模型。`
+    );
 }
 
 /**

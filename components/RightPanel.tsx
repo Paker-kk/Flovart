@@ -23,6 +23,7 @@ interface RightPanelProps {
     onRemove: (category: AssetCategory, id: string) => void;
     onRename: (category: AssetCategory, id: string, name: string) => void;
     onWidthChange?: (width: number) => void;
+    onReversePrompt?: (imageDataUrl: string, mimeType: string, width?: number, height?: number) => void;
 }
 
 const CATEGORY_LABELS: Record<AssetCategory, string> = {
@@ -32,16 +33,16 @@ const CATEGORY_LABELS: Record<AssetCategory, string> = {
 };
 
 const CategoryTabs: React.FC<{ value: AssetCategory; onChange: (c: AssetCategory) => void; isDark?: boolean }> = ({ value, onChange, isDark }) => (
-    <div className={`inline-flex rounded-xl p-0.5 ${isDark ? 'bg-[#1B2029]' : 'bg-neutral-100'}`}>
+    <div className="inline-flex items-center gap-3">
         {(Object.keys(CATEGORY_LABELS) as AssetCategory[]).map(category => (
             <button
                 key={category}
                 type="button"
                 onClick={() => onChange(category)}
-                className={`rounded-[10px] px-3 py-1.5 text-xs font-medium transition-all ${
+                className={`border-b px-0 py-2 text-xs font-medium transition-all ${
                     value === category
-                        ? isDark ? 'bg-[#2A3140] text-[#F3F4F6] shadow-sm' : 'bg-white text-neutral-900 shadow-sm'
-                        : isDark ? 'text-[#667085] hover:text-[#D0D5DD]' : 'text-neutral-500 hover:text-neutral-800'
+                        ? isDark ? 'border-[#F3F4F6] text-[#F3F4F6]' : 'border-neutral-900 text-neutral-900'
+                        : isDark ? 'border-transparent text-[#667085] hover:text-[#D0D5DD]' : 'border-transparent text-neutral-500 hover:text-neutral-800'
                 }`}
             >
                 {CATEGORY_LABELS[category]}
@@ -91,8 +92,10 @@ const RunningHubWebAppPanel: React.FC<{ theme: 'light' | 'dark'; compactMode: bo
             : 'border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400'
     }`;
 
-    const btnClass = `rounded-xl px-4 py-2 text-xs font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed ${
-        isDark ? 'bg-orange-600 text-white hover:bg-orange-500' : 'bg-orange-500 text-white hover:bg-orange-600'
+    const btnClass = `rounded-lg border px-4 py-2 text-xs font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed ${
+        isDark
+            ? 'border-[#2A3140] bg-[#161A22] text-[#F3F4F6] hover:border-[#4B5B78] hover:bg-[#1B2029]'
+            : 'border-neutral-200 bg-white text-neutral-800 hover:border-neutral-300 hover:bg-neutral-50'
     }`;
 
     // 持久化 apiKey & webappId
@@ -313,6 +316,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
     getApiKeyForModel,
     onAgentFinalPrompt,
     onAgentGenerateImage,
+    onReversePrompt,
 }) => {
     const isDark = theme === 'dark';
     const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
@@ -450,7 +454,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                     transition: 'opacity 0.2s ease-out, transform 0.28s ease-out',
                     transform: isMinimized ? 'translateY(0)' : 'translateY(-6px)',
                 }}
-                className={`theme-aware fixed z-20 flex h-10 w-10 items-center justify-center rounded-xl border shadow-lg ${
+                className={`theme-aware fixed z-20 flex h-10 w-10 items-center justify-center rounded-xl border shadow-sm ${
                     isDark ? 'border-[#2A3140] bg-[#12151B] text-[#98A2B3] hover:text-white' : 'border-neutral-200 bg-white text-neutral-600 hover:text-neutral-900'
                 }`}
                 title="打开侧边栏"
@@ -473,7 +477,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                     transition: 'transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease-out, width 0.25s ease-out',
                     pointerEvents: isMinimized ? 'none' : 'auto',
                 }}
-                className={`compact-right-panel theme-aware fixed z-[30] flex flex-col overflow-hidden border shadow-2xl backdrop-blur-xl ${
+                className={`compact-right-panel theme-aware fixed z-[30] flex flex-col overflow-hidden border shadow-xl backdrop-blur-xl ${
                     compactMode ? 'rounded-[24px]' : 'rounded-[28px]'
                 } ${isDark ? 'border-[#2A3140] bg-[#12151B]/96' : 'border-neutral-200/60 bg-white/96'}`}
             >
@@ -483,7 +487,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                 />
 
                 <div className={`flex items-center justify-between border-b ${isDark ? 'border-[#2A3140]' : 'border-neutral-200/60'} ${compactMode ? 'px-3 py-2' : 'px-4 py-2.5'}`}>
-                    <div className={`flex items-center rounded-xl ${isDark ? 'bg-[#1B2029]' : 'bg-neutral-100'} p-0.5 ${compactMode ? 'gap-0' : 'gap-0'}`}>
+                    <div className={`flex items-center gap-3 ${compactMode ? 'text-[12px]' : ''}`}>
                         {([
                             { key: 'agent' as RightPanelTab, label: 'Agent', icon: '🤖' },
                             { key: 'history' as RightPanelTab, label: '历史', icon: null },
@@ -494,7 +498,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                                 key={tab.key}
                                 type="button"
                                 onClick={() => setActiveTab(tab.key)}
-                                className={`right-panel-tab ${activeTab === tab.key ? 'active' : ''} ${compactMode ? 'px-2.5 py-1.5 text-[12px]' : ''}`}
+                                className={`right-panel-tab ${activeTab === tab.key ? 'active' : ''} ${compactMode ? 'text-[12px]' : ''}`}
                             >
                                 {tab.icon ? `${tab.icon} ${tab.label}` : tab.label}
                             </button>
@@ -503,12 +507,10 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                     <button
                         type="button"
                         onClick={onToggleMinimize}
-                        className={`rounded-lg p-1.5 transition-colors ${isDark ? 'text-[#667085] hover:bg-[#1B2029] hover:text-[#D0D5DD]' : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700'}`}
+                        className={`rounded-md border px-2 py-1.5 text-[11px] transition-colors ${isDark ? 'border-[#2A3140] text-[#667085] hover:border-[#4B5B78] hover:text-[#D0D5DD]' : 'border-neutral-200 text-neutral-400 hover:border-neutral-300 hover:text-neutral-700'}`}
                         title="收起"
                     >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M18 6 6 18" /><path d="m6 6 12 12" />
-                        </svg>
+                        收起
                     </button>
                 </div>
 
@@ -576,7 +578,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                                 {items.length === 0 ? (
                                     <div className={`flex h-full items-center justify-center ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`}>
                                         <div className="text-center">
-                                            <svg className="mx-auto mb-3 h-14 w-14 opacity-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                            <svg className={`mx-auto mb-3 h-14 w-14 ${isDark ? 'opacity-30' : 'opacity-20'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                                                 <rect x="3" y="7" width="7" height="10" rx="1" />
                                                 <rect x="14" y="4" width="7" height="16" rx="1" />
                                             </svg>
@@ -630,6 +632,23 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                                                                 <div className="truncate text-xs font-medium">{item.name || '未命名'}</div>
                                                                 <div className="text-[10px] opacity-80">{item.width}×{item.height}</div>
                                                             </div>
+                                                            {onReversePrompt && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="pointer-events-auto rounded-lg bg-white/10 p-1 backdrop-blur transition-colors hover:bg-white/20"
+                                                                    title="反推 Prompt"
+                                                                    onClick={event => {
+                                                                        event.stopPropagation();
+                                                                        onReversePrompt(item.dataUrl, item.mimeType || 'image/png', item.width, item.height);
+                                                                    }}
+                                                                >
+                                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white">
+                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                                                        <polyline points="17 8 12 3 7 8" />
+                                                                        <line x1="12" y1="3" x2="12" y2="15" />
+                                                                    </svg>
+                                                                </button>
+                                                            )}
                                                             <button
                                                                 type="button"
                                                                 className="pointer-events-auto rounded-lg bg-white/10 p-1 backdrop-blur transition-colors hover:bg-white/20"

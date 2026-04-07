@@ -94,6 +94,33 @@ function getClient(capability: "text" | "image" | "video" = "text", explicitKey?
   return new GoogleGenAI({ apiKey: getApiKey(capability, explicitKey) });
 }
 
+function normalizeGeminiErrorMessage(message: string, status?: number): string {
+  const msg = message || '';
+
+  if (msg.includes('API_KEY_INVALID') || msg.includes('API key not valid')) {
+    return 'API Key 无效，请检查 Google AI Studio 里复制的 Key 是否正确。';
+  }
+
+  if (msg.includes('PERMISSION_DENIED') || msg.includes('403')) {
+    return 'Google Key 权限不足。请确认该 Key 对应的 AI Studio 项目可用，并已启用 Gemini API 访问。';
+  }
+
+  if (
+    status === 429 ||
+    msg.includes('RESOURCE_EXHAUSTED') ||
+    msg.includes('429') ||
+    msg.includes('quota') ||
+    msg.includes('rate limit') ||
+    msg.includes('no available credits') ||
+    msg.includes('billing') ||
+    msg.includes('credit')
+  ) {
+    return 'Google AI Studio 当前不可计费或额度不足。请检查：1. 是否仍是免费层配额打满；2. AI Studio 项目是否已设置结算；3. 2026 年起 Google Cloud 300 美元欢迎赠金通常不能直接用于 Gemini API；4. 若你的账号是预付费方案，AI Studio 结算页里必须有正的预付积分。';
+  }
+
+  return msg;
+}
+
 /**
  * 轻量级 API Key 验证 — 调用 Gemini models.list 接口
  * 成功返回 { ok: true }，失败返回 { ok: false, message }
@@ -105,7 +132,7 @@ export async function validateGeminiApiKey(apiKey: string): Promise<{ ok: boolea
     if (res.ok) return { ok: true };
     const body = await res.json().catch(() => ({}));
     const msg = body?.error?.message || `HTTP ${res.status}`;
-    return { ok: false, message: msg };
+    return { ok: false, message: normalizeGeminiErrorMessage(msg, res.status) };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : 'Network error' };
   }
@@ -184,11 +211,7 @@ export async function enhancePromptWithGemini(request: PromptEnhanceRequest, api
   } catch (error) {
     console.error("Error enhancing prompt with Gemini:", error);
     if (error instanceof Error) {
-      const msg = error.message;
-      if (msg.includes('API_KEY_INVALID') || msg.includes('API key not valid')) {
-        throw new Error('API Key 无效，请在设置中检查你的 Google API Key。');
-      }
-      throw new Error(`提示词润色失败: ${msg}`);
+      throw new Error(`提示词润色失败: ${normalizeGeminiErrorMessage(error.message)}`);
     }
     throw new Error("润色提示词时发生未知错误。");
   }
@@ -319,18 +342,7 @@ export async function editImage(
     // 步骤9：错误处理
     console.error("Error calling Gemini API:", error);
     if (error instanceof Error) {
-        // 优化错误提示，区分 key 问题和其他问题
-        const msg = error.message;
-        if (msg.includes('API_KEY_INVALID') || msg.includes('API key not valid')) {
-            throw new Error('API Key 无效，请在设置中检查你的 Google API Key 是否正确。');
-        }
-        if (msg.includes('PERMISSION_DENIED') || msg.includes('403')) {
-            throw new Error('API Key 权限不足，请确认该 Key 已启用 Generative Language API。');
-        }
-        if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('429')) {
-            throw new Error('API 调用配额已用完，请稍后重试或更换 API Key。');
-        }
-        throw new Error(`Gemini API 错误: ${msg}`);
+      throw new Error(`Gemini API 错误: ${normalizeGeminiErrorMessage(error.message)}`);
     }
     throw new Error("调用 Gemini API 时发生未知错误。");
   }
@@ -389,17 +401,7 @@ export async function generateImageFromText(prompt: string, apiKey?: string): Pr
   } catch (error) {
     console.error("Error calling Gemini API for text-to-image:", error);
     if (error instanceof Error) {
-        const msg = error.message;
-        if (msg.includes('API_KEY_INVALID') || msg.includes('API key not valid')) {
-            throw new Error('API Key 无效，请在设置中检查你的 Google API Key 是否正确。');
-        }
-        if (msg.includes('PERMISSION_DENIED') || msg.includes('403')) {
-            throw new Error('API Key 权限不足，请确认该 Key 已启用 Generative Language API。');
-        }
-        if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('429')) {
-            throw new Error('API 调用配额已用完，请稍后重试或更换 API Key。');
-        }
-        throw new Error(`Gemini 图片生成错误: ${msg}`);
+      throw new Error(`Gemini 图片生成错误: ${normalizeGeminiErrorMessage(error.message)}`);
     }
     throw new Error("调用 Gemini API 生成图片时发生未知错误。");
   }

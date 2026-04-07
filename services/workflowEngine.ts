@@ -172,26 +172,26 @@ async function executeImageGen(
   const prompt = inputs.text || '';
   const refImage = inputs.image || null;
   const provider = (node.config?.provider as AIProvider) || 'google';
+  const model = node.config?.model || (provider === 'openrouter' ? 'google/gemini-3.1-flash-image-preview' : provider === 'openai' ? 'gpt-image-1' : 'gemini-3.1-flash-image-preview');
   const key = getDefaultApiKey(ctx, provider);
   if (!key) throw new Error(`未找到 ${provider} 的 API Key`);
 
-  if (provider === 'google' || key.provider === 'google') {
-    const { generateImageFromText, editImage, setGeminiRuntimeConfig } = await import('../services/geminiService');
-    setGeminiRuntimeConfig({ textApiKey: key.key, imageApiKey: key.key, videoApiKey: key.key });
+  if (provider === 'google' || provider === 'openai' || provider === 'openrouter' || provider === 'custom' || key.provider === 'google' || key.provider === 'openai' || key.provider === 'openrouter' || key.provider === 'custom') {
+    const { editImageWithProvider, generateImageWithProvider } = await import('../services/aiGateway');
+    const result = refImage
+      ? await editImageWithProvider(
+          [{ href: refImage, mimeType: 'image/png' }],
+          prompt,
+          model,
+          key,
+        )
+      : await generateImageWithProvider(prompt, model, key);
 
-    if (refImage) {
-      // img2img via editImage
-      const result = await editImage(
-        [{ href: refImage, mimeType: 'image/png' }],
-        prompt,
-        undefined,
-        key.key,
-      );
-      return { image: result?.href || null };
-    } else {
-      const result = await generateImageFromText(prompt, key.key);
-      return { image: result?.href || null };
+    if (result?.newImageBase64 && result?.newImageMimeType) {
+      return { image: `data:${result.newImageMimeType};base64,${result.newImageBase64}` };
     }
+
+    return { image: null, text: result?.textResponse || '' };
   }
 
   // RunningHub-based image gen
@@ -235,22 +235,26 @@ async function executeVideoGen(
 ): Promise<NodeIOMap> {
   const prompt = inputs.text || '';
   const firstFrame = inputs.image || null;
-  const key = getDefaultApiKey(ctx, 'google', 'keling');
+  const provider = (node.config?.provider as AIProvider) || 'google';
+  const model = node.config?.model || (provider === 'minimax' ? 'video-01' : 'veo-3.1-generate-preview');
+  const key = getDefaultApiKey(ctx, provider, 'google', 'minimax', 'keling');
   if (!key) throw new Error('未找到视频生成的 API Key');
 
-  if (key.provider === 'google') {
-    const { generateVideo, setGeminiRuntimeConfig } = await import('../services/geminiService');
-    setGeminiRuntimeConfig({ textApiKey: key.key, imageApiKey: key.key, videoApiKey: key.key });
-    const result = await generateVideo(
-      prompt,
-      firstFrame ? { href: firstFrame, mimeType: 'image/png' } : undefined,
-      undefined,
-      key.key,
-    );
-    return { video: result?.href || null };
+  const { generateVideoWithProvider } = await import('../services/aiGateway');
+  const result = await generateVideoWithProvider(
+    prompt,
+    model,
+    key,
+    {
+      onProgress: (status) => ctx.onProgress?.(node.id, status),
+      image: firstFrame ? { href: firstFrame, mimeType: 'image/png' } : undefined,
+    },
+  );
+  if (result?.videoBlob) {
+    const videoUrl = URL.createObjectURL(result.videoBlob);
+    return { video: videoUrl };
   }
-
-  throw new Error(`视频生成暂不支持 ${key.provider}`);
+  return { video: null };
 }
 
 async function executeRunningHub(

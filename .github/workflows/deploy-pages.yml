@@ -37,7 +37,10 @@ jobs:
         run: npm ci
 
       - name: Build for GitHub Pages
-        run: npx vite build --base /Flovart/
+        run: |
+          export VITE_APP_VERSION="$(node -p \"require('./package.json').version\")"
+          export VITE_APP_COMMIT_SHA="${GITHUB_SHA}"
+          npx vite build --base /Flovart/
 
       # GitHub Pages SPA 需要 404.html 来处理客户端路由
       - name: Create 404 fallback

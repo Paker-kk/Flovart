@@ -55,6 +55,62 @@ describe('aiGateway - validateApiKey', () => {
 });
 
 describe('aiGateway - generateImageWithProvider', () => {
+    it('OpenRouter 使用 chat completions 返回图片 data url', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({
+                choices: [{
+                    message: {
+                        images: [{ image_url: { url: 'data:image/png;base64,ZmFrZQ==' } }],
+                    },
+                }],
+            }),
+        });
+
+        const result = await generateImageWithProvider('test prompt', 'openai/gpt-image-1', {
+            id: '1',
+            provider: 'openrouter',
+            capabilities: ['image'],
+            key: 'sk-or-test-key',
+            createdAt: 0,
+            updatedAt: 0,
+        });
+
+        expect(result.newImageBase64).toBe('ZmFrZQ==');
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            expect.stringContaining('openrouter.ai/api/v1/chat/completions'),
+            expect.objectContaining({ method: 'POST' }),
+        );
+    });
+
+    it('custom OpenAI 兼容端点即使模型带前缀也走 images/generations', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({
+                data: [{ b64_json: 'ZmFrZQ==' }],
+            }),
+        });
+
+        const result = await generateImageWithProvider('test prompt', 'openai/gpt-image-1', {
+            id: '2',
+            provider: 'custom',
+            capabilities: ['image'],
+            key: 'sk-test-key',
+            baseUrl: 'https://example-proxy.test/v1',
+            extraConfig: { endpointFlavor: 'openai-compatible' },
+            createdAt: 0,
+            updatedAt: 0,
+        });
+
+        expect(result.newImageBase64).toBe('ZmFrZQ==');
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            expect.stringContaining('example-proxy.test/v1/images/generations'),
+            expect.objectContaining({ method: 'POST' }),
+        );
+    });
+
     it('不支持的 provider 抛出错误', async () => {
         await expect(
             generateImageWithProvider('test prompt', 'claude-3-haiku', { id: '1', provider: 'anthropic', capabilities: ['text'], key: 'test', createdAt: 0, updatedAt: 0 })

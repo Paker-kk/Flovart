@@ -44,6 +44,7 @@ const providerBaseUrl: Record<AIProvider, string> = {
     runningHub: 'https://www.runninghub.cn/openapi/v2',
     minimax: 'https://api.minimax.chat/v1',
     volcengine: 'https://ark.cn-beijing.volces.com/api/v3',
+    openrouter: 'https://openrouter.ai/api/v1',
     custom: '',
 };
 
@@ -107,6 +108,8 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
     const [isFetchingModels, setIsFetchingModels] = React.useState(false);
     const [fetchError, setFetchError] = React.useState<string | null>(null);
     const [autoDetectedProvider, setAutoDetectedProvider] = React.useState<AIProvider | null>(null);
+    const [endpointFlavor, setEndpointFlavor] = React.useState<'google' | 'openai-compatible' | 'openrouter-compatible' | null>(null);
+    const [detectedCapabilities, setDetectedCapabilities] = React.useState<AICapability[]>([]);
 
     const modelOptions = React.useMemo(() => ({
         text: ensureModelOption(
@@ -164,6 +167,9 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         setProvider(next);
         setBaseUrl(providerBaseUrl[next]);
         setCapabilities(inferCapabilitiesByProvider(next));
+        setEndpointFlavor(null);
+        setDetectedCapabilities([]);
+        setFetchError(null);
         // 自动填充该 provider 的预设模型
         const pm = DEFAULT_PROVIDER_MODELS[next];
         if (pm) {
@@ -195,7 +201,12 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
 
         const modelsToSave = editModels.length > 0 ? editModels : undefined;
         const customModelsToSave = editModels.map(m => m.id);
-        const extraToSave = Object.keys(extraConfig).length > 0 ? extraConfig : undefined;
+        const fallbackEndpointFlavor = provider === 'custom'
+            ? (/openrouter/i.test(baseUrl) ? 'openrouter-compatible' : 'openai-compatible')
+            : undefined;
+        const extraToSave = Object.keys(extraConfig).length > 0 || fallbackEndpointFlavor
+            ? { ...extraConfig, ...(fallbackEndpointFlavor && !extraConfig.endpointFlavor ? { endpointFlavor: fallbackEndpointFlavor } : {}) }
+            : undefined;
 
         if (editingKeyId) {
             // 编辑模式：更新已有 Key
@@ -241,6 +252,8 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         setEditModels(item.models || (item.customModels || []).map(id => ({ id, name: id })));
         setEditDefaultModel(item.defaultModel || '');
         setExtraConfig(item.extraConfig || {});
+        setEndpointFlavor((item.extraConfig?.endpointFlavor as 'google' | 'openai-compatible' | 'openrouter-compatible' | undefined) || null);
+        setDetectedCapabilities(item.capabilities?.length ? [...item.capabilities] : []);
         setValidationResult(null);
         setShowKeyModal(true);
     };
@@ -258,6 +271,8 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         setFetchedModels([]);
         setFetchError(null);
         setAutoDetectedProvider(null);
+        setEndpointFlavor(null);
+        setDetectedCapabilities([]);
         setShowKeyModal(false);
     };
 
@@ -270,6 +285,8 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
             const result = await fetchModelsForProvider(targetProvider, targetKey.trim(), targetBaseUrl?.trim() || undefined);
             if (result.ok && result.models.length > 0) {
                 setFetchedModels(result.models);
+                setEndpointFlavor(result.endpointFlavor || null);
+                setDetectedCapabilities(result.capabilitySummary || []);
                 // 自动填充到编辑模型列表
                 const modelItems: ModelItem[] = result.models.map(m => ({ id: m.id, name: m.name || m.id }));
                 setEditModels(modelItems);
@@ -278,6 +295,9 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                 const caps = new Set<AICapability>();
                 for (const m of result.models) caps.add(m.capability);
                 if (caps.size > 0) setCapabilities(Array.from(caps));
+                if (result.endpointFlavor) {
+                    setExtraConfig(prev => ({ ...prev, endpointFlavor: result.endpointFlavor }));
+                }
             } else if (!result.ok) {
                 setFetchError(result.error || '拉取失败');
             }
@@ -850,6 +870,27 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
                                     自动识别为 <strong>{PROVIDER_LABELS[autoDetectedProvider]}</strong>
                                     {isFetchingModels && <span className="ml-1 animate-pulse">正在拉取模型列表...</span>}
+                                </div>
+                            )}
+
+                            {endpointFlavor && (
+                                <div className={`rounded-xl px-3 py-2 text-xs ${
+                                    isDark ? 'bg-[#161A22] text-[#D0D5DD]' : 'bg-[#F8FAFC] text-[#475467]'
+                                }`}>
+                                    兼容端点识别：
+                                    <strong className="ml-1">
+                                        {endpointFlavor === 'openrouter-compatible'
+                                            ? 'OpenRouter 风格'
+                                            : endpointFlavor === 'openai-compatible'
+                                                ? 'OpenAI 兼容风格'
+                                                : 'Google 原生风格'}
+                                    </strong>
+                                    {detectedCapabilities.length > 0 && (
+                                        <span className="ml-2">
+                                            能力：{detectedCapabilities.map(cap => capabilityLabels[cap]).join(' / ')}
+                                        </span>
+                                    )}
+                                    {fetchedModels.length > 0 && <span className="ml-2">已识别 {fetchedModels.length} 个模型</span>}
                                 </div>
                             )}
 

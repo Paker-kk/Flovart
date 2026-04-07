@@ -11,21 +11,50 @@ export interface FetchedModel {
     name: string;
     capability: AICapability;
     description?: string;
+    inputModalities?: string[];
+    outputModalities?: string[];
+    supportedParameters?: string[];
 }
 
 export interface FetchModelsResult {
     ok: boolean;
     models: FetchedModel[];
     error?: string;
+    endpointFlavor?: 'google' | 'openai-compatible' | 'openrouter-compatible';
+    capabilitySummary?: AICapability[];
 }
 
 // ── Capability 推断规则 ─────────────────────────────
-function inferCapability(modelId: string): AICapability {
-    const id = modelId.toLowerCase();
+function stripProviderPrefix(modelId: string): string {
+    const normalized = modelId.toLowerCase();
+    const parts = normalized.split('/');
+    return parts.length > 1 ? parts.slice(1).join('/') : normalized;
+}
+
+function inferCapability(modelId: string, model?: any): AICapability {
+    const outputModalities = model?.architecture?.output_modalities || model?.output_modalities || [];
+    if (Array.isArray(outputModalities)) {
+        if (outputModalities.includes('video')) return 'video';
+        if (outputModalities.includes('image')) return 'image';
+    }
+
+    const id = stripProviderPrefix(modelId);
     if (/^veo|video/.test(id)) return 'video';
     if (/^imagen|image-generation|dall-e|gpt-image|stable-diffusion|sdxl|flux|midjourney/.test(id)) return 'image';
     if (/image/.test(id) && /gemini/.test(id)) return 'image';
     return 'text';
+}
+
+function summarizeCapabilities(models: FetchedModel[]): AICapability[] {
+    return Array.from(new Set(models.map(model => model.capability)));
+}
+
+function detectEndpointFlavor(baseUrl: string, rawModels: any[]): 'openai-compatible' | 'openrouter-compatible' {
+    if (/openrouter/i.test(baseUrl)) return 'openrouter-compatible';
+    if (rawModels.some(model => model?.architecture?.output_modalities || model?.supported_parameters)) {
+        return 'openrouter-compatible';
+    }
+    return 'openai-compatible';
 }
 
 // ── Google Gemini ──────────────────────────────────
@@ -63,7 +92,7 @@ async function fetchGoogleModels(apiKey: string, baseUrl?: string): Promise<Fetc
                     description: m.description?.slice(0, 120),
                 };
             });
-        return { ok: true, models };
+        return { ok: true, models, endpointFlavor: 'google', capabilitySummary: summarizeCapabilities(models) };
     } catch (err) {
         return { ok: false, models: [], error: err instanceof Error ? err.message : '网络错误' };
     }
@@ -86,6 +115,7 @@ async function fetchOpenAICompatibleModels(
         }
         const data = await res.json();
         const rawModels: any[] = data.data || data.models || [];
+        const endpointFlavor = provider === 'openrouter' ? 'openrouter-compatible' : detectEndpointFlavor(baseUrl, rawModels);
         const models: FetchedModel[] = rawModels
             .filter((m: any) => {
                 const id: string = m.id || '';
@@ -96,11 +126,15 @@ async function fetchOpenAICompatibleModels(
                 const id = m.id || '';
                 return {
                     id,
-                    name: id,
-                    capability: inferCapability(id),
+                    name: m.name || id,
+                    capability: inferCapability(id, m),
+                    description: m.description?.slice?.(0, 160),
+                    inputModalities: m.architecture?.input_modalities,
+                    outputModalities: m.architecture?.output_modalities,
+                    supportedParameters: m.supported_parameters,
                 };
             });
-        return { ok: true, models };
+        return { ok: true, models, endpointFlavor, capabilitySummary: summarizeCapabilities(models) };
     } catch (err) {
         return { ok: false, models: [], error: err instanceof Error ? err.message : '网络错误' };
     }
@@ -109,6 +143,7 @@ async function fetchOpenAICompatibleModels(
 // ── Provider 默认 Base URL ──────────────────────────
 const PROVIDER_BASE_URLS: Partial<Record<AIProvider, string>> = {
     openai: 'https://api.openai.com/v1',
+    openrouter: 'https://openrouter.ai/api/v1',
     deepseek: 'https://api.deepseek.com/v1',
     siliconflow: 'https://api.siliconflow.cn/v1',
     qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
@@ -127,7 +162,7 @@ export async function fetchModelsForProvider(
     }
 
     // OpenAI 兼容类
-    if (['openai', 'deepseek', 'siliconflow', 'qwen', 'minimax', 'volcengine', 'custom'].includes(provider)) {
+    if (['openai', 'openrouter', 'deepseek', 'siliconflow', 'qwen', 'minimax', 'volcengine', 'custom'].includes(provider)) {
         const url = baseUrl || PROVIDER_BASE_URLS[provider];
         if (!url) {
             return { ok: false, models: [], error: '未指定 Base URL' };
@@ -166,3 +201,85 @@ export const FREE_KEY_LINKS: { provider: AIProvider; label: string; url: string;
         description: '注册即送额度，支持文本、图片和视频生成',
     },
 ];
+
+// ── 模型缓存 ──────────────────────────────────────
+const MODEL_CACHE_TTL = 60 * 60 * 1000; // 1 小时
+const CACHE_KEY_PREFIX = 'modelCache.';
+
+interface CachedModels {
+    models: FetchedModel[];
+    fetchedAt: number;
+    endpointFlavor?: string;
+}
+
+function getCachedModels(provider: AIProvider, keyFingerprint: string): CachedModels | null {
+    try {
+        const raw = localStorage.getItem(`${CACHE_KEY_PREFIX}${provider}_${keyFingerprint}`);
+        if (!raw) return null;
+        const cached: CachedModels = JSON.parse(raw);
+        if (Date.now() - cached.fetchedAt > MODEL_CACHE_TTL) return null;
+        return cached;
+    } catch {
+        return null;
+    }
+}
+
+function setCachedModels(provider: AIProvider, keyFingerprint: string, models: FetchedModel[], endpointFlavor?: string) {
+    try {
+        const entry: CachedModels = { models, fetchedAt: Date.now(), endpointFlavor };
+        localStorage.setItem(`${CACHE_KEY_PREFIX}${provider}_${keyFingerprint}`, JSON.stringify(entry));
+    } catch { /* storage full — silent */ }
+}
+
+function keyFingerprint(apiKey: string): string {
+    return apiKey.slice(0, 6) + '...' + apiKey.slice(-4);
+}
+
+/**
+ * 带缓存的模型拉取。TTL 内直接返回缓存，过期后自动重新拉取。
+ */
+export async function fetchModelsWithCache(
+    provider: AIProvider,
+    apiKey: string,
+    baseUrl?: string,
+    forceRefresh = false,
+): Promise<FetchModelsResult> {
+    const fp = keyFingerprint(apiKey);
+    if (!forceRefresh) {
+        const cached = getCachedModels(provider, fp);
+        if (cached) {
+            return {
+                ok: true,
+                models: cached.models,
+                endpointFlavor: cached.endpointFlavor as FetchModelsResult['endpointFlavor'],
+                capabilitySummary: summarizeCapabilities(cached.models),
+            };
+        }
+    }
+    const result = await fetchModelsForProvider(provider, apiKey, baseUrl);
+    if (result.ok && result.models.length > 0) {
+        setCachedModels(provider, fp, result.models, result.endpointFlavor);
+    }
+    return result;
+}
+
+/**
+ * 批量刷新所有 API Key 对应的模型列表。
+ * 返回每个 Key 的拉取结果，供 useApiKeys 合并到 userApiKeys 状态。
+ */
+export async function refreshAllProviderModels(
+    keys: { id: string; provider: AIProvider; key: string; baseUrl?: string }[],
+    forceRefresh = false,
+): Promise<Map<string, FetchedModel[]>> {
+    const results = new Map<string, FetchedModel[]>();
+    const tasks = keys.map(async (k) => {
+        try {
+            const result = await fetchModelsWithCache(k.provider, k.key, k.baseUrl, forceRefresh);
+            if (result.ok && result.models.length > 0) {
+                results.set(k.id, result.models);
+            }
+        } catch { /* individual key failure doesn't block others */ }
+    });
+    await Promise.allSettled(tasks);
+    return results;
+}

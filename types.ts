@@ -172,7 +172,7 @@ export interface GenerationHistoryItem {
 
 // API Key & Model Preferences
 export type ThemeMode = 'light' | 'dark' | 'system';
-export type AIProvider = 'openai' | 'anthropic' | 'google' | 'qwen' | 'banana' | 'deepseek' | 'siliconflow' | 'keling' | 'flux' | 'midjourney' | 'runningHub' | 'minimax' | 'volcengine' | 'custom';
+export type AIProvider = 'openai' | 'anthropic' | 'google' | 'qwen' | 'banana' | 'deepseek' | 'siliconflow' | 'keling' | 'flux' | 'midjourney' | 'runningHub' | 'minimax' | 'volcengine' | 'openrouter' | 'custom';
 export type AICapability = 'text' | 'image' | 'video' | 'agent';
 
 /** 模型条目（用于结构化展示） */

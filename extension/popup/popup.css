@@ -1,12 +1,12 @@
 /* Flovart Popup — Compact Extension Popup Styles */
 :root {
-  --bg: #0F1117;
-  --bg-card: #161A22;
-  --border: #2A3140;
-  --text: #E4E7EC;
-  --text-dim: #667085;
-  --accent: #6366F1;
-  --accent-hover: #818CF8;
+  --bg: #0A0A0B;
+  --bg-card: #121214;
+  --border: #2A2A2E;
+  --text: #F0F0F2;
+  --text-dim: #71717A;
+  --accent: #DC2626;
+  --accent-hover: #EF4444;
   --radius: 14px;
 }
 
@@ -44,7 +44,7 @@ body {
   font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  background: linear-gradient(135deg, #6366F1, #A855F7);
+  background: linear-gradient(135deg, #DC2626, #F43F5E);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -68,7 +68,7 @@ body {
   padding: 12px;
   border: none;
   border-radius: var(--radius);
-  background: linear-gradient(135deg, #6366F1, #7C3AED);
+  background: linear-gradient(135deg, #DC2626, #9F1239);
   color: #fff;
   font-size: 14px;
   font-weight: 600;
@@ -89,7 +89,7 @@ body {
 
 .popup-cta:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 4px 20px rgba(220, 38, 38, 0.4);
 }
 
 .popup-cta:hover::before {
@@ -138,7 +138,7 @@ body {
 
 .popup-action:hover {
   border-color: var(--accent);
-  background: rgba(99, 102, 241, 0.08);
+  background: rgba(220, 38, 38, 0.08);
   transform: translateY(-1px);
 }
 
@@ -175,7 +175,7 @@ body {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #667085;
+  background: #71717A;
   transition: background 0.3s;
 }
 

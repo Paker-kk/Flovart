@@ -60,7 +60,7 @@ function buildSuggestionExtension(getItems: (query: string) => MentionItem[]) {
                                     interactive: true,
                                     trigger: 'manual',
                                     placement: 'bottom-start',
-                                    theme: 'light-border',
+                                    theme: 'mention-popup',
                                     arrow: false,
                                     offset: [0, 4],
                                     zIndex: 9999,

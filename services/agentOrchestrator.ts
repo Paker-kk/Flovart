@@ -203,16 +203,21 @@ export interface OrchestratorCallbacks {
 
 // Approximate costs per 1K tokens for common models
 const COST_PER_1K: Record<string, number> = {
+    'gpt-5.4': 0.005,
+    'gpt-5.4-mini': 0.001,
+    'gpt-5.4-nano': 0.0003,
     'gpt-4o': 0.005,
-    'gpt-4.1': 0.005,
     'gpt-4o-mini': 0.00015,
-    'claude-3-5-sonnet': 0.003,
-    'claude-sonnet-4': 0.003,
-    'gemini-2.0-flash': 0.0001,
+    'claude-opus-4-6': 0.015,
+    'claude-sonnet-4-6': 0.003,
+    'claude-haiku-4-5': 0.0008,
+    'gemini-3-flash': 0.0001,
+    'gemini-3.1-pro': 0.001,
     'gemini-2.5-flash': 0.0001,
+    'gemini-2.5-pro': 0.001,
     'deepseek-chat': 0.0001,
     'deepseek-v3': 0.0001,
-    'qwen-turbo': 0.0001,
+    'qwen-max': 0.0002,
 };
 
 function estimateCost(model: string, outputChars: number): number {

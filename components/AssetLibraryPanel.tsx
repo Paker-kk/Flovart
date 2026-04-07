@@ -10,6 +10,7 @@ interface AssetLibraryPanelProps {
     docked?: boolean; // 右侧停靠
     initialWidth?: number; // 停靠时默认宽度
     onGenerate?: (prompt: string) => void; // 顶部输入框生成
+    onReversePrompt?: (imageDataUrl: string, mimeType: string, width?: number, height?: number) => void; // 反推 Prompt
 }
 
 const CategoryTabs: React.FC<{ value: AssetCategory; onChange: (c: AssetCategory) => void }>=({ value, onChange }) => (
@@ -20,7 +21,7 @@ const CategoryTabs: React.FC<{ value: AssetCategory; onChange: (c: AssetCategory
     </div>
 );
 
-export const AssetLibraryPanel: React.FC<AssetLibraryPanelProps> = ({ isOpen, onClose, library, onRemove, onRename, docked = false, initialWidth, onGenerate }) => {
+export const AssetLibraryPanel: React.FC<AssetLibraryPanelProps> = ({ isOpen, onClose, library, onRemove, onRename, docked = false, initialWidth, onGenerate, onReversePrompt }) => {
     const panelRef = useRef<HTMLDivElement>(null);
     const headerRef = useRef<HTMLDivElement>(null);
     const [category, setCategory] = useState<AssetCategory>('character');
@@ -264,13 +265,24 @@ export const AssetLibraryPanel: React.FC<AssetLibraryPanelProps> = ({ isOpen, on
                                             <div className="text-[13px] font-medium truncate">{item.name || '未命名'}</div>
                                             <div className="text-[11px] opacity-80">{item.width}×{item.height}</div>
                                         </div>
-                                        <button 
-                                            className="pointer-events-auto p-1 rounded bg-white/10 hover:bg-white/20"
-                                            title="删除"
-                                            onClick={(e) => { e.stopPropagation(); onRemove(category, item.id); }}
-                                        >
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-                                        </button>
+                                        <div className="flex items-center gap-1">
+                                            {onReversePrompt && (
+                                                <button
+                                                    className="pointer-events-auto p-1 rounded bg-white/10 hover:bg-white/20"
+                                                    title="反推 Prompt"
+                                                    onClick={(e) => { e.stopPropagation(); onReversePrompt(item.dataUrl, 'image/png', item.width, item.height); }}
+                                                >
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                                                </button>
+                                            )}
+                                            <button 
+                                                className="pointer-events-auto p-1 rounded bg-white/10 hover:bg-white/20"
+                                                title="删除"
+                                                onClick={(e) => { e.stopPropagation(); onRemove(category, item.id); }}
+                                            >
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             )}

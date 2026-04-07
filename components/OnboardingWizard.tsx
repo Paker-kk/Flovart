@@ -20,8 +20,9 @@
  */
 
 import React, { useState } from 'react';
-import type { AIProvider, AICapability, UserApiKey } from '../types';
+import type { AIProvider, AICapability, ModelItem, UserApiKey } from '../types';
 import { validateApiKey } from '../services/aiGateway';
+import { fetchModelsForProvider, type FetchModelsResult } from '../services/modelFetcher';
 
 interface OnboardingWizardProps {
     /** 是否显示弹窗 */
@@ -53,6 +54,10 @@ const PROVIDER_CAPABILITIES: Record<AIProvider, AICapability[]> = {
     keling: ['image', 'video'],
     flux: ['image'],
     midjourney: ['image'],
+    runningHub: ['image'],
+    minimax: ['text', 'image', 'video'],
+    volcengine: ['text'],
+    openrouter: ['text', 'image'],
     custom: ['text', 'image'],
 };
 
@@ -68,6 +73,19 @@ const PROVIDER_LABELS: Record<string, string> = {
     flux: 'Flux',
     midjourney: 'Midjourney',
     custom: '自定义 / 第三方',
+};
+
+const CAPABILITY_LABELS: Record<AICapability, string> = {
+    text: '✏️ LLM润色',
+    image: '🖼️ 图片生成',
+    video: '🎬 视频生成',
+    agent: '🤖 Agent',
+};
+
+const ENDPOINT_FLAVOR_LABELS: Record<'google' | 'openai-compatible' | 'openrouter-compatible', string> = {
+    google: 'Google 原生风格',
+    'openai-compatible': 'OpenAI 兼容风格',
+    'openrouter-compatible': 'OpenRouter 风格',
 };
 
 export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
@@ -86,6 +104,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     const [customBaseUrl, setCustomBaseUrl] = useState('');
     const [customCaps, setCustomCaps] = useState<AICapability[]>(['text', 'image']);
     const [customModelInput, setCustomModelInput] = useState('');
+    const [isDetectingModels, setIsDetectingModels] = useState(false);
+    const [detectedCapabilities, setDetectedCapabilities] = useState<AICapability[]>([]);
+    const [detectedModels, setDetectedModels] = useState<ModelItem[]>([]);
+    const [endpointFlavor, setEndpointFlavor] = useState<'google' | 'openai-compatible' | 'openrouter-compatible' | null>(null);
 
     if (!isOpen) return null;
 
@@ -111,6 +133,65 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             : 'text-[#667085] hover:text-[#344054]'
     }`;
 
+    const parseModelItems = (value: string): ModelItem[] => value
+        .split(',')
+        .map(item => item.trim())
+        .filter(Boolean)
+        .map(id => ({ id, name: id }));
+
+    const mergeModelItems = (primary: ModelItem[], secondary: ModelItem[]): ModelItem[] => {
+        const merged = new Map<string, ModelItem>();
+        for (const item of [...primary, ...secondary]) {
+            if (!merged.has(item.id)) {
+                merged.set(item.id, item);
+            }
+        }
+        return Array.from(merged.values());
+    };
+
+    const resetCustomDetection = () => {
+        setDetectedCapabilities([]);
+        setDetectedModels([]);
+        setEndpointFlavor(null);
+    };
+
+    const applyDetectedResult = (result: FetchModelsResult) => {
+        const models = result.models.map(model => ({ id: model.id, name: model.name || model.id }));
+        setDetectedModels(models);
+        setDetectedCapabilities(result.capabilitySummary || Array.from(new Set(result.models.map(model => model.capability))));
+        setEndpointFlavor(result.endpointFlavor || null);
+    };
+
+    const detectCustomEndpoint = async (silent = false): Promise<FetchModelsResult | null> => {
+        if (!customBaseUrl.trim()) {
+            if (!silent) setError('请先填写 Base URL');
+            return null;
+        }
+        if (!apiKey.trim()) {
+            if (!silent) setError('请先填写 API Key');
+            return null;
+        }
+
+        setIsDetectingModels(true);
+        if (!silent) setError(null);
+        try {
+            const result = await fetchModelsForProvider('custom', apiKey.trim(), customBaseUrl.trim());
+            if (result.ok) {
+                applyDetectedResult(result);
+            } else if (!silent) {
+                setError(result.error || '自动识别失败，请手动勾选能力');
+            }
+            return result;
+        } catch (err) {
+            if (!silent) {
+                setError(err instanceof Error ? err.message : '自动识别失败，请手动勾选能力');
+            }
+            return null;
+        } finally {
+            setIsDetectingModels(false);
+        }
+    };
+
     /**
      * 验证并保存 API Key
      * 验证通过后自动推断 provider capabilities 并保存
@@ -129,10 +210,41 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             const result = await validateApiKey(provider, apiKey.trim(), baseUrlForValidation);
             if (result.ok) {
                 // 验证通过，保存 Key 并进入完成页
-                const caps = provider === 'custom' ? customCaps : PROVIDER_CAPABILITIES[provider];
-                const customModels = provider === 'custom' && customModelInput.trim()
-                    ? customModelInput.split(',').map(m => m.trim()).filter(Boolean)
-                    : undefined;
+                const manualModels = provider === 'custom' ? parseModelItems(customModelInput) : [];
+                let caps = provider === 'custom'
+                    ? (detectedCapabilities.length > 0 ? detectedCapabilities : customCaps)
+                    : PROVIDER_CAPABILITIES[provider];
+                let modelsToSave: ModelItem[] | undefined;
+                let customModels: string[] | undefined;
+                let defaultModel: string | undefined;
+                let extraConfig: Record<string, string> | undefined;
+
+                if (provider === 'custom') {
+                    const detectionResult = await detectCustomEndpoint(true);
+                    const fetchedModels = detectionResult?.ok
+                        ? detectionResult.models.map(model => ({ id: model.id, name: model.name || model.id }))
+                        : detectedModels;
+                    const resolvedEndpointFlavor = detectionResult?.endpointFlavor
+                        || endpointFlavor
+                        || (/openrouter/i.test(customBaseUrl) ? 'openrouter-compatible' : 'openai-compatible');
+
+                    if (fetchedModels.length > 0) {
+                        modelsToSave = mergeModelItems(fetchedModels, manualModels);
+                        caps = detectionResult?.capabilitySummary && detectionResult.capabilitySummary.length > 0
+                            ? detectionResult.capabilitySummary
+                            : detectionResult?.ok
+                                ? Array.from(new Set(detectionResult.models.map(model => model.capability)))
+                                : caps;
+                        defaultModel = fetchedModels[0]?.id;
+                    } else {
+                        modelsToSave = manualModels;
+                        defaultModel = modelsToSave[0]?.id;
+                    }
+
+                    customModels = modelsToSave.map(model => model.id);
+                    extraConfig = resolvedEndpointFlavor ? { endpointFlavor: resolvedEndpointFlavor } : undefined;
+                }
+
                 onAddApiKey({
                     provider,
                     capabilities: caps,
@@ -144,7 +256,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                     isDefault: true,
                     ...(provider === 'custom' && {
                         baseUrl: customBaseUrl.trim(),
+                        models: modelsToSave,
                         customModels,
+                        defaultModel,
+                        extraConfig,
                     }),
                 });
                 setStep(2);
@@ -201,7 +316,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                         </p>
                         <p className={`mb-8 text-sm leading-relaxed ${textSecondary}`}>
                             Flovart 使用 AI 帮你在画布上生成图片和视频。<br />
-                            你只需要一个 <strong className={textPrimary}>Google Gemini API Key</strong>（免费）就能开始。
+                            你可以直接接入 <strong className={textPrimary}>Google Gemini</strong>，也可以填入你自己的兼容端点，向导会尽量自动识别模型和能力。
                         </p>
 
                         <div className="space-y-3">
@@ -243,7 +358,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                     <button
                                         key={p}
                                         type="button"
-                                        onClick={() => { setProvider(p); setError(null); }}
+                                        onClick={() => {
+                                            setProvider(p);
+                                            setError(null);
+                                            resetCustomDetection();
+                                        }}
                                         className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
                                             provider === p
                                                 ? isDark
@@ -269,7 +388,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                     </label>
                                     <input
                                         value={customBaseUrl}
-                                        onChange={(e) => setCustomBaseUrl(e.target.value)}
+                                        onChange={(e) => {
+                                            setCustomBaseUrl(e.target.value);
+                                            resetCustomDetection();
+                                        }}
                                         placeholder="https://api.example.com/v1"
                                         className={inputClass}
                                     />
@@ -308,7 +430,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                     <input
                                         value={customModelInput}
                                         onChange={(e) => setCustomModelInput(e.target.value)}
-                                        placeholder="gpt-4o, claude-3-opus, ..."
+                                        placeholder="gpt-5.4, claude-opus-4-6, ..."
                                         className={inputClass}
                                     />
                                 </div>
@@ -323,7 +445,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                             <div className="relative">
                                 <input
                                     value={apiKey}
-                                    onChange={(e) => { setApiKey(e.target.value); setError(null); }}
+                                    onChange={(e) => {
+                                        setApiKey(e.target.value);
+                                        setError(null);
+                                        if (provider === 'custom') resetCustomDetection();
+                                    }}
                                     onKeyDown={handleKeyDown}
                                     type={showKey ? 'text' : 'password'}
                                     placeholder={provider === 'google' ? 'AIzaSy...' : 'sk-...'}
@@ -339,6 +465,41 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                 </button>
                             </div>
                         </div>
+
+                        {provider === 'custom' && (
+                            <div className="mb-4 space-y-3">
+                                <button
+                                    type="button"
+                                    onClick={() => detectCustomEndpoint(false)}
+                                    disabled={!customBaseUrl.trim() || !apiKey.trim() || isDetectingModels}
+                                    className={`${secondaryBtn} w-full rounded-2xl border ${
+                                        isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E4E7EC] bg-[#F8FAFC]'
+                                    } disabled:cursor-not-allowed disabled:opacity-50`}
+                                >
+                                    {isDetectingModels ? '正在自动识别模型与能力...' : '自动识别模型与能力'}
+                                </button>
+
+                                {(endpointFlavor || detectedCapabilities.length > 0 || detectedModels.length > 0) && (
+                                    <div className={`rounded-2xl border px-4 py-3 text-xs leading-relaxed ${
+                                        isDark ? 'border-[#2A3140] bg-[#161A22] text-[#D0D5DD]' : 'border-[#E4E7EC] bg-[#F8FAFC] text-[#475467]'
+                                    }`}>
+                                        {endpointFlavor && (
+                                            <div>
+                                                兼容端点识别：<strong className="ml-1">{ENDPOINT_FLAVOR_LABELS[endpointFlavor]}</strong>
+                                            </div>
+                                        )}
+                                        {detectedCapabilities.length > 0 && (
+                                            <div className="mt-1">
+                                                自动识别能力：{detectedCapabilities.map(cap => CAPABILITY_LABELS[cap]).join(' / ')}
+                                            </div>
+                                        )}
+                                        {detectedModels.length > 0 && (
+                                            <div className="mt-1">已识别 {detectedModels.length} 个模型，保存后会自动写入默认模型。</div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {/* 小提示 */}
                         <div className={`mb-4 rounded-2xl p-3 text-xs leading-relaxed ${isDark ? 'bg-[#161A22] text-[#98A2B3]' : 'bg-[#F8FAFC] text-[#667085]'}`}>
@@ -366,10 +527,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                             {provider === 'qwen' && '💡 支持通义千问模型的提示词润色功能。'}
                             {provider === 'custom' && (
                                 <>
-                                    💡 支持所有 <strong className={textPrimary}>OpenAI 兼容</strong> 的第三方 API。<br />
-                                    填入 Base URL（如 <code className="text-blue-500">https://api.xxx.com/v1</code>），勾选支持的能力，添加 API Key 即可。
+                                    💡 优先支持 <strong className={textPrimary}>OpenAI 兼容 / OpenRouter 风格</strong> 的第三方 API。<br />
+                                    填入 Base URL（如 <code className="text-blue-500">https://api.xxx.com/v1</code>）和 API Key 后，可先点一次“自动识别模型与能力”。
                                     <br />
-                                    <span className="mt-1 inline-block">适用于 Ollama / vLLM / LiteLLM / OneAPI / 各类中转站等。</span>
+                                    <span className="mt-1 inline-block">适用于 Ollama / vLLM / LiteLLM / OneAPI / New API / 各类中转站等，但不同中转站对图片编辑和视频能力支持并不完全一致。</span>
                                 </>
                             )}
                         </div>
@@ -386,9 +547,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                         {/* 自动推断的功能 */}
                         <div className={`mb-6 flex items-center gap-2 text-xs ${textSecondary}`}>
                             <span>自动启用：</span>
-                            {(provider === 'custom' ? customCaps : PROVIDER_CAPABILITIES[provider]).map(cap => (
+                            {(provider === 'custom'
+                                ? (detectedCapabilities.length > 0 ? detectedCapabilities : customCaps)
+                                : PROVIDER_CAPABILITIES[provider]).map(cap => (
                                 <span key={cap} className={`rounded-full px-2 py-0.5 ${isDark ? 'bg-[#1B2330] text-[#7CB4FF]' : 'bg-[#EFF6FF] text-[#175CD3]'}`}>
-                                    {cap === 'text' ? '✏️ LLM润色' : cap === 'image' ? '🖼️ 图片生成' : cap === 'video' ? '🎬 视频生成' : '🤖 Agent'}
+                                    {CAPABILITY_LABELS[cap]}
                                 </span>
                             ))}
                         </div>

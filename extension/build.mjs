@@ -87,11 +87,11 @@ function createMinimalPng(size) {
   for (let y = 0; y < size; y++) {
     rawData.push(0); // filter byte: None
     for (let x = 0; x < size; x++) {
-      // Gradient from indigo (#6366F1) to purple (#A855F7)
+      // Gradient from red (#DC2626) to rose (#F43F5E)
       const t = (x + y) / (size * 2);
-      const r = Math.round(99 + (168 - 99) * t);
-      const g = Math.round(102 + (85 - 102) * t);
-      const b = Math.round(241 + (247 - 241) * t);
+      const r = Math.round(220 + (244 - 220) * t);
+      const g = Math.round(38 + (63 - 38) * t);
+      const b = Math.round(38 + (94 - 38) * t);
       rawData.push(r, g, b);
     }
   }
