@@ -5,6 +5,7 @@
 import type { WorkflowNode, WorkflowEdge, NodeKind } from '../components/nodeflow/types';
 import { NODE_DEFS } from '../components/nodeflow/defs';
 import type { AIProvider, UserApiKey } from '../types';
+import { normalizeProviderBaseUrl } from './baseUrl';
 
 // ──── Data Types ────
 
@@ -129,7 +130,7 @@ async function executeLLM(
   }
 
   // OpenAI-compatible
-  const baseUrl = (key.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
+  const baseUrl = normalizeProviderBaseUrl(key.provider, key.baseUrl || 'https://api.openai.com/v1');
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {

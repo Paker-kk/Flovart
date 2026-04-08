@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=360" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Flovart Extension</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
@@ -17,7 +18,7 @@
         </svg>
         <span class="popup-title">Flovart</span>
       </div>
-      <span class="popup-version">v1.0</span>
+      <span class="popup-version">v1.1</span>
     </div>
 
     <!-- Open Canvas CTA -->
@@ -52,16 +53,24 @@
         <div class="popup-key-indicator" id="keyIndicator"></div>
         <span id="keyStatusText">检测中...</span>
       </div>
-      <div id="quickKeySetup" class="popup-key-setup" style="display:none">
-        <select id="providerSelect" class="popup-select">
+      <div id="quickKeySetup" class="popup-key-setup is-hidden">
+        <select id="providerSelect" class="popup-select" title="选择 API 提供商" aria-label="选择 API 提供商">
           <option value="google">Google Gemini</option>
           <option value="openai">OpenAI</option>
+          <option value="openrouter">OpenRouter</option>
           <option value="deepseek">DeepSeek</option>
+          <option value="siliconflow">SiliconFlow</option>
           <option value="anthropic">Anthropic</option>
           <option value="minimax">MiniMax</option>
           <option value="volcengine">火山引擎</option>
           <option value="qwen">通义千问</option>
+          <option value="custom">自定义兼容端点</option>
         </select>
+        <div id="providerHint" class="popup-provider-hint">官方 Gemini Key，适合文本、图像、视频生成。</div>
+        <div id="customBaseUrlWrap" class="popup-custom-base-url is-hidden">
+          <input type="url" id="baseUrlInput" class="popup-input" placeholder="https://your-endpoint.com 或 https://your-endpoint.com/v1" />
+          <div class="popup-inline-note">支持 OpenAI 兼容第三方、One-API、LiteLLM 等端点。只填域名时会自动尝试补齐 /v1。</div>
+        </div>
         <div class="popup-key-input-row">
           <input type="password" id="apiKeyInput" class="popup-input" placeholder="粘贴 API Key..." />
           <button id="saveKeyBtn" class="popup-btn-save">保存</button>
@@ -74,10 +83,20 @@
       </button>
     </div>
 
+    <div class="popup-section">
+      <div class="popup-section-title">联系与反馈</div>
+      <div class="popup-links">
+        <button id="openDemoLink" class="popup-link-card" title="打开在线 Demo">在线 Demo</button>
+        <button id="openGithubLink" class="popup-link-card" title="打开 GitHub 仓库">GitHub</button>
+        <button id="openIssuesLink" class="popup-link-card" title="打开 Issues 反馈问题">反馈 Issue</button>
+      </div>
+      <div class="popup-inline-note">产品更新看仓库，问题反馈和合作沟通先走 GitHub Issues。</div>
+    </div>
+
     <!-- Status -->
     <div class="popup-footer">
       <div class="popup-status" id="statusDot"></div>
-      <span id="statusText">右键任意图片可快速操作</span>
+      <span id="statusText">右键任意图片可快速操作，第三方兼容入口已接入</span>
     </div>
   </div>
 

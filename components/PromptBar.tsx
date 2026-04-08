@@ -13,6 +13,7 @@ import { ConfigSelector } from './ConfigManager/ConfigSelector';
 import RichPromptEditor, { type RichPromptEditorHandle } from './RichPromptEditor';
 import type { MentionItem } from './MentionList';
 import { extractMentions } from './CanvasMentionExtension';
+import { inferProviderFromModel, PROVIDER_LABELS, getModelCapabilityTags } from '../services/aiGateway';
 
 interface PromptBarProps {
     t: (key: string, ...args: any[]) => string;
@@ -92,7 +93,11 @@ function getModeLabel(mode: GenerationMode): string {
 }
 
 function getModelLabel(mode: GenerationMode, imageModel?: string, videoModel?: string): string {
-    return mode === 'video' ? videoModel || '选择视频模型' : imageModel || '选择图片模型';
+    const model = mode === 'video' ? videoModel : imageModel;
+    if (!model) return mode === 'video' ? '选择视频模型' : '选择图片模型';
+    const provider = inferProviderFromModel(model);
+    const shortProvider = PROVIDER_LABELS[provider]?.split(' ')[0] || provider;
+    return `${shortProvider} · ${model.replace(/^(google|openai|anthropic|openrouter)\//, '')}`;
 }
 
 const PopoverHeader: React.FC<{ title: string; subtitle?: string }> = ({ title, subtitle }) => (
@@ -433,17 +438,41 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                         <PopoverHeader title="模型设置" subtitle="向上弹出选择，不打断输入流程" />
                                         <div className="max-h-[280px] space-y-1 overflow-y-auto pr-1">
                                             <div className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#98A2B3]">{generationMode === 'video' ? '视频模型' : '图片模型'}</div>
-                                            {currentModelOptions.map(model => (
-                                                <MenuOptionButton
-                                                    key={model}
-                                                    label={model}
-                                                    active={(generationMode === 'video' ? selectedVideoModel : selectedImageModel) === model}
-                                                    onClick={() => {
-                                                        generationMode === 'video' ? onVideoModelChange?.(model) : onImageModelChange?.(model);
-                                                        setExpandedPanel(null);
-                                                    }}
-                                                />
-                                            ))}
+                                            {(() => {
+                                                // 按 provider 分组显示模型列表
+                                                const grouped = new Map<string, string[]>();
+                                                for (const model of currentModelOptions) {
+                                                    const provider = inferProviderFromModel(model);
+                                                    const label = PROVIDER_LABELS[provider] || provider;
+                                                    if (!grouped.has(label)) grouped.set(label, []);
+                                                    grouped.get(label)!.push(model);
+                                                }
+                                                const selectedModel = generationMode === 'video' ? selectedVideoModel : selectedImageModel;
+                                                return Array.from(grouped.entries()).map(([providerLabel, models]) => (
+                                                    <div key={providerLabel}>
+                                                        {grouped.size > 1 && (
+                                                            <div className={`mt-1.5 px-2 pb-0.5 text-[10px] font-semibold tracking-wide ${isDark ? 'text-[#528BFF]' : 'text-[#175CD3]'}`}>
+                                                                {providerLabel}
+                                                            </div>
+                                                        )}
+                                                        {models.map(model => {
+                                                            const capTags = getModelCapabilityTags(model);
+                                                            const shortName = model.replace(/^(google|openai|anthropic|openrouter)\//, '');
+                                                            return (
+                                                            <MenuOptionButton
+                                                                key={model}
+                                                                label={capTags ? `${capTags} ${shortName}` : shortName}
+                                                                active={selectedModel === model}
+                                                                onClick={() => {
+                                                                    generationMode === 'video' ? onVideoModelChange?.(model) : onImageModelChange?.(model);
+                                                                    setExpandedPanel(null);
+                                                                }}
+                                                            />
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ));
+                                            })()}
 
                                             {generationMode === 'video' && (
                                                 <div className="grid grid-cols-2 gap-2 px-1 pt-3">

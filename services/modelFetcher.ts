@@ -5,6 +5,7 @@
  */
 
 import type { AIProvider, AICapability } from '../types';
+import { getOpenAICompatibleBaseUrlCandidates, normalizeProviderBaseUrl } from './baseUrl';
 
 export interface FetchedModel {
     id: string;
@@ -22,6 +23,7 @@ export interface FetchModelsResult {
     error?: string;
     endpointFlavor?: 'google' | 'openai-compatible' | 'openrouter-compatible';
     capabilitySummary?: AICapability[];
+    effectiveBaseUrl?: string;
 }
 
 // ── Capability 推断规则 ─────────────────────────────
@@ -57,17 +59,61 @@ function detectEndpointFlavor(baseUrl: string, rawModels: any[]): 'openai-compat
     return 'openai-compatible';
 }
 
+function truncateResponseSnippet(text: string, maxLength = 200) {
+    const normalized = text.replace(/\s+/g, ' ').trim();
+    if (normalized.length <= maxLength) return normalized;
+    return `${normalized.slice(0, maxLength)}...`;
+}
+
+function looksLikeHtmlResponse(text: string) {
+    return /^\s*<(?:!doctype|html|head|body)\b/i.test(text);
+}
+
+async function readJsonResponse<T>(response: Response, requestLabel: string): Promise<T> {
+    const text = await response.text().catch(() => '');
+    if (!text) return {} as T;
+
+    if (looksLikeHtmlResponse(text)) {
+        throw new Error(`${requestLabel} 返回了 HTML 页面，请检查 Base URL 是否指向 API 接口而不是网站首页。`);
+    }
+
+    try {
+        return JSON.parse(text) as T;
+    } catch {
+        const contentType = response.headers.get('Content-Type') || 'unknown';
+        throw new Error(`${requestLabel} 返回了非 JSON 响应 (${contentType})：${truncateResponseSnippet(text)}`);
+    }
+}
+
+async function readErrorMessage(response: Response, requestLabel: string): Promise<string> {
+    const text = await response.text().catch(() => '');
+    if (!text) return `${requestLabel}: HTTP ${response.status}`;
+
+    if (looksLikeHtmlResponse(text)) {
+        return `${requestLabel}: 返回了 HTML 页面，请检查 Base URL 是否指向 API 接口而不是网站首页。`;
+    }
+
+    try {
+        const json = JSON.parse(text);
+        const detail = json?.error?.message || json?.message || json?.detail;
+        if (detail) return String(detail);
+    } catch {
+        // Fall back to plain text below.
+    }
+
+    return `${requestLabel}: ${truncateResponseSnippet(text)}`;
+}
+
 // ── Google Gemini ──────────────────────────────────
 async function fetchGoogleModels(apiKey: string, baseUrl?: string): Promise<FetchModelsResult> {
     try {
-        const base = (baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
+        const base = normalizeProviderBaseUrl('google', baseUrl || 'https://generativelanguage.googleapis.com/v1beta');
         const url = `${base}/models?key=${encodeURIComponent(apiKey)}`;
         const res = await fetch(url);
         if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            return { ok: false, models: [], error: body?.error?.message || `HTTP ${res.status}` };
+            return { ok: false, models: [], error: await readErrorMessage(res, 'Google 模型列表拉取失败') };
         }
-        const data = await res.json();
+        const data = await readJsonResponse<any>(res, 'Google 模型列表响应');
         const models: FetchedModel[] = (data.models || [])
             .filter((m: any) => {
                 const name: string = m.name || '';
@@ -92,10 +138,34 @@ async function fetchGoogleModels(apiKey: string, baseUrl?: string): Promise<Fetc
                     description: m.description?.slice(0, 120),
                 };
             });
-        return { ok: true, models, endpointFlavor: 'google', capabilitySummary: summarizeCapabilities(models) };
+        return { ok: true, models, endpointFlavor: 'google', capabilitySummary: summarizeCapabilities(models), effectiveBaseUrl: base };
     } catch (err) {
         return { ok: false, models: [], error: err instanceof Error ? err.message : '网络错误' };
     }
+}
+
+function parseErrorText(response: Response, responseText: string, requestLabel: string) {
+    if (!responseText) return `${requestLabel}: HTTP ${response.status}`;
+
+    if (looksLikeHtmlResponse(responseText)) {
+        return `${requestLabel}: 返回了 HTML 页面，请检查 Base URL 是否指向 API 接口而不是网站首页。`;
+    }
+
+    try {
+        const json = JSON.parse(responseText);
+        const detail = json?.error?.message || json?.message || json?.detail;
+        if (detail) return String(detail);
+    } catch {
+        // Fall back to plain text below.
+    }
+
+    return `${requestLabel}: ${truncateResponseSnippet(responseText)}`;
+}
+
+function shouldRetryWithAnotherBaseUrl(status: number, responseText: string) {
+    if (looksLikeHtmlResponse(responseText)) return true;
+    if (status === 404 && /invalid url|you may need|get \/v1\/models/i.test(responseText)) return true;
+    return false;
 }
 
 // ── OpenAI / 兼容接口（DeepSeek、SiliconFlow、Qwen 等）──
@@ -104,40 +174,63 @@ async function fetchOpenAICompatibleModels(
     baseUrl: string,
     provider: AIProvider
 ): Promise<FetchModelsResult> {
-    try {
-        const url = `${baseUrl.replace(/\/+$/, '')}/models`;
-        const res = await fetch(url, {
-            headers: { Authorization: `Bearer ${apiKey}` },
-        });
-        if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            return { ok: false, models: [], error: body?.error?.message || `HTTP ${res.status}` };
-        }
-        const data = await res.json();
-        const rawModels: any[] = data.data || data.models || [];
-        const endpointFlavor = provider === 'openrouter' ? 'openrouter-compatible' : detectEndpointFlavor(baseUrl, rawModels);
-        const models: FetchedModel[] = rawModels
-            .filter((m: any) => {
-                const id: string = m.id || '';
-                // 排除明显的非生成模型
-                return !(/embed|whisper|tts|moderation|babbage|davinci-002/i.test(id));
-            })
-            .map((m: any) => {
-                const id = m.id || '';
-                return {
-                    id,
-                    name: m.name || id,
-                    capability: inferCapability(id, m),
-                    description: m.description?.slice?.(0, 160),
-                    inputModalities: m.architecture?.input_modalities,
-                    outputModalities: m.architecture?.output_modalities,
-                    supportedParameters: m.supported_parameters,
-                };
+    const candidates = getOpenAICompatibleBaseUrlCandidates(provider, baseUrl);
+    let lastError = '网络错误';
+
+    for (const candidateBaseUrl of candidates) {
+        try {
+            const url = `${candidateBaseUrl}/models`;
+            const res = await fetch(url, {
+                headers: { Authorization: `Bearer ${apiKey}` },
             });
-        return { ok: true, models, endpointFlavor, capabilitySummary: summarizeCapabilities(models) };
-    } catch (err) {
-        return { ok: false, models: [], error: err instanceof Error ? err.message : '网络错误' };
+            const text = await res.text().catch(() => '');
+
+            if (!res.ok) {
+                lastError = parseErrorText(res, text, '模型列表拉取失败');
+                if (shouldRetryWithAnotherBaseUrl(res.status, text)) {
+                    continue;
+                }
+                return { ok: false, models: [], error: lastError };
+            }
+
+            if (looksLikeHtmlResponse(text)) {
+                lastError = '模型列表响应返回了 HTML 页面，请检查 Base URL 是否指向 API 接口而不是网站首页。';
+                continue;
+            }
+
+            const data = text ? JSON.parse(text) : {};
+            const rawModels: any[] = data.data || data.models || [];
+            const endpointFlavor = provider === 'openrouter' ? 'openrouter-compatible' : detectEndpointFlavor(candidateBaseUrl, rawModels);
+            const models: FetchedModel[] = rawModels
+                .filter((m: any) => {
+                    const id: string = m.id || m.name || '';
+                    return !(/embed|whisper|tts|moderation|babbage|davinci-002/i.test(id));
+                })
+                .map((m: any) => {
+                    const id = m.id || m.name || '';
+                    return {
+                        id,
+                        name: m.name || id,
+                        capability: inferCapability(id, m),
+                        description: m.description?.slice?.(0, 160),
+                        inputModalities: m.architecture?.input_modalities,
+                        outputModalities: m.architecture?.output_modalities,
+                        supportedParameters: m.supported_parameters,
+                    };
+                });
+            return {
+                ok: true,
+                models,
+                endpointFlavor,
+                capabilitySummary: summarizeCapabilities(models),
+                effectiveBaseUrl: candidateBaseUrl,
+            };
+        } catch (err) {
+            lastError = err instanceof Error ? err.message : '网络错误';
+        }
     }
+
+    return { ok: false, models: [], error: lastError };
 }
 
 // ── Provider 默认 Base URL ──────────────────────────

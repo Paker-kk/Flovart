@@ -1,5 +1,7 @@
 import type { AICapability, AIProvider, PromptEnhanceRequest, PromptEnhanceResult, UserApiKey } from '../types';
 import { editImage, enhancePromptWithGemini, generateImageFromText, generateVideo, validateGeminiApiKey } from './geminiService';
+import { fetchModelsForProvider, type FetchModelsResult } from './modelFetcher';
+import { normalizeProviderBaseUrl } from './baseUrl';
 
 type ImageInput = { href: string; mimeType: string };
 
@@ -79,28 +81,47 @@ export const DEFAULT_PROVIDER_MODELS: Partial<Record<AIProvider, ProviderModelMa
     },
 };
 
+export interface ApiKeyValidationResult {
+    ok: boolean;
+    message?: string;
+    endpointFlavor?: FetchModelsResult['endpointFlavor'];
+    capabilitySummary?: AICapability[];
+    effectiveBaseUrl?: string;
+}
+
 /**
  * 通用 API Key 验证 — 根据 provider 调用对应的验证逻辑
  */
-export async function validateApiKey(provider: AIProvider, apiKey: string, baseUrl?: string): Promise<{ ok: boolean; message?: string }> {
+export async function validateApiKey(provider: AIProvider, apiKey: string, baseUrl?: string): Promise<ApiKeyValidationResult> {
+    const normalizedInputBaseUrl = baseUrl ? normalizeProviderBaseUrl(provider, baseUrl) : undefined;
+
     if (provider === 'google') {
-        return validateGeminiApiKey(apiKey);
+        const result = await fetchModelsForProvider(provider, apiKey, baseUrl);
+        if (!result.ok) return { ok: false, message: result.error };
+        return {
+            ok: true,
+            message: result.capabilitySummary?.length
+                ? `已验证，可用能力：${result.capabilitySummary.join(' / ')}${result.effectiveBaseUrl && result.effectiveBaseUrl !== normalizedInputBaseUrl ? `，已自动识别 API 根：${result.effectiveBaseUrl}` : ''}`
+                : '已验证',
+            endpointFlavor: result.endpointFlavor,
+            capabilitySummary: result.capabilitySummary,
+            effectiveBaseUrl: result.effectiveBaseUrl,
+        };
     }
 
-    // OpenAI-compatible: 调用 /models 接口
+    // OpenAI-compatible: 不仅检查鉴权，还拿到能力摘要和协议类型
     if (provider === 'openai' || provider === 'qwen' || provider === 'deepseek' || provider === 'siliconflow' || provider === 'minimax' || provider === 'volcengine' || provider === 'openrouter' || provider === 'custom') {
-        try {
-            const url = (baseUrl || DEFAULT_BASE_URLS[provider]).replace(/\/$/, '');
-            const res = await fetch(`${url}/models`, {
-                method: 'GET',
-                headers: { Authorization: `Bearer ${apiKey}` },
-            });
-            if (res.ok) return { ok: true };
-            const body = await res.json().catch(() => ({}));
-            return { ok: false, message: body?.error?.message || `HTTP ${res.status}` };
-        } catch (err) {
-            return { ok: false, message: err instanceof Error ? err.message : '网络错误' };
-        }
+        const result = await fetchModelsForProvider(provider, apiKey, baseUrl);
+        if (!result.ok) return { ok: false, message: result.error };
+        return {
+            ok: true,
+            message: result.capabilitySummary?.length
+                ? `已验证，可用能力：${result.capabilitySummary.join(' / ')}${result.effectiveBaseUrl && result.effectiveBaseUrl !== normalizedInputBaseUrl ? `，已自动识别 API 根：${result.effectiveBaseUrl}` : ''}`
+                : '已验证，但端点未返回模型列表',
+            endpointFlavor: result.endpointFlavor,
+            capabilitySummary: result.capabilitySummary,
+            effectiveBaseUrl: result.effectiveBaseUrl,
+        };
     }
 
     // Anthropic: 调用 /messages 会返回 401 如果 key 无效
@@ -118,7 +139,7 @@ export async function validateApiKey(provider: AIProvider, apiKey: string, baseU
             });
             if (res.ok || res.status === 200) return { ok: true };
             if (res.status === 401 || res.status === 403) return { ok: false, message: 'API Key 无效或权限不足' };
-            return { ok: true }; // 其他错误可能是模型不存在，但 key 是对的
+            return { ok: true, capabilitySummary: ['text'] }; // 其他错误可能是模型不存在，但 key 是对的
         } catch (err) {
             return { ok: false, message: err instanceof Error ? err.message : '网络错误' };
         }
@@ -127,14 +148,14 @@ export async function validateApiKey(provider: AIProvider, apiKey: string, baseU
     // Keling / Flux / Midjourney: OpenAI-compatible 验证
     if (provider === 'keling' || provider === 'flux' || provider === 'midjourney') {
         try {
-            const url = (baseUrl || DEFAULT_BASE_URLS[provider]).replace(/\/$/, '');
+            const url = normalizeProviderBaseUrl(provider, baseUrl || DEFAULT_BASE_URLS[provider]);
             const res = await fetch(`${url}/models`, {
                 method: 'GET',
                 headers: { Authorization: `Bearer ${apiKey}` },
             });
-            if (res.ok) return { ok: true };
+            if (res.ok) return { ok: true, capabilitySummary: inferCapabilitiesByProvider(provider) };
             if (res.status === 401 || res.status === 403) return { ok: false, message: 'API Key 无效或权限不足' };
-            return { ok: true, message: '已保存（无法确认在线状态，但格式正确）' };
+            return { ok: true, message: '已保存（无法确认在线状态，但格式正确）', capabilitySummary: inferCapabilitiesByProvider(provider) };
         } catch (err) {
             return { ok: false, message: err instanceof Error ? err.message : '网络错误' };
         }
@@ -145,7 +166,7 @@ export async function validateApiKey(provider: AIProvider, apiKey: string, baseU
         try {
             const { rhTestApiKey } = await import('./runningHubService');
             const valid = await rhTestApiKey(apiKey);
-            return valid ? { ok: true } : { ok: false, message: 'API Key 无效' };
+            return valid ? { ok: true, capabilitySummary: ['image'] } : { ok: false, message: 'API Key 无效' };
         } catch (err) {
             return { ok: false, message: err instanceof Error ? err.message : '网络错误' };
         }
@@ -153,13 +174,13 @@ export async function validateApiKey(provider: AIProvider, apiKey: string, baseU
 
     // Banana / 其他: 简单格式校验
     if (apiKey.length < 10) return { ok: false, message: 'API Key 太短' };
-    return { ok: true, message: '已保存（格式校验通过，未做在线验证）' };
+    return { ok: true, message: '已保存（格式校验通过，未做在线验证）', capabilitySummary: inferCapabilitiesByProvider(provider) };
 }
 
 const DEFAULT_BASE_URLS: Record<AIProvider, string> = {
     openai: 'https://api.openai.com/v1',
     anthropic: 'https://api.anthropic.com/v1',
-    google: 'https://generativelanguage.googleapis.com/v1beta/models',
+    google: 'https://generativelanguage.googleapis.com/v1beta',
     qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     banana: 'https://api.banana.dev/v1/vision',
     deepseek: 'https://api.deepseek.com/v1',
@@ -225,7 +246,7 @@ export const PROVIDER_LABELS: Record<AIProvider, string> = {
 };
 
 function getBaseUrl(provider: AIProvider, key?: UserApiKey) {
-    return (key?.baseUrl || DEFAULT_BASE_URLS[provider]).replace(/\/$/, '');
+    return normalizeProviderBaseUrl(provider, key?.baseUrl || DEFAULT_BASE_URLS[provider]);
 }
 
 function requireApiKey(provider: AIProvider, key?: UserApiKey) {
@@ -329,6 +350,51 @@ function buildOpenRouterHeaders(apiKey: string) {
     };
 }
 
+function truncateResponseSnippet(text: string, maxLength = 200) {
+    const normalized = text.replace(/\s+/g, ' ').trim();
+    if (normalized.length <= maxLength) return normalized;
+    return `${normalized.slice(0, maxLength)}...`;
+}
+
+function looksLikeHtmlResponse(text: string) {
+    return /^\s*<(?:!doctype|html|head|body)\b/i.test(text);
+}
+
+async function readJsonResponse<T>(response: Response, requestLabel: string): Promise<T> {
+    const text = await response.text().catch(() => '');
+    if (!text) return {} as T;
+
+    if (looksLikeHtmlResponse(text)) {
+        throw new Error(`${requestLabel} 返回了 HTML 页面，请检查 Base URL 是否指向 API 接口而不是网站首页。`);
+    }
+
+    try {
+        return JSON.parse(text) as T;
+    } catch {
+        const contentType = response.headers.get('Content-Type') || 'unknown';
+        throw new Error(`${requestLabel} 返回了非 JSON 响应 (${contentType})：${truncateResponseSnippet(text)}`);
+    }
+}
+
+async function readErrorResponse(response: Response, requestLabel: string): Promise<string> {
+    const text = await response.text().catch(() => '');
+    if (!text) return `${requestLabel} (${response.status}): ${response.statusText}`;
+
+    if (looksLikeHtmlResponse(text)) {
+        return `${requestLabel} (${response.status}): 返回了 HTML 页面，请检查 Base URL 是否指向 API 接口而不是网站首页。`;
+    }
+
+    try {
+        const json = JSON.parse(text);
+        const detail = json?.error?.message || json?.message || json?.detail || json?.status_msg;
+        if (detail) return `${requestLabel} (${response.status}): ${detail}`;
+    } catch {
+        // Fall back to plain text below.
+    }
+
+    return `${requestLabel} (${response.status}): ${truncateResponseSnippet(text)}`;
+}
+
 function resolveGenerationProvider(model: string, key?: UserApiKey): AIProvider {
     if (key?.provider === 'custom') {
         const endpointFlavor = key.extraConfig?.endpointFlavor;
@@ -397,6 +463,18 @@ export function inferProviderFromModel(model: string): AIProvider {
     if (/^(doubao|skylark|ep-)/i.test(model)) return 'volcengine';
     if (/^(openrouter\/|google\/|anthropic\/|openai\/|meta-llama\/|x-ai\/)/i.test(model)) return 'openrouter';
     return 'custom';
+}
+
+/** 返回模型支持的能力标签（emoji 形式） */
+export function getModelCapabilityTags(model: string): string {
+    const provider = inferProviderFromModel(model);
+    const caps = DEFAULT_PROVIDER_MODELS[provider];
+    if (!caps) return '';
+    const tags: string[] = [];
+    if (caps.text?.includes(model)) tags.push('💬');
+    if (caps.image?.includes(model)) tags.push('🖼️');
+    if (caps.video?.includes(model)) tags.push('🎬');
+    return tags.join('');
 }
 
 async function enhancePromptWithOpenAICompatible(
@@ -854,11 +932,10 @@ export async function generateImageWithProvider(
         });
 
         if (!response.ok) {
-            const text = await response.text().catch(() => '');
-            throw new Error(`OpenRouter 图片生成失败 (${response.status}): ${text || response.statusText}`);
+            throw new Error(await readErrorResponse(response, 'OpenRouter 图片生成失败'));
         }
 
-        const json = await response.json();
+        const json = await readJsonResponse<any>(response, 'OpenRouter 图片生成响应');
         const imageUrl = json?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
         if (!imageUrl) {
             return {
@@ -889,11 +966,10 @@ export async function generateImageWithProvider(
         });
 
         if (!response.ok) {
-            const text = await response.text().catch(() => '');
-            throw new Error(`${provider} 图片生成失败 (${response.status}): ${text || response.statusText}`);
+            throw new Error(await readErrorResponse(response, `${PROVIDER_LABELS[provider]} 图片生成失败`));
         }
 
-        const json = await response.json();
+        const json = await readJsonResponse<any>(response, `${PROVIDER_LABELS[provider]} 图片生成响应`);
         return {
             newImageBase64: json?.data?.[0]?.b64_json || null,
             newImageMimeType: 'image/png',
@@ -947,11 +1023,10 @@ export async function editImageWithProvider(
         });
 
         if (!response.ok) {
-            const text = await response.text().catch(() => '');
-            throw new Error(`OpenRouter 参考图生成失败 (${response.status}): ${text || response.statusText}`);
+            throw new Error(await readErrorResponse(response, 'OpenRouter 参考图生成失败'));
         }
 
-        const json = await response.json();
+        const json = await readJsonResponse<any>(response, 'OpenRouter 参考图生成响应');
         const imageUrl = json?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
         if (!imageUrl) {
             return {
@@ -1006,11 +1081,10 @@ export async function editImageWithProvider(
         });
 
         if (!response.ok) {
-            const text = await response.text().catch(() => '');
-            throw new Error(`${PROVIDER_LABELS[provider]} 图片编辑失败 (${response.status}): ${text || response.statusText}`);
+            throw new Error(await readErrorResponse(response, `${PROVIDER_LABELS[provider]} 图片编辑失败`));
         }
 
-        const json = await response.json();
+        const json = await readJsonResponse<any>(response, `${PROVIDER_LABELS[provider]} 图片编辑响应`);
         const firstImage = json?.data?.[0];
         if (firstImage?.b64_json) {
             return {
@@ -1083,11 +1157,10 @@ export async function generateVideoWithProvider(
         });
 
         if (!createRes.ok) {
-            const text = await createRes.text().catch(() => '');
-            throw new Error(`MiniMax 视频生成请求失败 (${createRes.status}): ${text || createRes.statusText}`);
+            throw new Error(await readErrorResponse(createRes, 'MiniMax 视频生成请求失败'));
         }
 
-        const createJson = await createRes.json();
+        const createJson = await readJsonResponse<any>(createRes, 'MiniMax 视频生成创建响应');
         const taskId = createJson?.task_id;
         if (!taskId) {
             throw new Error('MiniMax 视频生成未返回 task_id');
@@ -1108,10 +1181,9 @@ export async function generateVideoWithProvider(
                 headers: { Authorization: `Bearer ${apiKey}` },
             });
             if (!queryRes.ok) {
-                const text = await queryRes.text().catch(() => '');
-                throw new Error(`MiniMax 任务查询失败 (${queryRes.status}): ${text || queryRes.statusText}`);
+                throw new Error(await readErrorResponse(queryRes, 'MiniMax 任务查询失败'));
             }
-            const queryJson = await queryRes.json();
+            const queryJson = await readJsonResponse<any>(queryRes, 'MiniMax 任务查询响应');
             const status = queryJson?.status;
 
             if (status === 'Fail' || status === 'fail') {
@@ -1134,10 +1206,9 @@ export async function generateVideoWithProvider(
             headers: { Authorization: `Bearer ${apiKey}` },
         });
         if (!fileRes.ok) {
-            const text = await fileRes.text().catch(() => '');
-            throw new Error(`MiniMax 文件下载失败 (${fileRes.status}): ${text || fileRes.statusText}`);
+            throw new Error(await readErrorResponse(fileRes, 'MiniMax 文件下载失败'));
         }
-        const fileJson = await fileRes.json();
+        const fileJson = await readJsonResponse<any>(fileRes, 'MiniMax 文件下载响应');
         const downloadUrl = fileJson?.file?.download_url;
         if (!downloadUrl) {
             throw new Error('MiniMax 未返回视频下载链接');
@@ -1183,11 +1254,10 @@ export async function generateVideoWithProvider(
         });
 
         if (!createRes.ok) {
-            const text = await createRes.text().catch(() => '');
-            throw new Error(`Keling 视频生成请求失败 (${createRes.status}): ${text || createRes.statusText}`);
+            throw new Error(await readErrorResponse(createRes, 'Keling 视频生成请求失败'));
         }
 
-        const createJson = await createRes.json();
+        const createJson = await readJsonResponse<any>(createRes, 'Keling 视频生成创建响应');
         const taskId = createJson?.data?.task_id;
         if (!taskId) throw new Error('Keling 视频生成未返回 task_id');
 
@@ -1206,10 +1276,9 @@ export async function generateVideoWithProvider(
                 headers: { Authorization: `Bearer ${apiKey}` },
             });
             if (!queryRes.ok) {
-                const text = await queryRes.text().catch(() => '');
-                throw new Error(`Keling 任务查询失败 (${queryRes.status}): ${text || queryRes.statusText}`);
+                throw new Error(await readErrorResponse(queryRes, 'Keling 任务查询失败'));
             }
-            const queryJson = await queryRes.json();
+            const queryJson = await readJsonResponse<any>(queryRes, 'Keling 任务查询响应');
             const status = queryJson?.data?.task_status;
 
             if (status === 'failed') {

@@ -9,6 +9,7 @@ import {
     inferProviderFromModel,
     isGoogleImageEditModel,
     isGoogleTextToImageModel,
+    PROVIDER_LABELS,
 } from '../services/aiGateway';
 import { setGeminiRuntimeConfig } from '../services/geminiService';
 import { setBananaRuntimeConfig } from '../services/bananaService';
@@ -34,6 +35,13 @@ const ensureModelOption = (options: string[], model?: string) => {
 const addUniqueModel = (set: Set<string>, model?: string) => {
     const trimmed = model?.trim();
     if (trimmed) set.add(trimmed);
+};
+
+const buildApiKeyFingerprint = (item: Pick<Partial<UserApiKey>, 'provider' | 'key' | 'baseUrl'>) => {
+    const provider = item.provider || '';
+    const key = item.key || '';
+    const baseUrl = item.baseUrl?.trim().replace(/\/+$/, '') || '';
+    return `${provider}::${key}::${baseUrl}`;
 };
 
 const FALLBACK_TEXT_OPTIONS = ensureModelOption([...(PROVIDER_MODELS.google?.text || [])], DEFAULT_MODEL_PREFS.textModel);
@@ -125,6 +133,71 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
         };
     }, [modelPreference.imageModel, modelPreference.textModel, modelPreference.videoModel, userApiKeys]);
 
+    // 自动适配：当已配置的 API Key 不覆盖当前选中模型的 provider 时，自动切换到有 Key 的 provider 的模型
+    const [modelAutoSwitchNotice, setModelAutoSwitchNotice] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!apiKeysLoaded || userApiKeys.length === 0) return;
+
+        // 仅考虑健康状态的 key（跳过 status === 'error'）
+        const healthyKeys = userApiKeys.filter(k => k.status !== 'error');
+        if (healthyKeys.length === 0) return;
+
+        const hasKeyForModel = (model: string, capability: AICapability) => {
+            const provider = inferProviderFromModel(model);
+            return healthyKeys.some(k => {
+                const caps = k.capabilities?.length ? k.capabilities : inferCapabilitiesByProvider(k.provider);
+                return caps.includes(capability) && k.provider === provider;
+            });
+        };
+
+        const findBestModel = (capability: 'text' | 'image' | 'video', currentModel: string): string | null => {
+            if (hasKeyForModel(currentModel, capability)) return null;
+            for (const key of healthyKeys) {
+                const caps = key.capabilities?.length ? key.capabilities : inferCapabilitiesByProvider(key.provider);
+                if (!caps.includes(capability)) continue;
+                const providerModels = PROVIDER_MODELS[key.provider];
+                if (providerModels) {
+                    const modelList = providerModels[capability];
+                    if (modelList && modelList.length > 0) return modelList[0];
+                }
+                if (key.customModels?.length) return key.customModels[0];
+                if (key.defaultModel) return key.defaultModel;
+            }
+            return null;
+        };
+
+        setModelPreference(prev => {
+            const updates: Partial<ModelPreference> = {};
+            const betterText = findBestModel('text', prev.textModel);
+            if (betterText) updates.textModel = betterText;
+            const betterImage = findBestModel('image', prev.imageModel);
+            if (betterImage) updates.imageModel = betterImage;
+            const betterVideo = findBestModel('video', prev.videoModel);
+            if (betterVideo) updates.videoModel = betterVideo;
+
+            if (Object.keys(updates).length > 0) {
+                const switched: string[] = [];
+                if (updates.imageModel) {
+                    const p = PROVIDER_LABELS[inferProviderFromModel(updates.imageModel)] || inferProviderFromModel(updates.imageModel);
+                    switched.push(`图片 → ${p}`);
+                }
+                if (updates.videoModel) {
+                    const p = PROVIDER_LABELS[inferProviderFromModel(updates.videoModel)] || inferProviderFromModel(updates.videoModel);
+                    switched.push(`视频 → ${p}`);
+                }
+                if (updates.textModel) {
+                    const p = PROVIDER_LABELS[inferProviderFromModel(updates.textModel)] || inferProviderFromModel(updates.textModel);
+                    switched.push(`文本 → ${p}`);
+                }
+                setModelAutoSwitchNotice(`已自动切换模型：${switched.join('，')}`);
+                setTimeout(() => setModelAutoSwitchNotice(null), 5000);
+                return { ...prev, ...updates };
+            }
+            return prev;
+        });
+    }, [apiKeysLoaded, userApiKeys]);
+
     // Usage monitoring summary (recomputed when settings panel opens or keys change)
     const usageSummaryMap = useMemo(() => {
         if (!isSettingsPanelOpen || userApiKeys.length === 0) return undefined;
@@ -180,7 +253,17 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
     // Chrome Extension bridge: sync API keys to chrome.storage for content script access
     useEffect(() => {
         if (!apiKeysLoaded || typeof chrome === 'undefined' || !chrome?.storage?.local) return;
-        const safeKeys = userApiKeys.map(k => ({ provider: k.provider, key: k.key, baseUrl: k.baseUrl, models: k.models, capabilities: k.capabilities }));
+        const safeKeys = userApiKeys.map(k => ({
+            provider: k.provider,
+            key: k.key,
+            baseUrl: k.baseUrl,
+            models: k.models,
+            capabilities: k.capabilities,
+            name: k.name,
+            defaultModel: k.defaultModel,
+            customModels: k.customModels,
+            extraConfig: k.extraConfig,
+        }));
         chrome.storage.local.set({ flovart_user_api_keys: safeKeys });
     }, [userApiKeys, apiKeysLoaded]);
 
@@ -189,14 +272,14 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
         if (typeof chrome === 'undefined' || !chrome?.storage?.onChanged) return;
         const handleStorageChange = (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, areaName: string) => {
             if (areaName !== 'local' || !changes.flovart_user_api_keys) return;
-            const extKeys = changes.flovart_user_api_keys.newValue as Array<{ provider: AIProvider; key: string; baseUrl?: string; models?: unknown[]; capabilities?: AICapability[] }> | undefined;
+            const extKeys = changes.flovart_user_api_keys.newValue as Array<Partial<UserApiKey>> | undefined;
             if (!Array.isArray(extKeys)) return;
             setUserApiKeys(prev => {
-                const existingFingerprints = new Set(prev.map(k => `${k.provider}::${k.key}`));
+                const existingFingerprints = new Set(prev.map(buildApiKeyFingerprint));
                 const newKeys: UserApiKey[] = [];
                 for (const ek of extKeys) {
                     if (!ek.provider || !ek.key) continue;
-                    const fp = `${ek.provider}::${ek.key}`;
+                    const fp = buildApiKeyFingerprint(ek);
                     if (existingFingerprints.has(fp)) continue;
                     newKeys.push(normalizeApiKeyEntry({
                         id: crypto.randomUUID(),
@@ -204,6 +287,11 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
                         key: ek.key,
                         baseUrl: ek.baseUrl,
                         capabilities: ek.capabilities,
+                        models: ek.models,
+                        name: ek.name,
+                        defaultModel: ek.defaultModel,
+                        customModels: ek.customModels,
+                        extraConfig: ek.extraConfig,
                         createdAt: Date.now(),
                         updatedAt: Date.now(),
                     }) as UserApiKey);
@@ -221,7 +309,7 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
         if (!apiKeysLoaded || userApiKeys.length === 0 || autoRefreshRan.current) return;
         autoRefreshRan.current = true;
         const keysToFetch = userApiKeys
-            .filter(k => k.key && k.provider !== 'banana' && k.provider !== 'runningHub')
+            .filter(k => k.key && k.status !== 'error' && k.provider !== 'banana' && k.provider !== 'runningHub')
             .map(k => ({ id: k.id, provider: k.provider, key: k.key, baseUrl: k.baseUrl }));
         if (keysToFetch.length === 0) return;
         refreshAllProviderModels(keysToFetch).then(results => {
@@ -242,6 +330,7 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
 
     const getPreferredApiKey = useCallback((capability: AICapability, provider?: AIProvider) => {
         const matches = userApiKeys.filter(key => {
+            if (key.status === 'error') return false;
             const capabilities = key.capabilities?.length ? key.capabilities : inferCapabilitiesByProvider(key.provider);
             return capabilities.includes(capability) && (!provider || key.provider === provider);
         });
@@ -370,5 +459,6 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
         handleDeleteApiKey,
         handleUpdateApiKey,
         handleSetDefaultApiKey,
+        modelAutoSwitchNotice,
     };
 }

@@ -9,6 +9,7 @@ import { splitImageByBanana, runBananaImageAgent } from '../services/bananaServi
 import {
     editImageWithProvider, enhancePromptWithProvider, generateImageWithProvider, generateVideoWithProvider,
     inferProviderFromModel, inferCapabilitiesByProvider, PROVIDER_LABELS, supportsMaskImageEditing, supportsReferenceImageEditing,
+    DEFAULT_PROVIDER_MODELS,
 } from '../services/aiGateway';
 import { addGenerationHistoryItem } from '../utils/generationHistory';
 import { recordApiUsage } from '../utils/usageMonitor';
@@ -77,6 +78,25 @@ export function useGeneration(params: UseGenerationParams) {
     } | null>(null);
 
     /* ---- helpers ---- */
+
+    /** 智能解析模型+Key：如果当前模型的 Provider 没有健康 Key，自动降级到任意可用 Key */
+    const resolveModelKey = useCallback((capability: 'image' | 'video' | 'text', currentModel: string) => {
+        const provider = inferProviderFromModel(currentModel);
+        const healthyKeys = userApiKeys.filter(k => k.status !== 'error');
+        const directKey = healthyKeys.find(k => {
+            const caps = k.capabilities?.length ? k.capabilities : inferCapabilitiesByProvider(k.provider);
+            return caps.includes(capability) && k.provider === provider;
+        });
+        if (directKey) return { model: currentModel, provider, key: directKey };
+        for (const key of healthyKeys) {
+            const caps = key.capabilities?.length ? key.capabilities : inferCapabilitiesByProvider(key.provider);
+            if (!caps.includes(capability)) continue;
+            const models = DEFAULT_PROVIDER_MODELS[key.provider]?.[capability];
+            const fallbackModel = models?.[0] || key.customModels?.[0] || key.defaultModel;
+            if (fallbackModel) return { model: fallbackModel, provider: key.provider, key };
+        }
+        return null;
+    }, [userApiKeys]);
 
     const handleEnhancePrompt = useCallback(async (payload: {
         prompt: string;
@@ -299,6 +319,13 @@ export function useGeneration(params: UseGenerationParams) {
     /* ---- Outpaint ---- */
 
     const handleOutpaint = async (element: ImageElement, direction: 'all' | 'left' | 'right' | 'up' | 'down', expandRatio = 0.3) => {
+        const outpaintResolved = resolveModelKey('image', modelPreference.imageModel);
+        if (!outpaintResolved) {
+            setError('未找到可用于 AI 扩图的 API Key，请先在设置中配置。');
+            setIsSettingsPanelOpen(true);
+            return;
+        }
+
         setIsLoading(true);
         setError(null);
         setProgressMessage(`正在 AI 扩图 (${direction})...`);
@@ -345,8 +372,8 @@ export function useGeneration(params: UseGenerationParams) {
             const result = await editImageWithProvider(
                 [{ href: expandedDataUrl, mimeType: 'image/png' }],
                 `Seamlessly extend the image content outward. Continue the existing scene, lighting, and style naturally into the new areas. Do not change or alter the original central area.`,
-                modelPreference.imageModel,
-                getPreferredApiKey('image', inferProviderFromModel(modelPreference.imageModel)),
+                outpaintResolved.model,
+                outpaintResolved.key,
                 { mask: { href: maskDataUrl, mimeType: 'image/png' } },
             );
 
@@ -432,12 +459,8 @@ export function useGeneration(params: UseGenerationParams) {
         const targetImage = elements.find(el => el.id === inpaintState.targetImageId) as ImageElement | undefined;
         if (!targetImage) { setInpaintState(null); return; }
 
-        const imageProvider = inferProviderFromModel(modelPreference.imageModel);
-        const hasKey = userApiKeys.some(k => {
-            const caps = k.capabilities?.length ? k.capabilities : inferCapabilitiesByProvider(k.provider);
-            return caps.includes('image') && k.provider === imageProvider;
-        });
-        if (!hasKey) {
+        const inpaintResolved = resolveModelKey('image', modelPreference.imageModel);
+        if (!inpaintResolved) {
             setError('未找到可用于图片编辑的 API Key，请先在设置中配置。');
             setIsSettingsPanelOpen(true);
             return;
@@ -474,8 +497,8 @@ export function useGeneration(params: UseGenerationParams) {
             const result = await editImageWithProvider(
                 [{ href: targetImage.href, mimeType: targetImage.mimeType }],
                 inpaintPrompt.trim(),
-                modelPreference.imageModel,
-                getPreferredApiKey('image', imageProvider),
+                inpaintResolved.model,
+                inpaintResolved.key,
                 { mask: { href: maskDataUrl, mimeType: 'image/png' } },
             );
 
@@ -533,17 +556,14 @@ export function useGeneration(params: UseGenerationParams) {
         }
 
         const neededCapability: 'image' | 'video' = generationMode === 'video' ? 'video' : 'image';
-        const neededProvider = neededCapability === 'video'
-            ? inferProviderFromModel(modelPreference.videoModel)
-            : inferProviderFromModel(modelPreference.imageModel);
-        const hasKey = userApiKeys.some(k => {
-            const caps = k.capabilities?.length ? k.capabilities : inferCapabilitiesByProvider(k.provider);
-            return caps.includes(neededCapability) && k.provider === neededProvider;
-        });
-        if (!hasKey) {
-            const providerLabel = PROVIDER_LABELS[neededProvider] || neededProvider;
+
+        const imageResolved = resolveModelKey('image', modelPreference.imageModel);
+        const videoResolved = resolveModelKey('video', modelPreference.videoModel);
+        const activeResolved = neededCapability === 'video' ? videoResolved : imageResolved;
+
+        if (!activeResolved) {
             const capLabel = neededCapability === 'video' ? '视频' : '图片';
-            setError(`未配置 ${providerLabel} 的 API Key（${capLabel}生成需要）。点击右上角 ⚙️ 设置添加，或切换到已配置 Key 的模型。`);
+            setError(`未配置${capLabel}生成所需的 API Key。点击右上角 ⚙️ 设置添加。`);
             setIsSettingsPanelOpen(true);
             return;
         }
@@ -564,10 +584,14 @@ export function useGeneration(params: UseGenerationParams) {
             : [];
         const activeAttachments = source === 'right' ? chatAttachments : promptAttachments;
         const attachmentReferenceImages = activeAttachments.map(item => ({ href: item.href, mimeType: item.mimeType }));
-        const imageProvider = inferProviderFromModel(modelPreference.imageModel);
-        const videoProvider = inferProviderFromModel(modelPreference.videoModel);
-        const supportsReferenceEditing = supportsReferenceImageEditing(modelPreference.imageModel);
-        const supportsMaskEditing = supportsMaskImageEditing(modelPreference.imageModel);
+        const resolvedImageModel = imageResolved?.model || modelPreference.imageModel;
+        const resolvedVideoModel = videoResolved?.model || modelPreference.videoModel;
+        const imageProvider = imageResolved?.provider || inferProviderFromModel(modelPreference.imageModel);
+        const videoProvider = videoResolved?.provider || inferProviderFromModel(modelPreference.videoModel);
+        const resolvedImageKey = imageResolved?.key || getPreferredApiKey('image', imageProvider);
+        const resolvedVideoKey = videoResolved?.key || getPreferredApiKey('video', videoProvider);
+        const supportsReferenceEditing = supportsReferenceImageEditing(resolvedImageModel);
+        const supportsMaskEditing = supportsMaskImageEditing(resolvedImageModel);
         const imageOutputName = generationMode === 'keyframe' ? 'Keyframe' : 'Generated Image';
 
         if (generationMode === 'keyframe') {
@@ -593,8 +617,8 @@ export function useGeneration(params: UseGenerationParams) {
                 setProgressMessage('正在生成首尾帧过渡动画...');
                 const { videoBlob, mimeType } = await generateVideoWithProvider(
                     keyframePrompt,
-                    modelPreference.videoModel,
-                    getPreferredApiKey('video', videoProvider),
+                    resolvedVideoModel,
+                    resolvedVideoKey,
                     {
                         aspectRatio: videoAspectRatio,
                         onProgress: (message) => setProgressMessage(message),
@@ -690,8 +714,8 @@ export function useGeneration(params: UseGenerationParams) {
 
                 const { videoBlob, mimeType } = await generateVideoWithProvider(
                     effectivePrompt,
-                    modelPreference.videoModel,
-                    getPreferredApiKey('video', videoProvider),
+                    resolvedVideoModel,
+                    resolvedVideoKey,
                     {
                         aspectRatio: videoAspectRatio,
                         onProgress: (message) => setProgressMessage(message),
@@ -799,8 +823,8 @@ export function useGeneration(params: UseGenerationParams) {
                     const result = await editImageWithProvider(
                         [{ href: baseImage.href, mimeType: baseImage.mimeType }],
                         effectivePrompt,
-                        modelPreference.imageModel,
-                        getPreferredApiKey('image', imageProvider),
+                        resolvedImageModel,
+                        resolvedImageKey,
                         { mask: { href: maskData.href, mimeType: maskData.mimeType } },
                     );
 
@@ -854,8 +878,8 @@ export function useGeneration(params: UseGenerationParams) {
                 const result = await editImageWithProvider(
                     [...imagesToProcess, ...orderedMentionImages, ...attachmentReferenceImages, ...characterReferenceImages],
                     mentionPrompt,
-                    modelPreference.imageModel,
-                    getPreferredApiKey('image', imageProvider),
+                    resolvedImageModel,
+                    resolvedImageKey,
                 );
 
                 if (result.newImageBase64 && result.newImageMimeType) {
@@ -905,8 +929,8 @@ export function useGeneration(params: UseGenerationParams) {
                 const result = await editImageWithProvider(
                     [...orderedRefs, ...attachmentReferenceImages, ...characterReferenceImages],
                     mentionPrompt2,
-                    modelPreference.imageModel,
-                    getPreferredApiKey('image', imageProvider),
+                    resolvedImageModel,
+                    resolvedImageKey,
                 );
 
                 if (result.newImageBase64 && result.newImageMimeType) {
@@ -951,13 +975,13 @@ export function useGeneration(params: UseGenerationParams) {
                     ? await editImageWithProvider(
                         baseRefs,
                         effectivePrompt,
-                        modelPreference.imageModel,
-                        getPreferredApiKey('image', imageProvider),
+                        resolvedImageModel,
+                        resolvedImageKey,
                     )
                     : await generateImageWithProvider(
                         effectivePrompt,
-                        modelPreference.imageModel,
-                        getPreferredApiKey('image', imageProvider),
+                        resolvedImageModel,
+                        resolvedImageKey,
                     );
 
                 if (result.newImageBase64 && result.newImageMimeType) {
@@ -1009,12 +1033,12 @@ export function useGeneration(params: UseGenerationParams) {
             setError(friendlyMessage);
             console.error('Generation failed:', error);
 
-            const usageKey = userApiKeys.find(k => k.provider === neededProvider);
+            const usageKey = activeResolved.key;
             if (usageKey) {
                 recordApiUsage({
                     keyId: usageKey.id,
                     provider: usageKey.provider,
-                    model: neededCapability === 'video' ? modelPreference.videoModel : modelPreference.imageModel,
+                    model: neededCapability === 'video' ? resolvedVideoModel : resolvedImageModel,
                     type: neededCapability,
                     success: false,
                     error: error.message,
@@ -1031,12 +1055,8 @@ export function useGeneration(params: UseGenerationParams) {
         const rawPrompt = prompt.trim();
         if (!rawPrompt || batchCount <= 1) return;
 
-        const imageProvider = inferProviderFromModel(modelPreference.imageModel);
-        const hasKey = userApiKeys.some(k => {
-            const caps = k.capabilities?.length ? k.capabilities : inferCapabilitiesByProvider(k.provider);
-            return caps.includes('image') && k.provider === imageProvider;
-        });
-        if (!hasKey) {
+        const batchResolved = resolveModelKey('image', modelPreference.imageModel);
+        if (!batchResolved) {
             setError('未找到可用于图片生成的 API Key。');
             setIsSettingsPanelOpen(true);
             return;
@@ -1050,8 +1070,8 @@ export function useGeneration(params: UseGenerationParams) {
             const tasks = Array.from({ length: batchCount }, (_, i) =>
                 generateImageWithProvider(
                     rawPrompt + (i > 0 ? ` (variation ${i + 1})` : ''),
-                    modelPreference.imageModel,
-                    getPreferredApiKey('image', imageProvider),
+                    batchResolved.model,
+                    batchResolved.key,
                 ).catch(() => null)
             );
             const results = await Promise.all(tasks);

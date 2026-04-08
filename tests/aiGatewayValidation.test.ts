@@ -6,16 +6,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { validateApiKey, inferProviderFromModel, generateImageWithProvider } from '../services/aiGateway';
 
+function mockJsonResponse(body: unknown, status = 200) {
+    return {
+        ok: status >= 200 && status < 300,
+        status,
+        text: () => Promise.resolve(JSON.stringify(body)),
+        headers: {
+            get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
+        },
+    } as Response;
+}
+
 describe('aiGateway - validateApiKey', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
     });
 
     it('Google provider 调用 models.list 接口验证', async () => {
-        globalThis.fetch = vi.fn().mockResolvedValue({
-            ok: true,
-            status: 200,
-        });
+        globalThis.fetch = vi.fn().mockResolvedValue(mockJsonResponse({
+            models: [{
+                name: 'models/gemini-3.1-flash-image-preview',
+                displayName: 'Gemini 3.1 Flash Image Preview',
+                supportedGenerationMethods: ['generateImages'],
+            }],
+        }));
         const result = await validateApiKey('google', 'test-google-key');
         expect(result.ok).toBe(true);
         expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -24,10 +38,9 @@ describe('aiGateway - validateApiKey', () => {
     });
 
     it('OpenAI provider 调用 /models 接口验证', async () => {
-        globalThis.fetch = vi.fn().mockResolvedValue({
-            ok: true,
-            status: 200,
-        });
+        globalThis.fetch = vi.fn().mockResolvedValue(mockJsonResponse({
+            data: [{ id: 'gpt-4o' }],
+        }));
         const result = await validateApiKey('openai', 'sk-test-key');
         expect(result.ok).toBe(true);
         expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -52,21 +65,34 @@ describe('aiGateway - validateApiKey', () => {
         const result = await validateApiKey('anthropic', 'sk-ant-test-key');
         expect(result.ok).toBe(true);
     });
+
+    it('custom 裸域名会自动补全到 /v1 并返回 effectiveBaseUrl', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue(mockJsonResponse({
+            data: [{ id: 'gemini-3.1-flash-image-preview-512px' }],
+        }));
+
+        const result = await validateApiKey('custom', 'sk-test-key', 'https://ai.t8star.cn');
+
+        expect(result.ok).toBe(true);
+        expect(result.effectiveBaseUrl).toBe('https://ai.t8star.cn/v1');
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            'https://ai.t8star.cn/v1/models',
+            expect.objectContaining({
+                headers: expect.objectContaining({ Authorization: 'Bearer sk-test-key' }),
+            })
+        );
+    });
 });
 
 describe('aiGateway - generateImageWithProvider', () => {
     it('OpenRouter 使用 chat completions 返回图片 data url', async () => {
-        globalThis.fetch = vi.fn().mockResolvedValue({
-            ok: true,
-            status: 200,
-            json: () => Promise.resolve({
-                choices: [{
-                    message: {
-                        images: [{ image_url: { url: 'data:image/png;base64,ZmFrZQ==' } }],
-                    },
-                }],
-            }),
-        });
+        globalThis.fetch = vi.fn().mockResolvedValue(mockJsonResponse({
+            choices: [{
+                message: {
+                    images: [{ image_url: { url: 'data:image/png;base64,ZmFrZQ==' } }],
+                },
+            }],
+        }));
 
         const result = await generateImageWithProvider('test prompt', 'openai/gpt-image-1', {
             id: '1',
@@ -85,13 +111,9 @@ describe('aiGateway - generateImageWithProvider', () => {
     });
 
     it('custom OpenAI 兼容端点即使模型带前缀也走 images/generations', async () => {
-        globalThis.fetch = vi.fn().mockResolvedValue({
-            ok: true,
-            status: 200,
-            json: () => Promise.resolve({
-                data: [{ b64_json: 'ZmFrZQ==' }],
-            }),
-        });
+        globalThis.fetch = vi.fn().mockResolvedValue(mockJsonResponse({
+            data: [{ b64_json: 'ZmFrZQ==' }],
+        }));
 
         const result = await generateImageWithProvider('test prompt', 'openai/gpt-image-1', {
             id: '2',
@@ -107,6 +129,29 @@ describe('aiGateway - generateImageWithProvider', () => {
         expect(result.newImageBase64).toBe('ZmFrZQ==');
         expect(globalThis.fetch).toHaveBeenCalledWith(
             expect.stringContaining('example-proxy.test/v1/images/generations'),
+            expect.objectContaining({ method: 'POST' }),
+        );
+    });
+
+    it('custom 裸域名在图片生成时自动补全到 /v1', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue(mockJsonResponse({
+            data: [{ b64_json: 'ZmFrZQ==' }],
+        }));
+
+        const result = await generateImageWithProvider('test prompt', 'gemini-3.1-flash-image-preview-512px', {
+            id: '3',
+            provider: 'custom',
+            capabilities: ['image'],
+            key: 'sk-test-key',
+            baseUrl: 'https://ai.t8star.cn',
+            extraConfig: { endpointFlavor: 'openai-compatible' },
+            createdAt: 0,
+            updatedAt: 0,
+        });
+
+        expect(result.newImageBase64).toBe('ZmFrZQ==');
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            'https://ai.t8star.cn/v1/images/generations',
             expect.objectContaining({ method: 'POST' }),
         );
     });

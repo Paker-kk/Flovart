@@ -22,9 +22,7 @@ import { ImageFilterPanel, buildCssFilter, temperatureMatrix, sharpenKernel } fr
 import { ABCompareOverlay } from './components/ABCompareOverlay';
 import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/assetStorage';
 import { loadGenerationHistory, addGenerationHistoryItem } from './utils/generationHistory';
-import { setGeminiRuntimeConfig } from './services/geminiService';
-import { setBananaRuntimeConfig } from './services/bananaService';
-import { inferProviderFromModel, isGoogleImageEditModel, isGoogleTextToImageModel, reversePromptStreamWithProvider } from './services/aiGateway';
+import { inferProviderFromModel, reversePromptStreamWithProvider } from './services/aiGateway';
 import { fileToDataUrl } from './utils/fileUtils';
 import { translations } from './translations';
 // keyVault imports moved to hooks/useApiKeys.ts
@@ -254,6 +252,7 @@ const App: React.FC = () => {
         activeUserKeyId, activeUserModelId, setActiveUserModelId, handleUserKeyChange,
         dynamicModelOptions, usageSummaryMap, getPreferredApiKey,
         handleAddApiKey, handleDeleteApiKey, handleUpdateApiKey, handleSetDefaultApiKey,
+        modelAutoSwitchNotice,
     } = useApiKeys(isSettingsPanelOpen);
 
     useEffect(() => {
@@ -272,15 +271,6 @@ const App: React.FC = () => {
     }, [userEffects]);
 
 
-
-
-
-
-
-
-    useEffect(() => {
-        localStorage.setItem('modelPreference.v1', JSON.stringify(modelPreference));
-    }, [modelPreference]);
 
     useEffect(() => {
         localStorage.setItem('characterLocks.v1', JSON.stringify(characterLocks));
@@ -307,38 +297,6 @@ const App: React.FC = () => {
         }
     }, [selectedElementIds, filterPanelElementId]);
 
-
-    useEffect(() => {
-        const textProvider = inferProviderFromModel(modelPreference.textModel);
-        const imageProvider = inferProviderFromModel(modelPreference.imageModel);
-        const videoProvider = inferProviderFromModel(modelPreference.videoModel);
-
-        const googleTextKey = getPreferredApiKey('text', 'google');
-        const googleImageKey = getPreferredApiKey('image', 'google');
-        const googleVideoKey = getPreferredApiKey('video', 'google');
-        const bananaKey = getPreferredApiKey('agent', 'banana');
-
-        setGeminiRuntimeConfig({
-            textApiKey: googleTextKey?.key,
-            imageApiKey: googleImageKey?.key || googleTextKey?.key,
-            videoApiKey: googleVideoKey?.key || googleImageKey?.key || googleTextKey?.key,
-            textModel: textProvider === 'google' ? modelPreference.textModel : undefined,
-            imageModel:
-                imageProvider === 'google' && isGoogleImageEditModel(modelPreference.imageModel)
-                    ? modelPreference.imageModel
-                    : undefined,
-            textToImageModel:
-                imageProvider === 'google' && isGoogleTextToImageModel(modelPreference.imageModel)
-                    ? modelPreference.imageModel
-                    : undefined,
-            videoModel: videoProvider === 'google' ? modelPreference.videoModel : undefined,
-        });
-        setBananaRuntimeConfig({
-            apiKey: bananaKey?.key,
-            splitUrl: bananaKey?.baseUrl ? `${bananaKey.baseUrl.replace(/\/$/, '')}/split-layers` : undefined,
-            agentUrl: bananaKey?.baseUrl ? `${bananaKey.baseUrl.replace(/\/$/, '')}/agent` : undefined,
-        });
-    }, [getPreferredApiKey, modelPreference]);
 
     const handleAddUserEffect = useCallback((effect: UserEffect) => {
         setUserEffects(prev => [...prev, effect]);
@@ -1504,6 +1462,12 @@ const App: React.FC = () => {
                     <button onClick={() => setError(null)} className="ml-4 p-1 rounded-full hover:bg-red-200" title={t('common.close')} aria-label={t('common.close')}>
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"></path></svg>
                     </button>
+                </div>
+            )}
+            {modelAutoSwitchNotice && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 p-3 bg-blue-100 border border-blue-400 text-blue-700 rounded-md shadow-lg flex items-center max-w-lg animate-fade-in">
+                    <span className="mr-2">🔄</span>
+                    <span className="flex-grow text-sm">{modelAutoSwitchNotice}</span>
                 </div>
             )}
             <WorkspaceSidebar

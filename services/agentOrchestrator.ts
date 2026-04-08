@@ -7,6 +7,7 @@
 
 import type { AgentRole, AgentRoleId, AgentConfig, AgentMessage, AgentSession, AgentBudget, AIProvider, UserApiKey } from '../types';
 import { inferProviderFromModel } from './aiGateway';
+import { normalizeProviderBaseUrl } from './baseUrl';
 
 // ── Preset Agent Roles ──────────────────────────────────────────────
 
@@ -283,7 +284,7 @@ export class AgentOrchestrator {
                         return;
                     }
 
-                    const baseUrl = (key.baseUrl || DEFAULT_BASE_URLS[provider] || '').replace(/\/$/, '');
+                    const baseUrl = normalizeProviderBaseUrl(provider, key.baseUrl || DEFAULT_BASE_URLS[provider] || '');
 
                     // Emit "generating" placeholder
                     const placeholderId = `msg-${Date.now()}-${i}`;

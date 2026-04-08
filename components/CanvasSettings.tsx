@@ -3,6 +3,7 @@ import type { WheelAction, UserApiKey, ModelPreference, AIProvider, AICapability
 import { DEFAULT_PROVIDER_MODELS, validateApiKey, inferProviderFromKey, inferCapabilitiesByProvider, PROVIDER_LABELS } from '../services/aiGateway';
 import { formatCost, type KeyUsageSummary } from '../utils/usageMonitor';
 import { fetchModelsForProvider, FREE_KEY_LINKS, type FetchedModel } from '../services/modelFetcher';
+import { normalizeProviderBaseUrl } from '../services/baseUrl';
 
 interface CanvasSettingsProps {
     isOpen: boolean;
@@ -33,7 +34,7 @@ interface CanvasSettingsProps {
 const providerBaseUrl: Record<AIProvider, string> = {
     openai: 'https://api.openai.com/v1',
     anthropic: 'https://api.anthropic.com/v1',
-    google: 'https://generativelanguage.googleapis.com/v1beta/models',
+    google: 'https://generativelanguage.googleapis.com/v1beta',
     qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     banana: 'https://api.banana.dev/v1/vision',
     deepseek: 'https://api.deepseek.com/v1',
@@ -90,7 +91,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
     const [showKey, setShowKey] = React.useState(false);
     const [capabilities, setCapabilities] = React.useState<AICapability[]>(['text', 'image', 'video']);
     const [isValidating, setIsValidating] = React.useState(false);
-    const [validationResult, setValidationResult] = React.useState<{ ok: boolean; message?: string } | null>(null);
+    const [validationResult, setValidationResult] = React.useState<Awaited<ReturnType<typeof validateApiKey>> | null>(null);
     // 当前正在编辑的 API Key（null = 新增模式）
     const [editingKeyId, setEditingKeyId] = React.useState<string | null>(null);
     // 控制 API Key 添加/编辑弹窗
@@ -189,20 +190,47 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
 
     const handleSaveKey = async () => {
         if (!apiKey.trim() || capabilities.length === 0) return;
+        const requestedBaseUrl = baseUrl.trim() || undefined;
 
         // 先验证 key 是否有效
         setIsValidating(true);
         setValidationResult(null);
-        const result = await validateApiKey(provider, apiKey.trim(), baseUrl.trim() || undefined);
+        const result = await validateApiKey(provider, apiKey.trim(), requestedBaseUrl);
         setIsValidating(false);
         setValidationResult(result);
 
         if (!result.ok) return; // 验证失败不保存
 
+        const effectiveBaseUrl = result.effectiveBaseUrl
+            || normalizeProviderBaseUrl(provider, requestedBaseUrl || providerBaseUrl[provider])
+            || requestedBaseUrl;
+        if (result.effectiveBaseUrl && result.effectiveBaseUrl !== baseUrl.trim()) {
+            setBaseUrl(result.effectiveBaseUrl);
+        }
+
+        if (result.endpointFlavor) {
+            setEndpointFlavor(result.endpointFlavor);
+        }
+        if (result.capabilitySummary?.length) {
+            setDetectedCapabilities(result.capabilitySummary);
+        }
+
+        const detectedCaps = result.capabilitySummary || detectedCapabilities;
+        const unsupportedCapabilities = detectedCaps.length > 0
+            ? capabilities.filter(capability => !detectedCaps.includes(capability))
+            : [];
+        if (unsupportedCapabilities.length > 0) {
+            setValidationResult({
+                ok: false,
+                message: `当前端点不支持：${unsupportedCapabilities.map(cap => capabilityLabels[cap]).join(' / ')}。可用能力只有：${detectedCaps.map(cap => capabilityLabels[cap]).join(' / ')}`,
+            });
+            return;
+        }
+
         const modelsToSave = editModels.length > 0 ? editModels : undefined;
         const customModelsToSave = editModels.map(m => m.id);
         const fallbackEndpointFlavor = provider === 'custom'
-            ? (/openrouter/i.test(baseUrl) ? 'openrouter-compatible' : 'openai-compatible')
+            ? (result.endpointFlavor || endpointFlavor || (/openrouter/i.test(baseUrl) ? 'openrouter-compatible' : 'openai-compatible'))
             : undefined;
         const extraToSave = Object.keys(extraConfig).length > 0 || fallbackEndpointFlavor
             ? { ...extraConfig, ...(fallbackEndpointFlavor && !extraConfig.endpointFlavor ? { endpointFlavor: fallbackEndpointFlavor } : {}) }
@@ -214,7 +242,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                 provider,
                 capabilities,
                 key: apiKey.trim(),
-                baseUrl: baseUrl.trim() || undefined,
+                baseUrl: effectiveBaseUrl || undefined,
                 name: displayName.trim() || undefined,
                 status: 'ok',
                 models: modelsToSave,
@@ -228,7 +256,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                 provider,
                 capabilities,
                 key: apiKey.trim(),
-                baseUrl: baseUrl.trim() || undefined,
+                baseUrl: effectiveBaseUrl || undefined,
                 name: displayName.trim() || undefined,
                 status: 'ok',
                 isDefault: false,
@@ -287,6 +315,9 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                 setFetchedModels(result.models);
                 setEndpointFlavor(result.endpointFlavor || null);
                 setDetectedCapabilities(result.capabilitySummary || []);
+                if (result.effectiveBaseUrl) {
+                    setBaseUrl(result.effectiveBaseUrl);
+                }
                 // 自动填充到编辑模型列表
                 const modelItems: ModelItem[] = result.models.map(m => ({ id: m.id, name: m.name || m.id }));
                 setEditModels(modelItems);
@@ -906,15 +937,17 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                             key={capability}
                                             type="button"
                                             onClick={() => toggleCapability(capability)}
-                                            className={`${chipClass} ${
+                                            className={`rounded-full border px-3 py-2 text-sm font-medium transition ${
                                                 capabilities.includes(capability)
                                                     ? isDark
-                                                        ? 'border-[#4B5B78] bg-[#1B2330] text-[#7CB4FF]'
-                                                        : 'border-[#1D4ED8] bg-[#EFF6FF] text-[#1D4ED8]'
-                                                    : ''
+                                                        ? 'border-blue-500 bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30'
+                                                        : 'border-blue-500 bg-blue-50 text-blue-700 ring-1 ring-blue-200'
+                                                    : isDark
+                                                        ? 'border-[#2A3140] bg-[#1B2029] text-[#667085] hover:bg-[#252C39]'
+                                                        : 'border-[#E4E7EC] bg-[#F8FAFC] text-[#98A2B3] hover:bg-[#F2F4F7]'
                                             }`}
                                         >
-                                            {capabilityLabels[capability]}
+                                            {capabilities.includes(capability) ? '✓ ' : ''}{capabilityLabels[capability]}
                                         </button>
                                     ))}
                                 </div>
