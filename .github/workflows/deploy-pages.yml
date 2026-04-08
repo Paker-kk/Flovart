@@ -31,14 +31,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci || npm install
+        run: npm install
 
       - name: Build for GitHub Pages
         run: |
-          export VITE_APP_VERSION="$(node -p \"require('./package.json').version\")"
+          export VITE_APP_VERSION="$(node -p "require('./package.json').version")"
           export VITE_APP_COMMIT_SHA="${GITHUB_SHA}"
           npx vite build --base /Flovart/
 
