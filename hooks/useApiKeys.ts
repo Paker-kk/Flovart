@@ -44,6 +44,28 @@ const buildApiKeyFingerprint = (item: Pick<Partial<UserApiKey>, 'provider' | 'ke
     return `${provider}::${key}::${baseUrl}`;
 };
 
+const normalizeModelId = (model?: string) => model?.trim().toLowerCase() || '';
+
+const keyOwnsModel = (key: UserApiKey, model?: string) => {
+    const normalizedModel = normalizeModelId(model);
+    if (!normalizedModel) return false;
+
+    const knownModels = [
+        key.defaultModel,
+        ...(key.customModels || []),
+        ...((key.models || []).map(item => item.id)),
+    ];
+
+    return knownModels.some(candidate => normalizeModelId(candidate) === normalizedModel);
+};
+
+const getRequestedModelByCapability = (modelPreference: ModelPreference, capability: AICapability) => {
+    if (capability === 'text') return modelPreference.textModel;
+    if (capability === 'image') return modelPreference.imageModel;
+    if (capability === 'video') return modelPreference.videoModel;
+    return modelPreference.agentModel;
+};
+
 const FALLBACK_TEXT_OPTIONS = ensureModelOption([...(PROVIDER_MODELS.google?.text || [])], DEFAULT_MODEL_PREFS.textModel);
 const FALLBACK_IMAGE_OPTIONS = ensureModelOption([...(PROVIDER_MODELS.google?.image || [])], DEFAULT_MODEL_PREFS.imageModel);
 const FALLBACK_VIDEO_OPTIONS = ensureModelOption([...(PROVIDER_MODELS.google?.video || [])], DEFAULT_MODEL_PREFS.videoModel);
@@ -122,8 +144,14 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
             for (const model of userDefinedModels) {
                 const capability = inferCapabilityFromModel(model);
                 if (capability === 'text' && caps.includes('text')) addUniqueModel(textSet, model);
-                if (capability === 'image' && caps.includes('image')) addUniqueModel(imageSet, model);
-                if (capability === 'video' && caps.includes('video')) addUniqueModel(videoSet, model);
+                else if (capability === 'image' && caps.includes('image')) addUniqueModel(imageSet, model);
+                else if (capability === 'video' && caps.includes('video')) addUniqueModel(videoSet, model);
+                else if (!capability) {
+                    // 模型名无法推断能力时，按 key 自身声明的 capabilities 归类
+                    if (caps.includes('image')) addUniqueModel(imageSet, model);
+                    if (caps.includes('text')) addUniqueModel(textSet, model);
+                    if (caps.includes('video')) addUniqueModel(videoSet, model);
+                }
             }
         }
         return {
@@ -147,7 +175,7 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
             const provider = inferProviderFromModel(model);
             return healthyKeys.some(k => {
                 const caps = k.capabilities?.length ? k.capabilities : inferCapabilitiesByProvider(k.provider);
-                return caps.includes(capability) && k.provider === provider;
+                return caps.includes(capability) && (k.provider === provider || (k.provider === 'custom' && keyOwnsModel(k, model)));
             });
         };
 
@@ -329,13 +357,17 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
     }, [modelPreference]);
 
     const getPreferredApiKey = useCallback((capability: AICapability, provider?: AIProvider) => {
+        const requestedModel = getRequestedModelByCapability(modelPreference, capability);
         const matches = userApiKeys.filter(key => {
             if (key.status === 'error') return false;
             const capabilities = key.capabilities?.length ? key.capabilities : inferCapabilitiesByProvider(key.provider);
-            return capabilities.includes(capability) && (!provider || key.provider === provider);
+            if (!capabilities.includes(capability)) return false;
+            if (!provider) return true;
+            if (key.provider === provider) return true;
+            return key.provider === 'custom' && keyOwnsModel(key, requestedModel);
         });
         return matches.find(key => key.isDefault) || matches[0];
-    }, [userApiKeys]);
+    }, [modelPreference, userApiKeys]);
 
     // Sync runtime config for Gemini / Banana services
     useEffect(() => {

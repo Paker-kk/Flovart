@@ -467,9 +467,9 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
     };
 
     return (
-        <div className="theme-aware fixed inset-0 z-[100] flex items-center justify-center bg-black/35 backdrop-blur-sm" onClick={onClose}>
+        <div className="theme-aware fixed inset-0 z-100 flex items-center justify-center bg-black/35 backdrop-blur-sm" onClick={onClose}>
             <div
-                className={`relative max-h-[88vh] w-[92%] max-w-[680px] overflow-y-auto rounded-[28px] border p-6 shadow-[0_40px_120px_rgba(15,23,42,0.18)] ${
+                className={`relative max-h-[88vh] w-[92%] max-w-170 overflow-y-auto rounded-[28px] border p-6 shadow-[0_40px_120px_rgba(15,23,42,0.18)] ${
                     isDark ? 'border-[#2A3140] bg-[#12151B]' : 'border-[#E4E7EC] bg-white'
                 }`}
                 onClick={(event) => event.stopPropagation()}
@@ -507,7 +507,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                     key={mode}
                                     type="button"
                                     onClick={() => setThemeMode(mode)}
-                                    className={`rounded-[24px] border p-4 text-left transition ${
+                                    className={`rounded-3xl border p-4 text-left transition ${
                                         themeMode === mode
                                             ? isDark
                                                 ? 'border-[#4B5B78] bg-[#1B2330] shadow-[0_10px_30px_rgba(0,0,0,0.18)]'
@@ -785,26 +785,31 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                         <div className={`text-xs font-semibold uppercase tracking-[0.18em] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>
                             🔒 安全
                         </div>
-                        <label className={`flex cursor-pointer items-center justify-between rounded-2xl p-4 ${isDark ? 'bg-[#161A22]' : 'bg-[#F8FAFC]'}`}>
+                        <div className={`flex items-center justify-between rounded-2xl p-4 ${isDark ? 'bg-[#161A22]' : 'bg-[#F8FAFC]'}`}>
                             <div>
                                 <div className={`text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>关闭页面时清除 API Key</div>
                                 <div className={`mt-1 text-xs ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>启用后每次关闭浏览器标签页将自动清除保存的 API Key，下次访问需重新输入</div>
                             </div>
-                            <div
-                                role="switch"
-                                aria-checked={clearKeysOnExit}
-                                tabIndex={0}
-                                onClick={() => setClearKeysOnExit(!clearKeysOnExit)}
-                                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setClearKeysOnExit(!clearKeysOnExit); } }}
-                                className={`relative ml-4 inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-                                    clearKeysOnExit
-                                        ? 'bg-green-500'
-                                        : isDark ? 'bg-[#3A4458]' : 'bg-[#D0D5DD]'
-                                }`}
-                            >
-                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${clearKeysOnExit ? 'translate-x-6' : 'translate-x-1'}`} />
-                            </div>
-                        </label>
+                            <label className="ml-4 inline-flex shrink-0 cursor-pointer items-center">
+                                <input
+                                    type="checkbox"
+                                    className="sr-only"
+                                    checked={clearKeysOnExit}
+                                    onChange={(event) => setClearKeysOnExit(event.target.checked)}
+                                    aria-label="关闭页面时清除 API Key"
+                                    title="关闭页面时清除 API Key"
+                                />
+                                <span
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                        clearKeysOnExit
+                                            ? 'bg-green-500'
+                                            : isDark ? 'bg-[#3A4458]' : 'bg-[#D0D5DD]'
+                                    }`}
+                                >
+                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${clearKeysOnExit ? 'translate-x-6' : 'translate-x-1'}`} />
+                                </span>
+                            </label>
+                        </div>
                         <div className={`rounded-2xl border p-3 text-xs ${isDark ? 'border-[#2A3140] text-[#667085]' : 'border-[#E4E7EC] text-[#98A2B3]'}`}>
                             ✅ API Key 已加密存储（AES-GCM），不再以明文保留在 localStorage 中。
                         </div>
@@ -814,23 +819,24 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
 
             {/* API Key 添加/编辑弹窗（统一版） */}
             {showKeyModal && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={handleCancelEdit}>
+                <div className="fixed inset-0 z-150 overflow-y-auto bg-black/40 backdrop-blur-sm" onClick={handleCancelEdit}>
+                    <div className="flex min-h-[100dvh] items-end justify-center p-2 sm:min-h-full sm:items-center sm:p-6">
                     <div
-                        className={`relative max-h-[85vh] w-[90%] max-w-[500px] overflow-y-auto rounded-[24px] border p-6 shadow-[0_40px_100px_rgba(0,0,0,0.2)] ${
+                        className={`relative flex min-h-0 max-h-[calc(100dvh-1rem)] w-full max-w-140 flex-col overflow-hidden rounded-3xl border shadow-[0_40px_100px_rgba(0,0,0,0.2)] sm:max-h-[calc(100dvh-3rem)] ${
                             isDark ? 'border-[#2A3140] bg-[#12151B]' : 'border-[#E4E7EC] bg-white'
                         }`}
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <div className="mb-4 flex items-center justify-between">
+                        <div className="mb-0 flex items-center justify-between px-6 pb-4 pt-6">
                             <h4 className={`text-base font-semibold ${isDark ? 'text-[#F3F4F6]' : 'text-[#101828]'}`}>
                                 {editingKeyId ? '编辑 API Key' : '添加 API Key'}
                             </h4>
-                            <button type="button" onClick={handleCancelEdit} className={`rounded-full p-1.5 transition ${isDark ? 'hover:bg-[#252C39]' : 'hover:bg-[#F2F4F7]'}`}>
+                            <button type="button" title="关闭 API Key 表单" aria-label="关闭 API Key 表单" onClick={handleCancelEdit} className={`rounded-full p-1.5 transition ${isDark ? 'hover:bg-[#252C39]' : 'hover:bg-[#F2F4F7]'}`}>
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
                             </button>
                         </div>
 
-                        <div className="space-y-3">
+                        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 pb-4">
                             {/* 免费获取 API Key 引导 */}
                             {!editingKeyId && (
                                 <div className={`rounded-2xl border p-3 ${isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E4E7EC] bg-[#F8FAFC]'}`}>
@@ -870,7 +876,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                             )}
 
                             <div className="grid gap-3 md:grid-cols-2">
-                                <select value={provider} onChange={(event) => handleProviderChange(event.target.value as AIProvider)} className={inputClass}>
+                                <select value={provider} onChange={(event) => handleProviderChange(event.target.value as AIProvider)} className={inputClass} title="选择 API Provider" aria-label="选择 API Provider">
                                     {Object.entries(PROVIDER_LABELS).map(([key, label]) => (
                                         <option key={key} value={key}>{label}</option>
                                     ))}
@@ -926,6 +932,12 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                             )}
 
                             <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="Base URL（可选）" className={inputClass} />
+
+                            {provider === 'custom' && (
+                                <div className={`rounded-xl px-3 py-2 text-xs ${isDark ? 'bg-[#161A22] text-[#98A2B3]' : 'bg-[#F8FAFC] text-[#667085]'}`}>
+                                    兼容说明：模型列表默认探测 <strong>/v1/models</strong>，图片走 <strong>/v1/images/generations</strong>，部分聚合端点的视频会自动尝试 <strong>/v2/videos/generations</strong>。
+                                </div>
+                            )}
 
                             <div>
                                 <div className={`mb-2 flex items-center justify-between`}>
@@ -1016,8 +1028,10 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                     />
                                 </div>
                             )}
+                        </div>
 
-                            <div className="flex items-center gap-2 pt-1">
+                        <div className={`shrink-0 border-t px-6 py-4 ${isDark ? 'border-[#2A3140] bg-[#12151B]' : 'border-[#E4E7EC] bg-white'}`}>
+                            <div className="flex items-center gap-2">
                                 <button
                                     type="button"
                                     onClick={handleSaveKey}
@@ -1042,7 +1056,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                             </div>
 
                             {validationResult && (
-                                <div className={`rounded-xl px-3 py-2 text-sm ${
+                                <div className={`mt-3 rounded-xl px-3 py-2 text-sm ${
                                     validationResult.ok
                                         ? isDark ? 'bg-[#123524] text-[#75E0A7]' : 'bg-[#ECFDF3] text-[#027A48]'
                                         : isDark ? 'bg-[#3A1616] text-[#FDA29B]' : 'bg-[#FEF3F2] text-[#B42318]'
@@ -1054,6 +1068,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                 </div>
                             )}
                         </div>
+                    </div>
                     </div>
                 </div>
             )}

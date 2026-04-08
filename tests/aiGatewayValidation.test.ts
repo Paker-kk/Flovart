@@ -4,7 +4,7 @@
  * 以及 generateImageWithProvider 对不支持 provider 的报错行为
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { validateApiKey, inferProviderFromModel, generateImageWithProvider } from '../services/aiGateway';
+import { validateApiKey, inferProviderFromModel, generateImageWithProvider, generateVideoWithProvider } from '../services/aiGateway';
 
 function mockJsonResponse(body: unknown, status = 200) {
     return {
@@ -15,6 +15,17 @@ function mockJsonResponse(body: unknown, status = 200) {
             get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
         },
     } as Response;
+}
+
+function mockBinaryResponse(body: BlobPart, mimeType = 'video/mp4', status = 200) {
+    return {
+        ok: status >= 200 && status < 300,
+        status,
+        blob: () => Promise.resolve(new Blob([body], { type: mimeType })),
+        headers: {
+            get: (name: string) => (name.toLowerCase() === 'content-type' ? mimeType : null),
+        },
+    } as unknown as Response;
 }
 
 describe('aiGateway - validateApiKey', () => {
@@ -160,5 +171,37 @@ describe('aiGateway - generateImageWithProvider', () => {
         await expect(
             generateImageWithProvider('test prompt', 'claude-3-haiku', { id: '1', provider: 'anthropic', capabilities: ['text'], key: 'test', createdAt: 0, updatedAt: 0 })
         ).rejects.toThrow('暂不支持');
+    });
+});
+
+describe('aiGateway - generateVideoWithProvider', () => {
+    it('custom 聚合端点支持 v2 统一视频接口', async () => {
+        globalThis.fetch = vi.fn()
+            .mockResolvedValueOnce(mockJsonResponse({ task_id: 'task-123' }))
+            .mockResolvedValueOnce(mockJsonResponse({ status: 'SUCCESS', data: { output: 'https://cdn.example.com/video.mp4' } }))
+            .mockResolvedValueOnce(mockBinaryResponse('video-binary'));
+
+        const result = await generateVideoWithProvider('test video prompt', 'veo3-fast', {
+            id: '4',
+            provider: 'custom',
+            capabilities: ['video'],
+            key: 'sk-test-key',
+            baseUrl: 'https://gateway.example.com/v1',
+            extraConfig: { endpointFlavor: 'openai-compatible' },
+            createdAt: 0,
+            updatedAt: 0,
+        });
+
+        expect(result.mimeType).toBe('video/mp4');
+        expect(globalThis.fetch).toHaveBeenNthCalledWith(
+            1,
+            'https://gateway.example.com/v2/videos/generations',
+            expect.objectContaining({ method: 'POST' }),
+        );
+        expect(globalThis.fetch).toHaveBeenNthCalledWith(
+            2,
+            'https://gateway.example.com/v2/videos/generations/task-123',
+            expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer sk-test-key' }) }),
+        );
     });
 });

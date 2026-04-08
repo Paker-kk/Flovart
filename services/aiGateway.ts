@@ -269,9 +269,9 @@ function stripModelProviderPrefix(model: string): string {
 export function inferCapabilityFromModel(model: string): AICapability | undefined {
     const normalized = stripModelProviderPrefix(model);
     if (!normalized) return undefined;
-    if (/^veo([-.\d]|$)/.test(normalized)) return 'video';
+    if (/^(veo([-.\d]|$)|video|wan|seedance|vidu|pika|runway|higgsfield|luma|kling|keling|sora|sdols|hailuo|qwen-video|liveportrait|videoretalk|emo)/.test(normalized)) return 'video';
     if (/^banana/.test(normalized)) return 'agent';
-    if (/^(imagen|dall-e|gpt-image|flux|stable-diffusion|sdxl|midjourney)/.test(normalized)) return 'image';
+    if (/^(imagen|dall-e|gpt-image|flux|stable-diffusion|sdxl|midjourney|recraft|ideogram|qwen-image|seededit|nano-banana|jimeng|doubao-image|omni-image|grok-image)/.test(normalized)) return 'image';
     if (/^gemini/.test(normalized)) return normalized.includes('image') ? 'image' : 'text';
     if (/^(gpt|o\d|claude|qwen|deepseek|llama|command|mistral|doubao|abab|minimax)/.test(normalized)) return 'text';
     return undefined;
@@ -341,6 +341,61 @@ function decodeDataUrlImage(dataUrl: string) {
     };
 }
 
+/**
+ * 下载远程图片 URL 并转为 base64
+ */
+async function fetchImageUrlToBase64(url: string): Promise<{ newImageBase64: string; newImageMimeType: string; textResponse: null }> {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`下载图片失败 (${res.status}): ${url}`);
+    const blob = await res.blob();
+    const mimeType = blob.type || 'image/png';
+    const arrayBuffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return { newImageBase64: btoa(binary), newImageMimeType: mimeType, textResponse: null };
+}
+
+/**
+ * 统一解析 OpenAI/Custom 图片生成响应 — 兼容多种格式：
+ * 1. 标准 /images/generations → data[0].b64_json (纯 base64)
+ * 2. 代理/聚合端点返回 data:URL 在 b64_json 字段
+ * 3. data[0].url 远程图片链接
+ * 4. chat/completions 响应 → markdown 图片链接
+ */
+async function parseOpenAIImageResponse(json: any): Promise<{ newImageBase64: string | null; newImageMimeType: string | null; textResponse: string | null }> {
+    // 尝试 /images/generations 标准格式
+    const firstImage = json?.data?.[0];
+    if (firstImage) {
+        // b64_json 字段可能是纯 base64 或 data:URL
+        if (firstImage.b64_json) {
+            const dataUrlMatch = firstImage.b64_json.match(/^data:([^;]+);base64,(.+)$/);
+            if (dataUrlMatch) {
+                return { newImageBase64: dataUrlMatch[2], newImageMimeType: dataUrlMatch[1], textResponse: null };
+            }
+            return { newImageBase64: firstImage.b64_json, newImageMimeType: 'image/png', textResponse: null };
+        }
+        // url 字段
+        if (firstImage.url) {
+            if (firstImage.url.startsWith('data:')) return decodeDataUrlImage(firstImage.url);
+            return fetchImageUrlToBase64(firstImage.url);
+        }
+    }
+
+    // 尝试 chat/completions 格式 — 代理用 chat 接口生图
+    const content = json?.choices?.[0]?.message?.content;
+    if (typeof content === 'string') {
+        // 提取 markdown 图片链接 ![...](https://...)
+        const mdMatch = content.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
+        if (mdMatch) return fetchImageUrlToBase64(mdMatch[1]);
+        // 纯 URL
+        const urlMatch = content.match(/(https?:\/\/\S+\.(?:png|jpg|jpeg|webp|gif))/i);
+        if (urlMatch) return fetchImageUrlToBase64(urlMatch[1]);
+    }
+
+    return { newImageBase64: null, newImageMimeType: null, textResponse: content || null };
+}
+
 function buildOpenRouterHeaders(apiKey: string) {
     return {
         'Content-Type': 'application/json',
@@ -399,7 +454,9 @@ function resolveGenerationProvider(model: string, key?: UserApiKey): AIProvider 
     if (key?.provider === 'custom') {
         const endpointFlavor = key.extraConfig?.endpointFlavor;
         if (endpointFlavor === 'openrouter-compatible') return 'openrouter';
-        if (endpointFlavor === 'openai-compatible') return 'custom';
+        // 所有 custom key 统一走 OpenAI-compatible 路径，
+        // 不再 fallthrough 到 inferProviderFromModel（否则 gemini-xxx 会误路由到 Google SDK）
+        return 'custom';
     }
     return inferProviderFromModel(model);
 }
@@ -463,6 +520,150 @@ export function inferProviderFromModel(model: string): AIProvider {
     if (/^(doubao|skylark|ep-)/i.test(model)) return 'volcengine';
     if (/^(openrouter\/|google\/|anthropic\/|openai\/|meta-llama\/|x-ai\/)/i.test(model)) return 'openrouter';
     return 'custom';
+}
+
+function sleep(ms: number) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function uniqueUrls(values: Array<string | undefined>) {
+    return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
+function getUnifiedApiBaseCandidates(baseUrl: string) {
+    const trimmed = baseUrl.replace(/\/+$/, '');
+    const direct = trimmed.replace(/\/(?:api\/)?v1$/i, '');
+
+    try {
+        const parsed = new URL(trimmed);
+        const pathname = parsed.pathname.replace(/\/+$/, '');
+        const pathnameWithoutVersion = pathname.replace(/\/(?:api\/)?v1$/i, '');
+        const pathBase = pathnameWithoutVersion && pathnameWithoutVersion !== '/' ? `${parsed.origin}${pathnameWithoutVersion}` : parsed.origin;
+        return uniqueUrls([direct, pathBase, parsed.origin]);
+    } catch {
+        return uniqueUrls([direct]);
+    }
+}
+
+function extractTaskId(payload: any) {
+    return payload?.task_id || payload?.data?.task_id || payload?.id || payload?.data?.id;
+}
+
+function extractVideoStatus(payload: any) {
+    const rawStatus = payload?.status || payload?.data?.status || payload?.data?.task_status || payload?.state;
+    return typeof rawStatus === 'string' ? rawStatus.toLowerCase() : '';
+}
+
+function extractFailureReason(payload: any) {
+    return payload?.fail_reason || payload?.data?.fail_reason || payload?.message || payload?.error?.message || payload?.data?.task_status_msg || payload?.status_msg;
+}
+
+function extractVideoOutputUrl(payload: any) {
+    return payload?.data?.output
+        || payload?.data?.outputs?.[0]
+        || payload?.output
+        || payload?.outputs?.[0]
+        || payload?.data?.video_url
+        || payload?.data?.task_result?.videos?.[0]?.url;
+}
+
+async function generateVideoWithUnifiedAsyncApi(
+    prompt: string,
+    model: string,
+    key: UserApiKey,
+    options?: {
+        aspectRatio?: '16:9' | '9:16';
+        onProgress?: (message: string) => void;
+        image?: ImageInput;
+    },
+): Promise<{ videoBlob: Blob; mimeType: string }> {
+    const apiKey = requireApiKey('custom', key);
+    const normalizedBaseUrl = getBaseUrl('custom', key);
+    const apiBaseCandidates = getUnifiedApiBaseCandidates(normalizedBaseUrl);
+    const aspectRatio = options?.aspectRatio || '16:9';
+    const onProgress = options?.onProgress || (() => {});
+    let lastError: Error | null = null;
+
+    for (const apiBase of apiBaseCandidates) {
+        try {
+            onProgress('Submitting video generation task...');
+            const createBody: Record<string, unknown> = {
+                model,
+                prompt,
+                aspect_ratio: aspectRatio,
+            };
+
+            if (options?.image) {
+                createBody.images = [options.image.href];
+            }
+
+            const createRes = await fetch(`${apiBase}/v2/videos/generations`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify(createBody),
+            });
+
+            if (!createRes.ok) {
+                const failure = await readErrorResponse(createRes, '统一视频接口提交失败');
+                if (createRes.status === 404 || createRes.status === 405) {
+                    lastError = new Error(failure);
+                    continue;
+                }
+                throw new Error(failure);
+            }
+
+            const createJson = await readJsonResponse<any>(createRes, '统一视频接口提交响应');
+            const taskId = extractTaskId(createJson);
+            if (!taskId) {
+                throw new Error('统一视频接口未返回 task_id');
+            }
+
+            let delay = 2000;
+            while (true) {
+                onProgress(delay <= 2000 ? '任务已提交，正在排队...' : '正在生成视频，请稍候...');
+                const queryRes = await fetch(`${apiBase}/v2/videos/generations/${encodeURIComponent(taskId)}`, {
+                    headers: { Authorization: `Bearer ${apiKey}` },
+                });
+
+                if (!queryRes.ok) {
+                    throw new Error(await readErrorResponse(queryRes, '统一视频接口查询失败'));
+                }
+
+                const queryJson = await readJsonResponse<any>(queryRes, '统一视频接口查询响应');
+                const status = extractVideoStatus(queryJson);
+
+                if (['failure', 'failed', 'fail', 'error', 'cancelled', 'canceled'].includes(status)) {
+                    throw new Error(`视频生成失败: ${extractFailureReason(queryJson) || 'Unknown error'}`);
+                }
+
+                if (['success', 'succeed', 'completed', 'done'].includes(status)) {
+                    const outputUrl = extractVideoOutputUrl(queryJson);
+                    if (!outputUrl) {
+                        throw new Error('视频生成完成但未返回下载链接');
+                    }
+
+                    onProgress('Downloading generated video...');
+                    const videoRes = await fetch(outputUrl);
+                    if (!videoRes.ok) {
+                        throw new Error(`视频下载失败: ${videoRes.statusText}`);
+                    }
+                    const videoBlob = await videoRes.blob();
+                    const mimeType = videoRes.headers.get('Content-Type') || 'video/mp4';
+                    return { videoBlob, mimeType };
+                }
+
+                await sleep(delay);
+                delay = Math.min(delay * 2, 8000);
+            }
+        } catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error));
+        }
+    }
+
+    throw lastError || new Error('当前自定义端点未暴露可用的视频统一接口。');
 }
 
 /** 返回模型支持的能力标签（emoji 形式） */
@@ -563,7 +764,7 @@ export async function enhancePromptWithProvider(
     model: string,
     key?: UserApiKey
 ): Promise<PromptEnhanceResult> {
-    const provider = inferProviderFromModel(model);
+    const provider = resolveGenerationProvider(model, key);
 
     if (provider === 'google') {
         // 传入 key?.key 确保使用用户配置的 API Key，而非仅依赖全局 runtimeConfig
@@ -951,30 +1152,62 @@ export async function generateImageWithProvider(
     if (provider === 'openai' || provider === 'custom') {
         const apiKey = requireApiKey(provider, key);
         const baseUrl = getBaseUrl(provider, key);
-        const response = await fetch(`${baseUrl}/images/generations`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-                model,
-                prompt,
-                size: '1024x1024',
-                response_format: 'b64_json',
-            }),
-        });
 
-        if (!response.ok) {
-            throw new Error(await readErrorResponse(response, `${PROVIDER_LABELS[provider]} 图片生成失败`));
+        // 先尝试标准 /images/generations 端点
+        try {
+            const response = await fetch(`${baseUrl}/images/generations`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify({
+                    model,
+                    prompt,
+                    size: '1024x1024',
+                    response_format: 'b64_json',
+                }),
+            });
+
+            if (response.ok) {
+                const json = await readJsonResponse<any>(response, `${PROVIDER_LABELS[provider]} 图片生成响应`);
+                const parsed = await parseOpenAIImageResponse(json);
+                if (parsed.newImageBase64) return parsed;
+            }
+
+            // 对于 custom provider，/images/generations 失败后 fallback 到 chat/completions
+            if (provider !== 'custom') {
+                throw new Error(await readErrorResponse(response, `${PROVIDER_LABELS[provider]} 图片生成失败`));
+            }
+        } catch (err) {
+            // custom provider 允许 fallback
+            if (provider !== 'custom') throw err;
         }
 
-        const json = await readJsonResponse<any>(response, `${PROVIDER_LABELS[provider]} 图片生成响应`);
-        return {
-            newImageBase64: json?.data?.[0]?.b64_json || null,
-            newImageMimeType: 'image/png',
-            textResponse: null,
-        };
+        // Custom fallback: 通过 chat/completions 生图（聚合端点通用方式）
+        if (provider === 'custom') {
+            const chatResponse = await fetch(`${baseUrl}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify({
+                    model,
+                    messages: [{ role: 'user', content: prompt }],
+                    stream: false,
+                }),
+            });
+
+            if (!chatResponse.ok) {
+                throw new Error(await readErrorResponse(chatResponse, `${PROVIDER_LABELS[provider]} 图片生成失败`));
+            }
+
+            const chatJson = await readJsonResponse<any>(chatResponse, `${PROVIDER_LABELS[provider]} 图片生成响应`);
+            return parseOpenAIImageResponse(chatJson);
+        }
+
+        return { newImageBase64: null, newImageMimeType: null, textResponse: null };
     }
 
     throw new Error(`当前暂不支持使用 ${PROVIDER_LABELS[provider] || provider} 进行图片生成。请切换到 Google Gemini、OpenAI 或 OpenRouter 图片模型。`);
@@ -1040,11 +1273,14 @@ export async function editImageWithProvider(
     }
 
     if (provider === 'openai' || provider === 'custom') {
-        if (!supportsReferenceImageEditing(model)) {
-            throw new Error('当前 OpenAI 图片模型不支持参考图编辑。请切换到 GPT Image 模型。');
-        }
-        if (options?.mask && !supportsMaskImageEditing(model)) {
-            throw new Error('当前模型不支持遮罩局部重绘。请切换到支持编辑的 GPT Image 或 Gemini 模型。');
+        // custom provider 跳过模型名检测——聚合端点的模型名不一定匹配 OpenAI 命名规则
+        if (provider === 'openai') {
+            if (!supportsReferenceImageEditing(model)) {
+                throw new Error('当前 OpenAI 图片模型不支持参考图编辑。请切换到 GPT Image 模型。');
+            }
+            if (options?.mask && !supportsMaskImageEditing(model)) {
+                throw new Error('当前模型不支持遮罩局部重绘。请切换到支持编辑的 GPT Image 或 Gemini 模型。');
+            }
         }
 
         const apiKey = requireApiKey(provider, key);
@@ -1072,29 +1308,58 @@ export async function editImageWithProvider(
             );
         }
 
-        const response = await fetch(`${baseUrl}/images/edits`, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${apiKey}`,
-            },
-            body: formData,
-        });
+        // 尝试 /images/edits 标准端点
+        try {
+            const response = await fetch(`${baseUrl}/images/edits`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${apiKey}`,
+                },
+                body: formData,
+            });
 
-        if (!response.ok) {
-            throw new Error(await readErrorResponse(response, `${PROVIDER_LABELS[provider]} 图片编辑失败`));
+            if (response.ok) {
+                const json = await readJsonResponse<any>(response, `${PROVIDER_LABELS[provider]} 图片编辑响应`);
+                const parsed = await parseOpenAIImageResponse(json);
+                if (parsed.newImageBase64) return parsed;
+            }
+
+            if (provider !== 'custom') {
+                throw new Error(await readErrorResponse(response, `${PROVIDER_LABELS[provider]} 图片编辑失败`));
+            }
+        } catch (err) {
+            if (provider !== 'custom') throw err;
         }
 
-        const json = await readJsonResponse<any>(response, `${PROVIDER_LABELS[provider]} 图片编辑响应`);
-        const firstImage = json?.data?.[0];
-        if (firstImage?.b64_json) {
-            return {
-                newImageBase64: firstImage.b64_json,
-                newImageMimeType: 'image/png',
-                textResponse: firstImage.revised_prompt || null,
-            };
-        }
-        if (firstImage?.url) {
-            return decodeDataUrlImage(firstImage.url);
+        // Custom fallback: 通过 chat/completions 进行图片编辑
+        if (provider === 'custom') {
+            const content: any[] = [{ type: 'text', text: prompt }];
+            for (const image of images) {
+                content.push({ type: 'image_url', image_url: { url: image.href } });
+            }
+            if (options?.mask) {
+                content.push({ type: 'image_url', image_url: { url: options.mask.href } });
+            }
+
+            const chatResponse = await fetch(`${baseUrl}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify({
+                    model,
+                    messages: [{ role: 'user', content }],
+                    stream: false,
+                }),
+            });
+
+            if (!chatResponse.ok) {
+                throw new Error(await readErrorResponse(chatResponse, `${PROVIDER_LABELS[provider]} 图片编辑失败`));
+            }
+
+            const chatJson = await readJsonResponse<any>(chatResponse, `${PROVIDER_LABELS[provider]} 图片编辑响应`);
+            return parseOpenAIImageResponse(chatJson);
         }
 
         return {
@@ -1298,6 +1563,13 @@ export async function generateVideoWithProvider(
         const videoBlob = await videoRes.blob();
         const mimeType = videoRes.headers.get('Content-Type') || 'video/mp4';
         return { videoBlob, mimeType };
+    }
+
+    if (provider === 'custom') {
+        if (!key) {
+            throw new Error('未配置自定义视频端点的 API Key。');
+        }
+        return generateVideoWithUnifiedAsyncApi(prompt, model, key, options);
     }
 
     throw new Error(

@@ -281,26 +281,31 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        <div className="fixed inset-0 z-200 flex items-end justify-center bg-black/40 backdrop-blur-sm sm:items-center">
             <div
-                className={`relative w-[90%] max-w-[480px] rounded-[32px] border p-8 shadow-[0_48px_120px_rgba(0,0,0,0.2)] ${cardBg}`}
+                className={`relative flex max-h-[calc(100dvh-0.5rem)] w-full max-w-120 flex-col overflow-hidden rounded-t-4xl border shadow-[0_48px_120px_rgba(0,0,0,0.2)] sm:max-h-[calc(100dvh-2rem)] sm:w-[90%] sm:rounded-4xl ${cardBg}`}
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* ── 进度指示器 ── */}
-                <div className="mb-6 flex justify-center gap-2">
-                    {STEPS.map((_, i) => (
-                        <div
-                            key={i}
-                            className={`h-1.5 rounded-full transition-all duration-300 ${
-                                i === step
-                                    ? 'w-8 bg-blue-500'
-                                    : i < step
-                                        ? 'w-4 bg-blue-300'
-                                        : isDark ? 'w-4 bg-[#2A3140]' : 'w-4 bg-[#E4E7EC]'
-                            }`}
-                        />
-                    ))}
+                {/* ── 进度指示器（固定顶部） ── */}
+                <div className="shrink-0 px-8 pt-8 pb-2">
+                    <div className="flex justify-center gap-2">
+                        {STEPS.map((_, i) => (
+                            <div
+                                key={i}
+                                className={`h-1.5 rounded-full transition-all duration-300 ${
+                                    i === step
+                                        ? 'w-8 bg-blue-500'
+                                        : i < step
+                                            ? 'w-4 bg-blue-300'
+                                            : isDark ? 'w-4 bg-[#2A3140]' : 'w-4 bg-[#E4E7EC]'
+                                }`}
+                            />
+                        ))}
+                    </div>
                 </div>
+
+                {/* ── 滚动内容区 ── */}
+                <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">
 
                 {/* ── Step 0: 欢迎页 ── */}
                 {step === 0 && (
@@ -555,28 +560,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                 </span>
                             ))}
                         </div>
-
-                        <div className="flex gap-3">
-                            <button type="button" onClick={() => { setStep(0); setError(null); }} className={secondaryBtn}>
-                                ← 返回
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleValidateAndSave}
-                                disabled={!apiKey.trim() || isValidating}
-                                className={`${primaryBtn} flex-1 disabled:cursor-not-allowed disabled:opacity-50`}
-                            >
-                                {isValidating ? (
-                                    <span className="flex items-center justify-center gap-2">
-                                        <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                                        </svg>
-                                        验证中...
-                                    </span>
-                                ) : '验证并保存 →'}
-                            </button>
-                        </div>
                     </div>
                 )}
 
@@ -621,6 +604,35 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                         </button>
                     </div>
                 )}
+                </div>{/* end scrollable area */}
+
+                {/* ── Step 1 固定底部按钮区 ── */}
+                {step === 1 && (
+                    <div className={`shrink-0 border-t px-8 py-4 ${isDark ? 'border-[#2A3140]' : 'border-[#E4E7EC]'}`}>
+                        <div className="flex gap-3">
+                            <button type="button" onClick={() => { setStep(0); setError(null); }} className={secondaryBtn}>
+                                ← 返回
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleValidateAndSave}
+                                disabled={!apiKey.trim() || isValidating}
+                                className={`${primaryBtn} flex-1 disabled:cursor-not-allowed disabled:opacity-50`}
+                            >
+                                {isValidating ? (
+                                    <span className="flex items-center justify-center gap-2">
+                                        <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                        </svg>
+                                        验证中...
+                                    </span>
+                                ) : '验证并保存 →'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+
             </div>
         </div>
     );

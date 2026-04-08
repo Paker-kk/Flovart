@@ -41,8 +41,8 @@ function inferCapability(modelId: string, model?: any): AICapability {
     }
 
     const id = stripProviderPrefix(modelId);
-    if (/^veo|video/.test(id)) return 'video';
-    if (/^imagen|image-generation|dall-e|gpt-image|stable-diffusion|sdxl|flux|midjourney/.test(id)) return 'image';
+    if (/^(veo|video|wan|seedance|vidu|pika|runway|higgsfield|luma|kling|keling|sora|sdols|hailuo|qwen-video|liveportrait|videoretalk|emo)/.test(id)) return 'video';
+    if (/^(imagen|image-generation|dall-e|gpt-image|stable-diffusion|sdxl|flux|midjourney|recraft|ideogram|qwen-image|seededit|nano-banana|jimeng|doubao-image|omni-image|grok-image)/.test(id)) return 'image';
     if (/image/.test(id) && /gemini/.test(id)) return 'image';
     return 'text';
 }

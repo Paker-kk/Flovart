@@ -13,7 +13,6 @@ import {
 } from '../services/aiGateway';
 import { addGenerationHistoryItem } from '../utils/generationHistory';
 import { recordApiUsage } from '../utils/usageMonitor';
-import { generateId, getElementBounds, rasterizeElement, rasterizeMask } from '../utils/canvasHelpers';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -79,13 +78,26 @@ export function useGeneration(params: UseGenerationParams) {
 
     /* ---- helpers ---- */
 
+    const keyOwnsModel = useCallback((key: UserApiKey, model?: string) => {
+        const normalizedModel = model?.trim().toLowerCase();
+        if (!normalizedModel) return false;
+
+        const knownModels = [
+            key.defaultModel,
+            ...(key.customModels || []),
+            ...((key.models || []).map(item => item.id)),
+        ];
+
+        return knownModels.some(candidate => candidate?.trim().toLowerCase() === normalizedModel);
+    }, []);
+
     /** 智能解析模型+Key：如果当前模型的 Provider 没有健康 Key，自动降级到任意可用 Key */
     const resolveModelKey = useCallback((capability: 'image' | 'video' | 'text', currentModel: string) => {
         const provider = inferProviderFromModel(currentModel);
         const healthyKeys = userApiKeys.filter(k => k.status !== 'error');
         const directKey = healthyKeys.find(k => {
             const caps = k.capabilities?.length ? k.capabilities : inferCapabilitiesByProvider(k.provider);
-            return caps.includes(capability) && k.provider === provider;
+            return caps.includes(capability) && (k.provider === provider || (k.provider === 'custom' && keyOwnsModel(k, currentModel)));
         });
         if (directKey) return { model: currentModel, provider, key: directKey };
         for (const key of healthyKeys) {
@@ -96,7 +108,7 @@ export function useGeneration(params: UseGenerationParams) {
             if (fallbackModel) return { model: fallbackModel, provider: key.provider, key };
         }
         return null;
-    }, [userApiKeys]);
+    }, [keyOwnsModel, userApiKeys]);
 
     const handleEnhancePrompt = useCallback(async (payload: {
         prompt: string;

@@ -9,7 +9,6 @@ import type {
     UserApiKey,
     UserEffect,
 } from '../types';
-import { ConfigSelector } from './ConfigManager/ConfigSelector';
 import RichPromptEditor, { type RichPromptEditorHandle } from './RichPromptEditor';
 import type { MentionItem } from './MentionList';
 import { extractMentions } from './CanvasMentionExtension';
@@ -408,17 +407,6 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                 );
                             })()}
 
-                            {/* API 配置选择器（高级配置） */}
-                            {apiConfigs.length > 0 && onApiConfigChange && onApiModelChange && (
-                                <ConfigSelector
-                                    configs={apiConfigs}
-                                    activeConfigId={activeApiConfigId}
-                                    activeModelId={activeApiModelId}
-                                    onConfigChange={onApiConfigChange}
-                                    onModelChange={onApiModelChange}
-                                    isDark={isDark}
-                                />
-                            )}
 
                             <div className="relative">
                                 <button type="button" onClick={() => setExpandedPanel(prev => (prev === 'mode' ? null : 'mode'))} className={`${triggerClass} ${expandedPanel === 'mode' ? activeTriggerClass : ''}`}>
