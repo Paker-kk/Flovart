@@ -26,11 +26,21 @@
   <img src="https://img.shields.io/badge/Vite-6-E8453C?logo=vite&logoColor=white" alt="Vite 6" />
 </p>
 
+<p align="center">
+  <img src="https://count.getloli.com/get/@flovart-readme?theme=rule34" alt="Flovart Popular Counter" />
+</p>
+
+<p align="center">
+  <a href="https://star-history.com/#Paker-kk/Flovart&Date" target="_blank">
+    <img src="https://api.star-history.com/svg?repos=Paker-kk/Flovart&type=Date" alt="Flovart Star History" />
+  </a>
+</p>
+
 ---
 
 ## 这是什么？
 
-Flovart 是一个**开源的 AI 图片/视频设计工具**。你用自己的 API Key（Google Gemini、OpenAI、DeepSeek 等），在无限画布上生成图片、编辑图片、生成视频、让 AI Agent 帮你做设计。
+Flovart 是一个**开源的 AI 图片/视频设计工具**。你接入自己的模型服务（Google Gemini、OpenAI、DeepSeek 等），在无限画布上生成图片、编辑图片、生成视频、让 AI Agent 帮你做设计。
 
 **所有数据存在你本地，不经过任何中间服务器。**
 
@@ -55,20 +65,20 @@ npm install
 npm run dev
 ```
 
-打开 http://localhost:3000，在设置中填入你的 API Key 即可。
+打开 http://localhost:3000，在设置中填入你的服务凭据即可。
 
-> 推荐 [Google AI Studio](https://aistudio.google.com/apikey) 免费获取 Gemini API Key。
+> 推荐 [Google AI Studio](https://aistudio.google.com/apikey) 免费获取 Gemini 凭据。
 
-### 方式二：使用第三方 API 聚合服务
+### 方式二：第三方服务适配（持续进行中）
 
-Flovart 支持任何 **OpenAI-compatible** 的第三方 API 聚合端点（如中转站、企业内网网关）。只需在设置中选择 **自定义 Provider**：
+Flovart 正在持续推进 **OpenAI-compatible** 第三方端点（如中转站、企业内网网关）适配。你可以在设置中选择 **自定义 Provider**，按以下方式接入：
 
 1. **Base URL** — 填入你的端点地址（如 `https://api.example.com/v1/chat/completions`，Flovart 会自动裁剪到 `/v1`）
-2. **API Key** — 填入你的密钥
+2. **服务凭据** — 填入你的访问凭据
 3. **模型名** — 选择或手动输入模型（如 `gemini-2.5-flash-preview-image-generation`、`gpt-image-1` 等）
-4. **能力声明** — 勾选该 Key 支持的能力（图片 / 视频 / 文本），自定义模型会按此归类到下拉菜单
+4. **能力声明** — 勾选该凭据支持的能力（图片 / 视频 / 文本），自定义模型会按此归类到下拉菜单
 
-> **工作原理**：自定义 Key 统一走 OpenAI-compatible 路径（`/chat/completions`、`/images/generations`），不会调用 Google / OpenAI 官方 SDK。即使模型名以 `gemini-` 开头，也会正确路由到你的自定义端点。
+> **适配说明**：第三方兼容规则仍在持续迭代中。欢迎你一起完善适配规则与样例，帮助更多模型服务稳定接入。
 
 **支持的图片响应格式**：
 - 标准 `b64_json`（OpenAI 原生格式）
@@ -120,8 +130,8 @@ npm run ext:build
 | **角色锁定** | 锁定角色外观，后续生成保持一致 |
 | **素材库** | 角色/场景/道具分类管理，拖入画布复用 |
 | **多 Provider** | Google、OpenAI、DeepSeek、MiniMax、火山引擎、Qwen 等 12+ Provider |
-| **第三方 API 聚合** | 支持任何 OpenAI-compatible 中转站/聚合端点，自动适配多种响应格式 |
-| **Key 自动识别** | 粘贴 API Key 自动识别 Provider + 拉取可用模型 |
+| **第三方服务适配** | 持续适配 OpenAI-compatible 中转站/聚合端点，并不断补充兼容规则 |
+| **凭据自动识别** | 粘贴服务凭据自动识别 Provider + 拉取可用模型 |
 | **A/B 对比** | 拖拽滑块对比两张图片 |
 | **中英双语** | 界面中文 / English 自由切换 |
 | **亮暗主题** | 亮色 / 暗色主题自适应 |
@@ -146,7 +156,7 @@ npm run ext:build
 ### 进行中 🚧
 - [ ] App.tsx 模块化拆分（hooks 抽离：useCanvas / useGeneration / useElements / useMask）
 - [ ] Chrome / Edge 商店上架
-- [ ] 扩展端 API Key 加密存储 + 删除同步
+- [ ] 扩展端服务凭据加密存储 + 删除同步
 - [ ] ComfyUI / RunningHub 集成（本地模型）
 
 ### 规划中 📝
@@ -164,7 +174,7 @@ npm run ext:build
 
 ## 🙏 致谢
 
-- **[@labiaaaaaaaaa](https://github.com/labiaaaaaaaaa)** — 修复第三方 API Key 集成的核心 Bug，使 Flovart 能够正确支持部分第三方 API Key（如聚合网关、OpenAI 兼容端点）的正常调用。
+- **[@labiaaaaaaaaa](https://github.com/labiaaaaaaaaa)** — 推进第三方服务适配核心修复，帮助 Flovart 在聚合网关与兼容端点场景下持续完善接入规则。
 
 ---
 
