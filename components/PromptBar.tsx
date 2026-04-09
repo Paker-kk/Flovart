@@ -373,7 +373,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
 
                 <div className={`relative flex items-center justify-between gap-3 border-t ${compactMode ? 'px-2.5 py-2' : 'px-3 py-2.5'} ${isDark ? 'border-[#2A3140]' : 'border-[#EEF1F5]'}`}>
                     <div className="min-w-0 flex-1 overflow-visible">
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-2 overflow-x-auto">
                             {/* API Key 状态指示器 — 与设置面板联动 */}
                             {(() => {
                                 const defaultKey = userApiKeys.find(k => k.isDefault);
@@ -502,9 +502,8 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                             </button>
 
                             <div className="relative">
-                                <button type="button" onClick={() => setExpandedPanel(prev => (prev === 'more' ? null : 'more'))} className={`${triggerClass} ${expandedPanel === 'more' ? activeTriggerClass : ''}`}>
-                                    更多
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6" /></svg>
+                                <button type="button" onClick={() => setExpandedPanel(prev => (prev === 'more' ? null : 'more'))} className={`${triggerClass} ${expandedPanel === 'more' ? activeTriggerClass : ''}`} title="更多操作">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
                                 </button>
                                 {expandedPanel === 'more' && (
                                     <div className={`${popoverCardClass} left-auto right-0 w-[320px]`}>

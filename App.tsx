@@ -2394,7 +2394,7 @@ const App: React.FC = () => {
             </div>
             {!croppingState && (
                 <div 
-                    className="compact-prompt-dock absolute bottom-0 left-0 right-0 z-[40] transition-all duration-300 ease-out flex flex-col items-center pointer-events-none"
+                    className="compact-prompt-dock absolute bottom-0 left-0 right-0 z-[48] transition-all duration-300 ease-out flex flex-col items-center pointer-events-none"
                     style={{
                         paddingLeft: chromeMetrics.isTablet ? `${chromeMetrics.promptSideInset}px` : `${isLayerMinimized ? chromeMetrics.outerGap : chromeMetrics.sidebarWidth + chromeMetrics.outerGap + 8}px`,
                         paddingRight: chromeMetrics.isTablet ? `${chromeMetrics.promptSideInset}px` : `${rightPanelWidth + chromeMetrics.promptSideInset}px`,
