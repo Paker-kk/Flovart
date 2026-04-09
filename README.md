@@ -31,8 +31,8 @@
 </p>
 
 <p align="center">
-  <a href="https://star-history.com/#Paker-kk/Flovart&Date" target="_blank">
-    <img src="https://api.star-history.com/svg?repos=Paker-kk/Flovart&type=Date" alt="Flovart Star History" />
+  <a href="https://github.com/Paker-kk/Flovart/stargazers" target="_blank">
+    <img src="https://img.shields.io/github/stars/Paker-kk/Flovart?style=for-the-badge&logo=github&color=E8453C" alt="Flovart GitHub Stars" />
   </a>
 </p>
 
