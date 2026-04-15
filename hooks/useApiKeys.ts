@@ -384,6 +384,7 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
             textApiKey: googleTextKey?.key,
             imageApiKey: googleImageKey?.key || googleTextKey?.key,
             videoApiKey: googleVideoKey?.key || googleImageKey?.key || googleTextKey?.key,
+            baseUrl: googleTextKey?.baseUrl,
             textModel: textProvider === 'google' ? modelPreference.textModel : undefined,
             imageModel:
                 imageProvider === 'google' && isGoogleImageEditModel(modelPreference.imageModel)
