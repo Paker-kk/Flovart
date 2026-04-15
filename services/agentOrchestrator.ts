@@ -113,6 +113,7 @@ interface LLMCallOptions {
     apiKey: string;
     baseUrl: string;
     provider: AIProvider;
+    signal?: AbortSignal;
 }
 
 const DEFAULT_BASE_URLS: Partial<Record<AIProvider, string>> = {
@@ -125,11 +126,21 @@ const DEFAULT_BASE_URLS: Partial<Record<AIProvider, string>> = {
 };
 
 async function callLLM(opts: LLMCallOptions): Promise<string> {
-    const { model, systemPrompt, messages, apiKey, baseUrl, provider } = opts;
+    const { model, systemPrompt, messages, apiKey, baseUrl, provider, signal: externalSignal } = opts;
+
+    // 60s 超时，同时尊重外部 abort signal
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60_000);
+    const onExternalAbort = () => controller.abort();
+    externalSignal?.addEventListener('abort', onExternalAbort);
+    const signal = controller.signal;
+
+    try {
 
     if (provider === 'anthropic') {
         const response = await fetch(`${baseUrl}/messages`, {
             method: 'POST',
+            signal,
             headers: {
                 'Content-Type': 'application/json',
                 'x-api-key': apiKey,
@@ -156,6 +167,7 @@ async function callLLM(opts: LLMCallOptions): Promise<string> {
         }));
         const response = await fetch(url, {
             method: 'POST',
+            signal,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 systemInstruction: { parts: [{ text: systemPrompt }] },
@@ -171,6 +183,7 @@ async function callLLM(opts: LLMCallOptions): Promise<string> {
     // OpenAI-compatible (openai, deepseek, qwen, siliconflow, custom)
     const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
+        signal,
         headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${apiKey}`,
@@ -188,6 +201,11 @@ async function callLLM(opts: LLMCallOptions): Promise<string> {
     if (!response.ok) throw new Error(`LLM ${response.status}`);
     const json = await response.json();
     return json?.choices?.[0]?.message?.content || '';
+
+    } finally {
+        clearTimeout(timeout);
+        externalSignal?.removeEventListener('abort', onExternalAbort);
+    }
 }
 
 // ── Orchestration Engine ────────────────────────────────────────────
@@ -309,6 +327,7 @@ export class AgentOrchestrator {
                             apiKey: key.key,
                             baseUrl,
                             provider,
+                            signal: this.abortController?.signal,
                         });
 
                         // Update cost

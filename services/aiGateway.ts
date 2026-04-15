@@ -345,15 +345,24 @@ function decodeDataUrlImage(dataUrl: string) {
  * 下载远程图片 URL 并转为 base64
  */
 async function fetchImageUrlToBase64(url: string): Promise<{ newImageBase64: string; newImageMimeType: string; textResponse: null }> {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`下载图片失败 (${res.status}): ${url}`);
-    const blob = await res.blob();
-    const mimeType = blob.type || 'image/png';
-    const arrayBuffer = await blob.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    return { newImageBase64: btoa(binary), newImageMimeType: mimeType, textResponse: null };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) throw new Error(`下载图片失败 (${res.status}): ${url}`);
+        const blob = await res.blob();
+        const mimeType = blob.type || 'image/png';
+        const arrayBuffer = await blob.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        // 分块转换避免 call stack 溢出（大图片 >3MB 时 spread 会爆栈）
+        const chunks: string[] = [];
+        for (let i = 0; i < bytes.length; i += 8192) {
+            chunks.push(String.fromCharCode(...bytes.subarray(i, i + 8192)));
+        }
+        return { newImageBase64: btoa(chunks.join('')), newImageMimeType: mimeType, textResponse: null };
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 /**
@@ -622,7 +631,12 @@ async function generateVideoWithUnifiedAsyncApi(
             }
 
             let delay = 2000;
+            const pollStart = Date.now();
+            const MAX_POLL_MS = 600_000; // 10 分钟超时
             while (true) {
+                if (Date.now() - pollStart > MAX_POLL_MS) {
+                    throw new Error('视频生成超时（已等待超过 10 分钟）');
+                }
                 onProgress(delay <= 2000 ? '任务已提交，正在排队...' : '正在生成视频，请稍候...');
                 const queryRes = await fetch(`${apiBase}/v2/videos/generations/${encodeURIComponent(taskId)}`, {
                     headers: { Authorization: `Bearer ${apiKey}` },
@@ -1442,7 +1456,11 @@ export async function generateVideoWithProvider(
         onProgress('Generation started, this may take a few minutes.');
 
         let fileId: string | undefined;
+        const miniMaxPollStart = Date.now();
         while (true) {
+            if (Date.now() - miniMaxPollStart > 600_000) {
+                throw new Error('MiniMax 视频生成超时（已等待超过 10 分钟）');
+            }
             onProgress(progressMessages[messageIndex % progressMessages.length]);
             messageIndex++;
             await new Promise(resolve => setTimeout(resolve, 10000));
@@ -1537,7 +1555,11 @@ export async function generateVideoWithProvider(
         onProgress('Generation started, this may take a few minutes.');
 
         let videoUrl: string | undefined;
+        const kelingPollStart = Date.now();
         while (true) {
+            if (Date.now() - kelingPollStart > 600_000) {
+                throw new Error('Keling 视频生成超时（已等待超过 10 分钟）');
+            }
             onProgress(progressMessages[messageIndex % progressMessages.length]);
             messageIndex++;
             await new Promise(resolve => setTimeout(resolve, 10000));
