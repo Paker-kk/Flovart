@@ -626,7 +626,7 @@ export function useCanvasInteraction(params: UseCanvasInteractionParams) {
         dragStartElementPositions.current.clear();
     };
 
-    const handleWheel = (e: React.WheelEvent<SVGSVGElement>) => {
+    const handleWheel = (e: WheelEvent | React.WheelEvent<SVGSVGElement>) => {
         if (croppingState || editingElement) { e.preventDefault(); return; }
         e.preventDefault();
         const { clientX, clientY, deltaX, deltaY, ctrlKey } = e;

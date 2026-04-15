@@ -23,7 +23,7 @@ import { ABCompareOverlay } from './components/ABCompareOverlay';
 import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/assetStorage';
 import { loadGenerationHistory, addGenerationHistoryItem } from './utils/generationHistory';
 import { inferProviderFromModel, reversePromptStreamWithProvider } from './services/aiGateway';
-import { fileToDataUrl } from './utils/fileUtils';
+import { fileToDataUrl, validateAndResizeImage } from './utils/fileUtils';
 import { translations } from './translations';
 // keyVault imports moved to hooks/useApiKeys.ts
 // usageMonitor imports moved to hooks
@@ -508,8 +508,10 @@ const App: React.FC = () => {
         const list = Array.from(files).filter(file => file.type.startsWith('image/'));
         if (list.length === 0) return;
         try {
-            const dataList = await Promise.all(list.map(fileToDataUrl));
-            dataList.forEach((item, index) => {
+            const results = await Promise.all(list.map(f => validateAndResizeImage(f)));
+            let anyResized = false;
+            results.forEach((item, index) => {
+                if (item.resized) anyResized = true;
                 addChatAttachment({
                     name: list[index].name || `Upload ${index + 1}`,
                     href: item.dataUrl,
@@ -517,6 +519,10 @@ const App: React.FC = () => {
                     source: 'upload',
                 });
             });
+            if (anyResized) {
+                setError('部分图片尺寸过大，已自动压缩。');
+                setTimeout(() => setError(prev => prev === '部分图片尺寸过大，已自动压缩。' ? null : prev), 3000);
+            }
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Attachment upload failed.';
             setError(message);
@@ -527,8 +533,10 @@ const App: React.FC = () => {
         const list = Array.from(files).filter(file => file.type.startsWith('image/'));
         if (list.length === 0) return;
         try {
-            const dataList = await Promise.all(list.map(fileToDataUrl));
-            dataList.forEach((item, index) => {
+            const results = await Promise.all(list.map(f => validateAndResizeImage(f)));
+            let anyResized = false;
+            results.forEach((item, index) => {
+                if (item.resized) anyResized = true;
                 addPromptAttachment({
                     name: list[index].name || `Upload ${index + 1}`,
                     href: item.dataUrl,
@@ -536,6 +544,10 @@ const App: React.FC = () => {
                     source: 'upload',
                 });
             });
+            if (anyResized) {
+                setError('部分图片尺寸过大，已自动压缩。');
+                setTimeout(() => setError(prev => prev === '部分图片尺寸过大，已自动压缩。' ? null : prev), 3000);
+            }
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Attachment upload failed.';
             setError(message);
@@ -725,32 +737,33 @@ const App: React.FC = () => {
         }
         setError(null);
         try {
-            const { dataUrl, mimeType } = await fileToDataUrl(file);
-            const img = new Image();
-            img.onload = () => {
-                if (!svgRef.current) return;
-                const svgBounds = svgRef.current.getBoundingClientRect();
-                const screenCenter = { x: svgBounds.left + svgBounds.width / 2, y: svgBounds.top + svgBounds.height / 2 };
-                const canvasPoint = getCanvasPoint(screenCenter.x, screenCenter.y);
+            const { dataUrl, mimeType, width, height, resized } = await validateAndResizeImage(file);
+            if (resized) {
+                setError(`图片尺寸过大，已自动缩小到 ${width}×${height}。`);
+                setTimeout(() => setError(prev => prev?.startsWith('图片尺寸过大') ? null : prev), 3000);
+            }
+            if (!svgRef.current) return;
+            const svgBounds = svgRef.current.getBoundingClientRect();
+            const screenCenter = { x: svgBounds.left + svgBounds.width / 2, y: svgBounds.top + svgBounds.height / 2 };
+            const canvasPoint = getCanvasPoint(screenCenter.x, screenCenter.y);
 
-                const newImage: ImageElement = {
-                    id: generateId(),
-                    type: 'image',
-                    name: file.name,
-                    x: canvasPoint.x - (img.width / 2),
-                    y: canvasPoint.y - (img.height / 2),
-                    width: img.width,
-                    height: img.height,
-                    href: dataUrl,
-                    mimeType: mimeType,
-                };
-                setElements(prev => [...prev, newImage]);
-                setSelectedElementIds([newImage.id]);
-                setActiveTool('select');
+            const newImage: ImageElement = {
+                id: generateId(),
+                type: 'image',
+                name: file.name,
+                x: canvasPoint.x - (width / 2),
+                y: canvasPoint.y - (height / 2),
+                width,
+                height,
+                href: dataUrl,
+                mimeType: mimeType,
             };
-            img.src = dataUrl;
+            setElements(prev => [...prev, newImage]);
+            setSelectedElementIds([newImage.id]);
+            setActiveTool('select');
         } catch (err) {
-            setError('Failed to load image.');
+            const message = err instanceof Error ? err.message : 'Failed to load image.';
+            setError(message);
             console.error(err);
         }
     }, [getCanvasPoint, activeBoardId, setElements]);
@@ -1272,6 +1285,15 @@ const App: React.FC = () => {
         return () => window.removeEventListener('paste', handlePaste);
     }, [handleAddImageElement]);
 
+    // 用原生事件监听器挂载 wheel，确保 { passive: false } 以允许 preventDefault()
+    useEffect(() => {
+        const svg = svgRef.current;
+        if (!svg) return;
+        const onWheel = (e: WheelEvent) => handleWheel(e);
+        svg.addEventListener('wheel', onWheel, { passive: false });
+        return () => svg.removeEventListener('wheel', onWheel);
+    }, [handleWheel]);
+
     const getSelectionBounds = useCallback((selectionIds: string[]): Rect => {
         const selectedElements = elementsRef.current.filter(el => selectionIds.includes(el.id));
         if (selectedElements.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
@@ -1728,7 +1750,6 @@ const App: React.FC = () => {
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
-                    onWheel={handleWheel}
                     onContextMenu={handleContextMenu}
                     style={{ cursor }}
                 >

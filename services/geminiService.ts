@@ -40,6 +40,7 @@ let runtimeConfig: {
   imageModel?: string;
   textToImageModel?: string;
   videoModel?: string;
+  baseUrl?: string;
 } = {};
 
 export function setGeminiRuntimeConfig(config: {
@@ -50,6 +51,7 @@ export function setGeminiRuntimeConfig(config: {
   imageModel?: string;
   textToImageModel?: string;
   videoModel?: string;
+  baseUrl?: string;
 }) {
   runtimeConfig = { ...runtimeConfig, ...config };
 }
@@ -85,13 +87,22 @@ function getApiKey(capability: "text" | "image" | "video" = "text", explicitKey?
   return key;
 }
 
+/** 获取 Gemini REST API 的基础地址（供 aiGateway 内直接发 fetch 时使用） */
+export function getGeminiRestBaseUrl(): string {
+  return (runtimeConfig.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
+}
+
 /**
  * 【函数】创建 Google GenAI 客户端实例
  * @param capability - 使用场景
  * @param explicitKey - 可选的显式 API Key
  */
 function getClient(capability: "text" | "image" | "video" = "text", explicitKey?: string) {
-  return new GoogleGenAI({ apiKey: getApiKey(capability, explicitKey) });
+  const base = runtimeConfig.baseUrl?.replace(/\/+$/, '');
+  return new GoogleGenAI({
+    apiKey: getApiKey(capability, explicitKey),
+    ...(base ? { httpOptions: { baseUrl: base } } : {}),
+  });
 }
 
 function normalizeGeminiErrorMessage(message: string, status?: number): string {
@@ -125,9 +136,10 @@ function normalizeGeminiErrorMessage(message: string, status?: number): string {
  * 轻量级 API Key 验证 — 调用 Gemini models.list 接口
  * 成功返回 { ok: true }，失败返回 { ok: false, message }
  */
-export async function validateGeminiApiKey(apiKey: string): Promise<{ ok: boolean; message?: string }> {
+export async function validateGeminiApiKey(apiKey: string, baseUrl?: string): Promise<{ ok: boolean; message?: string }> {
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=1`;
+    const base = (baseUrl || runtimeConfig.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
+    const url = `${base}/models?key=${encodeURIComponent(apiKey)}&pageSize=1`;
     const res = await fetch(url);
     if (res.ok) return { ok: true };
     const body = await res.json().catch(() => ({}));

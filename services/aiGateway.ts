@@ -1,5 +1,5 @@
 import type { AICapability, AIProvider, PromptEnhanceRequest, PromptEnhanceResult, UserApiKey } from '../types';
-import { editImage, enhancePromptWithGemini, generateImageFromText, generateVideo, validateGeminiApiKey } from './geminiService';
+import { editImage, enhancePromptWithGemini, generateImageFromText, generateVideo, validateGeminiApiKey, getGeminiRestBaseUrl } from './geminiService';
 import { fetchModelsForProvider, type FetchModelsResult } from './modelFetcher';
 import { normalizeProviderBaseUrl } from './baseUrl';
 
@@ -830,7 +830,8 @@ export async function reversePromptWithProvider(
         const apiKey = requireApiKey(provider, key);
         const effectiveModel = model || 'gemini-2.5-flash';
         const base64Data = imageHref.includes(',') ? imageHref.split(',')[1] : imageHref;
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(effectiveModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const googleBase = key?.baseUrl ? normalizeProviderBaseUrl('google', key.baseUrl) : getGeminiRestBaseUrl();
+        const url = `${googleBase}/models/${encodeURIComponent(effectiveModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
         const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -942,7 +943,8 @@ export async function reversePromptStreamWithProvider(
         const apiKey = requireApiKey(provider, key);
         const effectiveModel = model || 'gemini-2.5-flash';
         const base64Data = imageHref.includes(',') ? imageHref.split(',')[1] : imageHref;
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(effectiveModel)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
+        const googleBase = key?.baseUrl ? normalizeProviderBaseUrl('google', key.baseUrl) : getGeminiRestBaseUrl();
+        const url = `${googleBase}/models/${encodeURIComponent(effectiveModel)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
         const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1154,6 +1156,9 @@ export async function generateImageWithProvider(
         const baseUrl = getBaseUrl(provider, key);
 
         // 先尝试标准 /images/generations 端点
+        // custom provider 请求 url 格式（代理/聚合端点对大图片 b64_json 响应可能断连），
+        // OpenAI 官方端点请求 b64_json（避免额外下载且链接有时效）
+        const preferredFormat = provider === 'custom' ? 'url' : 'b64_json';
         try {
             const response = await fetch(`${baseUrl}/images/generations`, {
                 method: 'POST',
@@ -1165,7 +1170,7 @@ export async function generateImageWithProvider(
                     model,
                     prompt,
                     size: '1024x1024',
-                    response_format: 'b64_json',
+                    response_format: preferredFormat,
                 }),
             });
 
@@ -1288,7 +1293,7 @@ export async function editImageWithProvider(
         const formData = new FormData();
         formData.append('model', model);
         formData.append('prompt', prompt);
-        formData.append('response_format', 'b64_json');
+        formData.append('response_format', provider === 'custom' ? 'url' : 'b64_json');
 
         images.forEach((image, index) => {
             const parsed = parseDataUrl(image.href, image.mimeType);
