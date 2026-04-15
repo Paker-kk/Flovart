@@ -4,22 +4,23 @@
 
 
 
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo, Suspense } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { PromptBar } from './components/PromptBar';
 import { DiagnosticBar } from './components/DiagnosticBar';
 import { Loader } from './components/Loader';
-import { CanvasSettings } from './components/CanvasSettings';
-import { OnboardingWizard } from './components/OnboardingWizard';
 import { WorkspaceSidebar } from './components/WorkspaceSidebar';
 import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem, UserApiKey, ModelPreference, AIProvider, AICapability, PromptEnhanceMode, CharacterLockProfile, GenerationHistoryItem, ThemeMode, ChatAttachment, ImageFilters } from './types';
 import { DEFAULT_IMAGE_FILTERS } from './types';
 import { AssetLibraryPanel } from './components/AssetLibraryPanel';
-import { InspirationPanel } from './components/InspirationPanel';
-import { RightPanel } from './components/RightPanel';
-import { AssetAddModal } from './components/AssetAddModal';
 import { ImageFilterPanel, buildCssFilter, temperatureMatrix, sharpenKernel } from './components/ImageFilterPanel';
-import { ABCompareOverlay } from './components/ABCompareOverlay';
+
+// Lazy-loaded components (not needed for first paint)
+const CanvasSettings = React.lazy(() => import('./components/CanvasSettings').then(m => ({ default: m.CanvasSettings })));
+const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard').then(m => ({ default: m.OnboardingWizard })));
+const RightPanel = React.lazy(() => import('./components/RightPanel').then(m => ({ default: m.RightPanel })));
+const AssetAddModal = React.lazy(() => import('./components/AssetAddModal').then(m => ({ default: m.AssetAddModal })));
+const ABCompareOverlay = React.lazy(() => import('./components/ABCompareOverlay').then(m => ({ default: m.ABCompareOverlay })));
 import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/assetStorage';
 import { loadGenerationHistory, addGenerationHistoryItem } from './utils/generationHistory';
 import { inferProviderFromModel, reversePromptStreamWithProvider } from './services/aiGateway';
@@ -1531,6 +1532,7 @@ const App: React.FC = () => {
                 }}
             />
             {/* New Right Panel (multi-function: generate + inspiration) */}
+            <Suspense fallback={null}>
             <RightPanel
                 theme={resolvedTheme}
                 isMinimized={isInspirationMinimized}
@@ -1558,6 +1560,8 @@ const App: React.FC = () => {
                 }}
                 onReversePrompt={handleReversePrompt}
             />
+            </Suspense>
+            <Suspense fallback={null}>
             <CanvasSettings 
                 isOpen={isSettingsPanelOpen} 
                 onClose={() => setIsSettingsPanelOpen(false)} 
@@ -1581,16 +1585,19 @@ const App: React.FC = () => {
                 usageSummary={usageSummaryMap}
                 dynamicModelOptions={dynamicModelOptions}
             />
+            </Suspense>
             {/* ============ 图层蒙版编辑浮动面板 ============ */}
 
             {/* ============ A/B 对比弹窗 ============ */}
             {abCompare && (
+                <Suspense fallback={null}>
                 <ABCompareOverlay
                     imageA={abCompare.imageA}
                     imageB={abCompare.imageB}
                     onClose={() => setAbCompare(null)}
                     theme={resolvedTheme}
                 />
+                </Suspense>
             )}
 
             {/* ============ 图层蒙版编辑浮动面板 (controls) ============ */}
@@ -1678,15 +1685,19 @@ const App: React.FC = () => {
             )}
 
             {/* 新用户引导弹窗 — 无 API Key 时自动出现 */}
-            <OnboardingWizard
-                isOpen={showOnboarding}
-                onClose={() => {
-                    setShowOnboarding(false);
-                    localStorage.setItem('onboarding.skipped', 'true');
-                }}
-                onAddApiKey={handleAddApiKey}
-                resolvedTheme={resolvedTheme}
-            />
+            {showOnboarding && (
+                <Suspense fallback={null}>
+                <OnboardingWizard
+                    isOpen={showOnboarding}
+                    onClose={() => {
+                        setShowOnboarding(false);
+                        localStorage.setItem('onboarding.skipped', 'true');
+                    }}
+                    onAddApiKey={handleAddApiKey}
+                    resolvedTheme={resolvedTheme}
+                />
+                </Suspense>
+            )}
             <Toolbar
                 t={t}
                 theme={resolvedTheme}
@@ -1715,6 +1726,7 @@ const App: React.FC = () => {
                 canRedo={historyIndex < history.length - 1}
             />
             {addAssetModal?.open && (
+                <Suspense fallback={null}>
                 <AssetAddModal 
                     isOpen={addAssetModal.open}
                     onClose={() => setAddAssetModal(null)}
@@ -1734,6 +1746,7 @@ const App: React.FC = () => {
                         setAddAssetModal(null);
                     }}
                 />
+                </Suspense>
             )}
             <div 
                 className="compact-canvas-stage flex-grow relative overflow-hidden"
