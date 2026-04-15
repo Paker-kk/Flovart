@@ -47,6 +47,10 @@ export const validateAndResizeImage = async (
     const { dataUrl, mimeType } = await fileToDataUrl(file);
     const img = await dataUrlToImage(dataUrl);
 
+    if (img.width === 0 || img.height === 0) {
+        throw new Error('图片尺寸无效（宽度或高度为 0），请选择有效的图片文件。');
+    }
+
     const needsResize = img.width > IMAGE_MAX_DIMENSION || img.height > IMAGE_MAX_DIMENSION;
 
     if (!needsResize) {

@@ -425,6 +425,10 @@ function looksLikeHtmlResponse(text: string) {
 }
 
 async function readJsonResponse<T>(response: Response, requestLabel: string): Promise<T> {
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (contentLength > 50 * 1024 * 1024) {
+        throw new Error(`${requestLabel} 响应体过大 (${(contentLength / 1024 / 1024).toFixed(1)} MB)，已跳过解析。`);
+    }
     const text = await response.text().catch(() => '');
     if (!text) return {} as T;
 
