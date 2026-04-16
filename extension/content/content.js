@@ -1,10 +1,25 @@
-// Flovart Content Script — Right-click AI reverse prompt with animated panel
+// Flovart Content Script — Right-click AI reverse prompt with animated panel + Runtime API bridge
 (() => {
   let panel = null;
   let currentImageUrl = null;
 
-  // Listen for messages from background service worker
-  chrome.runtime.onMessage.addListener((message) => {
+  // ─── Runtime API Bridge: forward commands from background → page ───
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'FLOVART_COMMAND') {
+      // Forward command to page via postMessage, listen for result
+      const callId = message.id || crypto.randomUUID();
+      const handler = (e) => {
+        if (e.data?.type === '__flovart_result' && e.data.id === callId) {
+          window.removeEventListener('message', handler);
+          sendResponse(e.data.error ? { error: e.data.error } : { result: e.data.result });
+        }
+      };
+      window.addEventListener('message', handler);
+      // Timeout after 30s
+      setTimeout(() => { window.removeEventListener('message', handler); sendResponse({ error: 'timeout' }); }, 30000);
+      window.postMessage({ type: '__flovart_command', id: callId, method: message.method, args: message.args }, '*');
+      return true; // async sendResponse
+    }
     if (message.type === 'FLOVART_REVERSE_PROMPT') {
       currentImageUrl = message.imageUrl;
       showReversePromptPanel(message.imageUrl);
@@ -73,6 +88,30 @@
     reversePrompt(imageUrl);
   }
 
+  // ─── Unified Storage V2 helpers (must match popup.js) ───
+  const STORAGE_KEY_V2 = 'flovart_api_keys_v2';
+  const STORAGE_KEY_OLD = 'flovart_user_api_keys';
+
+  function decodeKeysV2(encoded) {
+    try {
+      const s = atob(encoded);
+      const bytes = new Uint8Array(s.length);
+      for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+      return JSON.parse(new TextDecoder().decode(bytes));
+    } catch { return null; }
+  }
+
+  async function loadApiKeys() {
+    const result = await chrome.storage.local.get([STORAGE_KEY_V2, STORAGE_KEY_OLD]);
+    // V2 优先
+    if (result[STORAGE_KEY_V2]?.d) {
+      const decoded = decodeKeysV2(result[STORAGE_KEY_V2].d);
+      if (Array.isArray(decoded)) return decoded;
+    }
+    // Fallback 旧格式
+    return result[STORAGE_KEY_OLD] || [];
+  }
+
   async function reversePrompt(imageUrl) {
     const loadingEl = document.getElementById('flovart-loading');
     const resultEl = document.getElementById('flovart-result');
@@ -83,8 +122,8 @@
     if (errorEl) errorEl.style.display = 'none';
 
     try {
-      // Get API keys from extension storage
-      const { flovart_user_api_keys: keys } = await chrome.storage.local.get('flovart_user_api_keys');
+      // Get API keys from unified V2 storage
+      const keys = await loadApiKeys();
       
       if (!keys || keys.length === 0) {
         showError('未配置 API Key。请先在 Flovart 画布中配置你的 API Key。');

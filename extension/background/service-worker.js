@@ -83,9 +83,17 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 // Listen for messages from content script / popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'FLOVART_GET_API_KEY') {
-    // Content script needs an API key for reverse prompt
-    chrome.storage.local.get('flovart_user_api_keys', (result) => {
-      sendResponse({ keys: result.flovart_user_api_keys || [] });
+    // Content script needs an API key for reverse prompt (V2/V3 encrypted format)
+    chrome.storage.local.get('flovart_api_keys_v2', async (result) => {
+      try {
+        const stored = result['flovart_api_keys_v2'];
+        if (!stored?.d) { sendResponse({ keys: [] }); return; }
+        // Decrypt keys (supports both V3 AES-GCM and V2 base64 fallback)
+        const decoded = await decryptStoredKeys(stored.d);
+        sendResponse({ keys: Array.isArray(decoded) ? decoded : [] });
+      } catch {
+        sendResponse({ keys: [] });
+      }
     });
     return true; // async response
   }
@@ -100,7 +108,79 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       },
     });
   }
+
+  // Runtime API: forward command to Flovart tab
+  if (message.type === 'FLOVART_COMMAND') {
+    forwardCommandToFlovart(message).then(sendResponse).catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
 });
+
+// ─── Runtime API: External message support (from web pages / other extensions) ───
+chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+  if (message.type === 'FLOVART_COMMAND') {
+    forwardCommandToFlovart(message).then(sendResponse).catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+  if (message.type === 'FLOVART_PING') {
+    sendResponse({ ok: true, version: chrome.runtime.getManifest().version });
+    return;
+  }
+});
+
+// Forward a FLOVART_COMMAND to the active Flovart tab's content script
+async function forwardCommandToFlovart(message) {
+  // Find a tab running Flovart (extension page or localhost dev)
+  const tabs = await chrome.tabs.query({});
+  const flovartTab = tabs.find(t =>
+    t.url?.includes(chrome.runtime.id) ||
+    t.url?.includes('localhost:') ||
+    t.url?.includes('flovart')
+  );
+  if (!flovartTab?.id) throw new Error('No Flovart tab found. Open Flovart first.');
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(flovartTab.id, {
+      type: 'FLOVART_COMMAND',
+      id: message.id || crypto.randomUUID(),
+      method: message.method,
+      args: message.args,
+    }, (response) => {
+      if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+      else resolve(response);
+    });
+  });
+}
+
+// Helper: decrypt stored API keys (V3 AES-GCM or V2 base64 fallback)
+async function decryptStoredKeys(encoded) {
+  try {
+    if (encoded && encoded.iv && encoded.ct) {
+      // V3: AES-GCM encrypted
+      const enc = new TextEncoder();
+      const keyMaterial = await crypto.subtle.importKey(
+        'raw', enc.encode(chrome.runtime.id), 'PBKDF2', false, ['deriveKey']
+      );
+      const aesKey = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: enc.encode('flovart-ext-v3'), iterations: 100000, hash: 'SHA-256' },
+        keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['decrypt']
+      );
+      const iv = new Uint8Array(encoded.iv);
+      const ct = new Uint8Array(encoded.ct);
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ct);
+      return JSON.parse(new TextDecoder().decode(pt));
+    }
+    if (typeof encoded === 'string') {
+      // V2 fallback: base64
+      const s = atob(encoded);
+      const bytes = new Uint8Array(s.length);
+      for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+      return JSON.parse(new TextDecoder().decode(bytes));
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 // Helper: fetch an image URL and convert to base64 data URL
 async function fetchImageAsDataUrl(url) {

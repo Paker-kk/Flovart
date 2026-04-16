@@ -580,7 +580,67 @@ Flovart 作为中枢，与其他 Skill 的对接方式：
 
 ---
 
-## 十、修改守则
+## 十一、Runtime API（Phase 2）— 实时操控运行中的画布
+
+Flovart 暴露 `window.__flovartAPI` 供 AI Agent 脚本实时操控画布。
+
+### 连接方式
+
+```bash
+# 1. 以调试模式启动Chrome
+chrome --remote-debugging-port=9222
+
+# 2. 打开 Flovart（localhost:5173 或扩展页）
+
+# 3. 运行脚本
+node skills/flovart/scripts/canvas-query.js
+node skills/flovart/scripts/generate-image.js --prompt "a cute cat"
+node skills/flovart/scripts/batch-generate.js --file prompts.txt
+```
+
+### API 表面
+
+| 方法 | 描述 |
+|------|------|
+| `canvas.addElement(partial)` | 添加元素到画布，返回 id |
+| `canvas.getElements()` | 获取所有元素（仅元数据，不含 base64） |
+| `canvas.removeElement(id)` | 删除指定元素 |
+| `canvas.updateElement(id, updates)` | 更新元素属性 |
+| `canvas.clear()` | 清空画布 |
+| `canvas.getSelected()` | 获取当前选中元素 id 列表 |
+| `canvas.select(ids)` | 设置选中元素 |
+| `generate.image(prompt, source?)` | 触发图片生成 |
+| `view.getZoom()` | 获取当前缩放级别 |
+| `view.getPan()` | 获取当前平移偏移 |
+| `config.getProviders()` | 获取所有已配置的 Provider 名称 |
+
+### FlovartClient 编程使用
+
+```javascript
+const { FlovartClient } = require('./skills/flovart/scripts/flovart-client');
+const client = new FlovartClient();
+await client.connect();
+await client.addElement({ type: 'text', text: 'Hello from Agent', x: 100, y: 100 });
+const elements = await client.getElements();
+await client.generateImage('cyberpunk city at sunset');
+await client.disconnect();
+```
+
+### CLI 快捷模式
+
+```bash
+node skills/flovart/scripts/flovart-client.js canvas.getElements
+node skills/flovart/scripts/flovart-client.js canvas.addElement '{"type":"text","text":"Hi"}'
+node skills/flovart/scripts/flovart-client.js generate.image "a cat"
+```
+
+### 扩展 Bridge（可选）
+
+安装 Flovart 浏览器扩展后，外部网页可通过 `chrome.runtime.sendMessage(extensionId, { type: 'FLOVART_COMMAND', method, args })` 调用 API，无需 CDP。
+
+---
+
+## 十二、修改守则
 
 遵循项目 `copilot-instructions.md`：
 

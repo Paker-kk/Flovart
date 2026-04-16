@@ -24,7 +24,7 @@ const AssetAddModal = React.lazy(() => import('./components/AssetAddModal').then
 const ABCompareOverlay = React.lazy(() => import('./components/ABCompareOverlay').then(m => ({ default: m.ABCompareOverlay })));
 import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/assetStorage';
 import { loadGenerationHistory, addGenerationHistoryItem } from './utils/generationHistory';
-import { inferProviderFromModel, reversePromptStreamWithProvider } from './services/aiGateway';
+import { inferProviderFromModel, reversePromptStreamWithProvider, DEFAULT_PROVIDER_MODELS } from './services/aiGateway';
 import { fileToDataUrl, validateAndResizeImage } from './utils/fileUtils';
 import { translations } from './translations';
 // keyVault imports moved to hooks/useApiKeys.ts
@@ -1295,6 +1295,56 @@ const App: React.FC = () => {
         svg.addEventListener('wheel', onWheel, { passive: false });
         return () => svg.removeEventListener('wheel', onWheel);
     }, [handleWheel]);
+
+    // ── Phase 2: Expose runtime API for AI Agent control ──
+    useEffect(() => {
+        const api = {
+            canvas: {
+                addElement: (partial: Partial<Element>) => {
+                    const el = { id: crypto.randomUUID(), x: 0, y: 0, width: 200, height: 200, opacity: 1, rotation: 0, blendMode: 'normal' as const, visible: true, locked: false, type: 'shape' as const, shape: 'rect' as const, fill: '#6366f1', stroke: '#000', strokeWidth: 0, ...partial } as Element;
+                    commitAction(prev => [...prev, el]);
+                    return el.id;
+                },
+                getElements: () => elementsRef.current.map(el => ({ id: el.id, type: el.type, x: el.x, y: el.y, width: el.width, height: el.height, opacity: el.opacity, rotation: el.rotation, visible: el.visible, locked: el.locked, ...(el.type === 'text' ? { text: (el as any).text } : {}), ...(el.type === 'image' ? { name: (el as any).name } : {}) })),
+                removeElement: (id: string) => { commitAction(prev => prev.filter(e => e.id !== id)); },
+                updateElement: (id: string, updates: Partial<Element>) => { commitAction(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e)); },
+                clear: () => { commitAction(() => []); },
+                getSelected: () => [...selectedElementIds],
+                select: (ids: string[]) => { setSelectedElementIds(ids); },
+            },
+            generate: {
+                image: async (p: string, source?: string) => { handleGenerate(p, source || 'api'); },
+            },
+            view: {
+                getZoom: () => zoom,
+                getPan: () => ({ ...panOffset }),
+            },
+            config: {
+                getProviders: () => Object.keys(DEFAULT_PROVIDER_MODELS),
+            },
+            _version: '2.0.0',
+        };
+        (window as any).__flovartAPI = api;
+        // Listen for postMessage commands from extension content script
+        const handleApiMessage = (e: MessageEvent) => {
+            if (e.data?.type !== '__flovart_command') return;
+            const { id, method, args } = e.data;
+            try {
+                const parts = (method as string).split('.');
+                let fn: any = api;
+                for (const p of parts) fn = fn?.[p];
+                if (typeof fn !== 'function') throw new Error(`Unknown method: ${method}`);
+                const result = fn(...(Array.isArray(args) ? args : [args]));
+                const reply = (r: any) => window.postMessage({ type: '__flovart_result', id, result: r }, '*');
+                result instanceof Promise ? result.then(reply).catch((err: Error) => window.postMessage({ type: '__flovart_result', id, error: err.message }, '*')) : reply(result);
+            } catch (err: any) {
+                window.postMessage({ type: '__flovart_result', id, error: err.message }, '*');
+            }
+        };
+        window.addEventListener('message', handleApiMessage);
+        window.dispatchEvent(new CustomEvent('flovart:api-ready'));
+        return () => { delete (window as any).__flovartAPI; window.removeEventListener('message', handleApiMessage); };
+    }, [commitAction, selectedElementIds, zoom, panOffset, handleGenerate]);
 
     const getSelectionBounds = useCallback((selectionIds: string[]): Rect => {
         const selectedElements = elementsRef.current.filter(el => selectionIds.includes(el.id));
