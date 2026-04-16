@@ -638,6 +638,29 @@ node skills/flovart/scripts/flovart-client.js generate.image "a cat"
 
 安装 Flovart 浏览器扩展后，外部网页可通过 `chrome.runtime.sendMessage(extensionId, { type: 'FLOVART_COMMAND', method, args })` 调用 API，无需 CDP。
 
+### 协作脚本（Phase 3）
+
+| 脚本 | 用途 | 依赖 |
+|------|------|------|
+| `import-from-libtv.js` | 从 LibTV 会话导入生成结果到画布 | `LIBTV_ACCESS_KEY` |
+| `import-from-runninghub.js` | 从 RunningHub 任务导入输出到画布 | `RUNNINGHUB_API_KEY` |
+| `export-to-ffmpeg.js` | 导出画布元素为 FFmpeg concat/script | — |
+| `export-canvas-data.js` | 导出画布状态为 JSON | — |
+
+```bash
+# LibTV → Flovart
+node skills/flovart/scripts/import-from-libtv.js --session abc123 --layout grid
+
+# RunningHub → Flovart
+node skills/flovart/scripts/import-from-runninghub.js --task task123 --layout row
+
+# Flovart → FFmpeg
+node skills/flovart/scripts/export-to-ffmpeg.js --output concat.txt --format concat
+
+# Flovart → JSON (给其他 skill 消费)
+node skills/flovart/scripts/export-canvas-data.js --output canvas.json
+```
+
 ---
 
 ## 十二、修改守则
