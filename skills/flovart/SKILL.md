@@ -10,6 +10,51 @@ disable-model-invocation: false
 
 > 让 AI 助手（Copilot / Claude Code / Codex）直接操控 Flovart 项目——从 Provider 配置到图片/视频生成、多 Agent 协作、节点工作流配置、画布元素操作，全链路代码级掌控。
 
+## 自动化脚本
+
+本 Skill 提供 3 个自动化脚本，Agent 可直接运行完成多文件联动操作：
+
+### add-provider — 添加新 AI Provider（自动修改 6 个文件）
+
+```bash
+node skills/flovart/scripts/add-provider.js \
+  --name "myProvider" \
+  --label "My Provider" \
+  --models "text:model-a,model-b;image:model-img-1;video:model-vid-1" \
+  --keyPrefix "^mp-" \
+  --modelPrefix "^myp" \
+  --baseUrl "https://api.myprovider.com/v1"
+```
+
+自动修改: `types.ts`, `services/aiGateway.ts`(3处), `services/baseUrl.ts`
+
+### add-agent-role — 添加 Agent 角色
+
+```bash
+node skills/flovart/scripts/add-agent-role.js \
+  --id "brand_strategist" \
+  --name "品牌策略师" \
+  --emoji "📊" \
+  --color "#3B82F6" \
+  --description "从品牌视角审视视觉方案" \
+  --systemPrompt "你是一位品牌策略师..."
+```
+
+自动修改: `types.ts`(AgentRoleId), `services/agentOrchestrator.ts`(PRESET_ROLES)
+
+### add-workflow-template — 添加节点工作流模板
+
+```bash
+node skills/flovart/scripts/add-workflow-template.js \
+  --name "myTemplate" \
+  --label "My Workflow" \
+  --json '{"nodes":[{"id":"n1","kind":"prompt","x":100,"y":100}],"edges":[]}'
+```
+
+自动修改: `components/nodeflow/templates.ts`
+
+---
+
 ## 触发条件
 
 当用户提到以下关键词时激活：
