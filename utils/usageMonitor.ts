@@ -78,7 +78,11 @@ function loadRecords(): UsageRecord[] {
 function saveRecords(records: UsageRecord[]): void {
   // Keep at most 10000 records (trim oldest)
   const trimmed = records.length > 10000 ? records.slice(-10000) : records;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+  } catch (err) {
+    console.error('[Storage] Failed to save usage records', err);
+  }
 }
 
 // ──── Public API ────

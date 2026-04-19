@@ -1,67 +1,56 @@
-/* Flovart Content Script — Injected panel styles with animations */
+/* Flovart Content Panel — Apple-inspired Dark Mode */
 
-/* Panel root */
 #flovart-panel {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: 2147483647;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 24px;
-  pointer-events: none;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-}
-
-/* Backdrop */
-.flovart-panel-backdrop {
-  position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0);
-  transition: background 0.3s ease;
-  pointer-events: auto;
-}
-
-#flovart-panel.flovart-panel-visible .flovart-panel-backdrop {
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(4px);
-}
-
-/* Card */
-.flovart-panel-card {
-  position: relative;
-  z-index: 1;
-  width: 380px;
-  max-height: calc(100vh - 48px);
-  background: #0A0A0B;
-  border: 1px solid #2A2A2E;
-  border-radius: 20px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(220, 38, 38, 0.15);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  pointer-events: auto;
-  transform: translateX(40px) scale(0.95);
+  z-index: 2147483647;
   opacity: 0;
-  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease;
+  transition: opacity 0.25s cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
-#flovart-panel.flovart-panel-visible .flovart-panel-card {
-  transform: translateX(0) scale(1);
+#flovart-panel.flovart-panel-visible {
   opacity: 1;
 }
 
-#flovart-panel.flovart-panel-exit .flovart-panel-card {
-  transform: translateX(40px) scale(0.92);
-  opacity: 0;
-  transition: transform 0.25s ease-in, opacity 0.2s ease;
+.flovart-panel-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
-#flovart-panel.flovart-panel-exit .flovart-panel-backdrop {
-  background: rgba(0, 0, 0, 0);
+.flovart-panel-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.96);
+  width: 400px;
+  max-width: 92vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: #1C1C1E;
+  border-radius: 16px;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.5),
+    0 0 0 0.5px rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  animation: flovart-card-in 0.35s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+}
+
+@keyframes flovart-card-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
 
 /* Header */
@@ -69,76 +58,81 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid #2A2A2E;
+  padding: 18px 20px 12px;
 }
 
 .flovart-panel-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 15px;
+  gap: 10px;
+  font-size: 16px;
   font-weight: 600;
-  color: #F0F0F2;
+  color: #FFFFFF;
+  letter-spacing: -0.02em;
 }
 
 .flovart-panel-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: #71717A;
+  border-radius: 50%;
+  background: #2C2C2E;
+  color: #8E8E93;
   font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s ease;
 }
 
 .flovart-panel-close:hover {
-  background: #1A1A1E;
-  color: #F0F0F2;
+  background: #38383A;
+  color: #FFFFFF;
 }
 
-/* Preview */
+/* Image Preview */
 .flovart-panel-preview {
-  padding: 16px 20px 8px;
+  margin: 0 20px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
 }
 
 .flovart-panel-preview img {
+  display: block;
   width: 100%;
-  max-height: 200px;
+  max-height: 240px;
   object-fit: contain;
   border-radius: 12px;
-  border: 1px solid #2A2A2E;
-  background: #121214;
 }
 
 /* Content */
 .flovart-panel-content {
-  padding: 12px 20px 20px;
-  flex: 1;
-  overflow-y: auto;
-}
-
-/* Loading */
-.flovart-panel-loading {
+  padding: 16px 20px 20px;
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+/* Loading State */
+.flovart-panel-loading {
+  display: flex;
   align-items: center;
   gap: 12px;
-  padding: 24px 0;
-  color: #71717A;
-  font-size: 13px;
+  padding: 16px;
+  background: #2C2C2E;
+  border-radius: 12px;
+  color: #8E8E93;
+  font-size: 14px;
 }
 
 .flovart-spinner {
-  width: 28px;
-  height: 28px;
-  border: 3px solid #2A2A2E;
-  border-top-color: #DC2626;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #38383A;
+  border-top-color: #FF453A;
   border-radius: 50%;
   animation: flovart-spin 0.8s linear infinite;
 }
@@ -149,98 +143,125 @@
 
 /* Result */
 .flovart-panel-result {
-  animation: flovart-fade-in 0.4s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .flovart-prompt-text {
-  background: #121214;
-  border: 1px solid #2A2A2E;
-  border-radius: 12px;
   padding: 14px 16px;
-  color: #D4D4D8;
+  background: #2C2C2E;
+  border-radius: 12px;
   font-size: 13px;
   line-height: 1.6;
+  color: #FFFFFF;
+  white-space: pre-wrap;
+  word-break: break-word;
   max-height: 200px;
   overflow-y: auto;
-  word-break: break-word;
 }
 
+.flovart-prompt-text::-webkit-scrollbar {
+  width: 4px;
+}
+
+.flovart-prompt-text::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.flovart-prompt-text::-webkit-scrollbar-thumb {
+  background: #38383A;
+  border-radius: 2px;
+}
+
+/* Action Buttons */
 .flovart-panel-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 12px;
+  gap: 10px;
 }
 
-/* Buttons */
 .flovart-btn {
   flex: 1;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 10px 14px;
-  border: none;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
 }
 
 .flovart-btn:active {
-  transform: scale(0.97);
+  transform: scale(0.96);
 }
 
 .flovart-btn-copy {
-  background: #1A1A1E;
-  color: #D4D4D8;
-  border: 1px solid #2A2A2E;
+  background: #2C2C2E;
+  color: #FFFFFF;
 }
 
 .flovart-btn-copy:hover {
-  background: #222226;
-  border-color: #3A3A3E;
+  background: #38383A;
 }
 
 .flovart-btn-canvas {
-  background: linear-gradient(135deg, #DC2626, #9F1239);
-  color: #fff;
+  background: #FF453A;
+  color: #FFFFFF;
+  position: relative;
+  overflow: hidden;
+}
+
+.flovart-btn-canvas::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 50%);
+  pointer-events: none;
 }
 
 .flovart-btn-canvas:hover {
-  box-shadow: 0 4px 16px rgba(220, 38, 38, 0.4);
-  transform: translateY(-1px);
+  filter: brightness(1.1);
 }
 
-/* Error */
+/* Error State */
 .flovart-panel-error {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 20px 0;
-  color: #EF4444;
-  font-size: 12px;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(255, 69, 58, 0.08);
+  border-radius: 12px;
   text-align: center;
 }
 
+.flovart-panel-error span {
+  color: #FF453A;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .flovart-btn-retry {
-  background: #1A1A1E;
-  color: #D4D4D8;
-  border: 1px solid #2A2A2E;
-  padding: 8px 20px;
+  background: #2C2C2E;
+  color: #FFFFFF;
+  align-self: center;
+  padding: 10px 24px;
 }
 
 .flovart-btn-retry:hover {
-  background: #222226;
+  background: #38383A;
 }
 
-/* Animations */
-@keyframes flovart-fade-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
+/* Fade-in animation for result */
 .flovart-fade-in {
-  animation: flovart-fade-in 0.4s ease;
+  animation: flovart-fade 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+@keyframes flovart-fade {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }

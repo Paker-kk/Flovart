@@ -92,20 +92,46 @@
   const STORAGE_KEY_V2 = 'flovart_api_keys_v2';
   const STORAGE_KEY_OLD = 'flovart_user_api_keys';
 
-  function decodeKeysV2(encoded) {
+  // ─── AES-GCM V3 + V2 base64 fallback key decode (matches popup.js / service-worker.js) ───
+  const ENC_SALT = 'flovart-ext-v3';
+
+  async function deriveEncryptionKey() {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw', enc.encode(chrome.runtime.id), 'PBKDF2', false, ['deriveKey']
+    );
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: enc.encode(ENC_SALT), iterations: 100000, hash: 'SHA-256' },
+      keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['decrypt']
+    );
+  }
+
+  async function decodeKeys(encoded) {
     try {
-      const s = atob(encoded);
-      const bytes = new Uint8Array(s.length);
-      for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
-      return JSON.parse(new TextDecoder().decode(bytes));
+      if (encoded && encoded.iv && encoded.ct) {
+        // V3: AES-GCM encrypted
+        const aesKey = await deriveEncryptionKey();
+        const iv = new Uint8Array(encoded.iv);
+        const ct = new Uint8Array(encoded.ct);
+        const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ct);
+        return JSON.parse(new TextDecoder().decode(pt));
+      }
+      if (typeof encoded === 'string') {
+        // V2 fallback: base64
+        const s = atob(encoded);
+        const bytes = new Uint8Array(s.length);
+        for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+        return JSON.parse(new TextDecoder().decode(bytes));
+      }
+      return null;
     } catch { return null; }
   }
 
   async function loadApiKeys() {
     const result = await chrome.storage.local.get([STORAGE_KEY_V2, STORAGE_KEY_OLD]);
-    // V2 优先
+    // V2/V3 优先
     if (result[STORAGE_KEY_V2]?.d) {
-      const decoded = decodeKeysV2(result[STORAGE_KEY_V2].d);
+      const decoded = await decodeKeys(result[STORAGE_KEY_V2].d);
       if (Array.isArray(decoded)) return decoded;
     }
     // Fallback 旧格式

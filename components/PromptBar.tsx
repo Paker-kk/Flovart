@@ -373,7 +373,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
 
                 <div className={`relative flex items-center justify-between gap-3 border-t ${compactMode ? 'px-2.5 py-2' : 'px-3 py-2.5'} ${isDark ? 'border-[#2A3140]' : 'border-[#EEF1F5]'}`}>
                     <div className="min-w-0 flex-1 overflow-visible">
-                        <div className="flex items-center gap-2 overflow-x-auto">
+                        <div className="flex flex-wrap items-center gap-2">
                             {/* API Key 状态指示器 — 与设置面板联动 */}
                             {(() => {
                                 const defaultKey = userApiKeys.find(k => k.isDefault);

@@ -40,6 +40,7 @@
  */
 
 import type { AssetLibrary, AssetItem, AssetCategory } from '../types';
+import { putImages, getImages, isIdbRef, isDataUrl, toIdbRef, fromIdbRef } from './imageDB';
 
 // localStorage 存储键名（带版本号）
 const STORAGE_KEY = 'making.assetLibrary.v1';
@@ -97,7 +98,61 @@ export const loadAssetLibrary = (): AssetLibrary => {
  * - 生产环境可考虑使用 IndexedDB 或云存储
  */
 export const saveAssetLibrary = (lib: AssetLibrary) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(lib));
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(lib));
+    } catch (err) {
+        console.error('[Storage] Failed to save asset library', err);
+    }
+};
+
+/** Offload asset images to IndexedDB — localStorage stores only idb: refs */
+const offloadAssetCategory = (items: AssetItem[], entries: { key: string; data: string }[]): AssetItem[] =>
+    items.map(a => {
+        if (isDataUrl(a.dataUrl)) {
+            const key = `asset:${a.id}`;
+            entries.push({ key, data: a.dataUrl });
+            return { ...a, dataUrl: toIdbRef(key) };
+        }
+        return a;
+    });
+
+export const saveAssetLibraryAsync = async (lib: AssetLibrary): Promise<void> => {
+    const entries: { key: string; data: string }[] = [];
+    const slim: AssetLibrary = {
+        character: offloadAssetCategory(lib.character, entries),
+        scene: offloadAssetCategory(lib.scene, entries),
+        prop: offloadAssetCategory(lib.prop, entries),
+    };
+    if (entries.length > 0) await putImages(entries);
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+    } catch (err) {
+        console.error('[Storage] Failed to save asset library', err);
+    }
+};
+
+/** Resolve idb: refs back to real base64 from IndexedDB */
+const resolveAssetCategory = (items: AssetItem[], resolved: Map<string, string>): AssetItem[] =>
+    items.map(a => {
+        if (isIdbRef(a.dataUrl)) {
+            const key = fromIdbRef(a.dataUrl);
+            const data = resolved.get(key);
+            return data ? { ...a, dataUrl: data } : a;
+        }
+        return a;
+    });
+
+export const loadAssetLibraryAsync = async (): Promise<AssetLibrary> => {
+    const lib = loadAssetLibrary();
+    const allItems = [...lib.character, ...lib.scene, ...lib.prop];
+    const refs = allItems.filter(a => isIdbRef(a.dataUrl)).map(a => fromIdbRef(a.dataUrl));
+    if (refs.length === 0) return lib;
+    const resolved = await getImages(refs);
+    return {
+        character: resolveAssetCategory(lib.character, resolved),
+        scene: resolveAssetCategory(lib.scene, resolved),
+        prop: resolveAssetCategory(lib.prop, resolved),
+    };
 };
 
 /**
@@ -127,7 +182,6 @@ export const addAsset = (lib: AssetLibrary, item: AssetItem): AssetLibrary => {
         [item.category]: [item, ...lib[item.category]] 
     } as AssetLibrary;
     
-    saveAssetLibrary(next);  // 自动保存
     return next;
 };
 
@@ -158,7 +212,6 @@ export const removeAsset = (lib: AssetLibrary, category: AssetCategory, id: stri
         [category]: lib[category].filter(a => a.id !== id) 
     } as AssetLibrary;
     
-    saveAssetLibrary(next);  // 自动保存
     return next;
 };
 
@@ -192,8 +245,6 @@ export const renameAsset = (lib: AssetLibrary, category: AssetCategory, id: stri
         [category]: lib[category].map(a => a.id === id ? { ...a, name } : a) 
     } as AssetLibrary;
     
-    saveAssetLibrary(next);  // 自动保存
     return next;
 };
-
 

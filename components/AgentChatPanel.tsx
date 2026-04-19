@@ -16,6 +16,9 @@ interface AgentChatPanelProps {
     getApiKeyForModel: (model: string) => UserApiKey | undefined;
     onFinalPrompt: (prompt: string) => void;
     onGenerateImage: (prompt: string) => void;
+    agentWarning?: string;
+    discussionSupported?: boolean;
+    onOpenSettings?: () => void;
 }
 
 export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
@@ -25,6 +28,9 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
     getApiKeyForModel,
     onFinalPrompt,
     onGenerateImage,
+    agentWarning,
+    discussionSupported = true,
+    onOpenSettings,
 }) => {
     const isDark = theme === 'dark';
     const [agents, setAgents] = useState<AgentConfig[]>(() => {
@@ -54,10 +60,10 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
 
     // Save config
     useEffect(() => {
-        localStorage.setItem('agent_team_config', JSON.stringify(agents));
+        try { localStorage.setItem('agent_team_config', JSON.stringify(agents)); } catch { /* non-critical */ }
     }, [agents]);
     useEffect(() => {
-        localStorage.setItem('agent_budget_config', JSON.stringify(budget));
+        try { localStorage.setItem('agent_budget_config', JSON.stringify(budget)); } catch { /* non-critical */ }
     }, [budget]);
 
     // Auto-resize textarea
@@ -82,6 +88,20 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
 
     const handleSubmit = useCallback(async () => {
         if (!task.trim() || status === 'discussing') return;
+
+        if (!discussionSupported) {
+            handleMessage({
+                id: `error-${Date.now()}`,
+                agentId: 'system',
+                agentName: '系统',
+                agentEmoji: '⚠️',
+                agentColor: '#EF4444',
+                role: 'system',
+                content: '当前未找到可用于多 Agent 讨论的文本模型 Key，请先在设置中添加。',
+                timestamp: Date.now(),
+            });
+            return;
+        }
 
         const session = createSession(task.trim(), agents, { ...budget, currentCost: 0 });
         setMessages([{
@@ -135,7 +155,7 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
 
         orchestratorRef.current = orchestrator;
         await orchestrator.run();
-    }, [task, status, agents, budget, textModel, getApiKeyForModel, onFinalPrompt, onGenerateImage, handleMessage]);
+    }, [task, status, agents, budget, textModel, getApiKeyForModel, onFinalPrompt, onGenerateImage, handleMessage, discussionSupported]);
 
     const handleStop = useCallback(() => {
         orchestratorRef.current?.stop();
@@ -188,6 +208,20 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                     </span>
                 </div>
             </div>
+
+            {/* Agent capability warning */}
+            {agentWarning && (
+                <div
+                    className="rounded-xl px-3 py-2 text-xs"
+                    style={{
+                        border: `1px solid ${isDark ? 'rgba(245, 158, 11, 0.3)' : 'rgba(217, 119, 6, 0.3)'}`,
+                        background: isDark ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)',
+                        color: isDark ? '#FCD34D' : '#92400E',
+                    }}
+                >
+                    ⚠ {agentWarning}
+                </div>
+            )}
 
             {/* Expandable team panel */}
             {showTeam && (

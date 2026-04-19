@@ -11,7 +11,7 @@ import {
     inferProviderFromModel, inferCapabilitiesByProvider, PROVIDER_LABELS, supportsMaskImageEditing, supportsReferenceImageEditing,
     DEFAULT_PROVIDER_MODELS,
 } from '../services/aiGateway';
-import { addGenerationHistoryItem } from '../utils/generationHistory';
+import { addGenerationHistoryItem, createThumbnailDataUrl } from '../utils/generationHistory';
 import { recordApiUsage } from '../utils/usageMonitor';
 
 /* ------------------------------------------------------------------ */
@@ -125,7 +125,7 @@ export function useGeneration(params: UseGenerationParams) {
         }
     }, [getPreferredApiKey, modelPreference.textModel]);
 
-    const saveGenerationToHistory = useCallback((payload: {
+    const saveGenerationToHistory = useCallback(async (payload: {
         name?: string;
         dataUrl: string;
         mimeType: string;
@@ -134,11 +134,13 @@ export function useGeneration(params: UseGenerationParams) {
         prompt: string;
         mediaType?: 'image' | 'video';
     }) => {
+        // 存缩略图到历史, 避免 localStorage 爆炸
+        const thumbnailUrl = await createThumbnailDataUrl(payload.dataUrl);
         const item: GenerationHistoryItem = {
             id: generateId(),
             name: payload.name,
-            dataUrl: payload.dataUrl,
-            mimeType: payload.mimeType,
+            dataUrl: thumbnailUrl,
+            mimeType: 'image/jpeg',
             width: payload.width,
             height: payload.height,
             prompt: payload.prompt,

@@ -32,6 +32,134 @@ document.addEventListener('DOMContentLoaded', () => {
     custom: '第三方 API Key',
   };
 
+  // ─── Unified Storage V2 (shared with Web App) ───
+  const STORAGE_KEY_V2 = 'flovart_api_keys_v2';
+  const STORAGE_KEY_OLD = 'flovart_user_api_keys';
+
+  /**
+   * PROVIDER_CAPABILITIES: 与 Web App 的 DEFAULT_PROVIDER_MODELS 对齐
+   * 供 popup 快捷添加 Key 时推断 capabilities
+   */
+  const PROVIDER_CAPABILITIES = {
+    google: ['text', 'image', 'video'],
+    openai: ['text', 'image'],
+    openrouter: ['text', 'image'],
+    deepseek: ['text'],
+    siliconflow: ['text'],
+    anthropic: ['text'],
+    minimax: ['text', 'image', 'video'],
+    volcengine: ['text'],
+    qwen: ['text'],
+    custom: ['text', 'image', 'video'],
+  };
+
+  // ─── AES-GCM Encryption for Chrome Storage ───
+  // Uses chrome.runtime.id as key material (unique per extension install)
+  // This replaces the old base64 obfuscation with real encryption
+  const ENC_SALT = 'flovart-ext-v3';
+
+  async function deriveEncryptionKey() {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw', enc.encode(chrome.runtime.id), 'PBKDF2', false, ['deriveKey']
+    );
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: enc.encode(ENC_SALT), iterations: 100000, hash: 'SHA-256' },
+      keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+    );
+  }
+
+  async function encodeKeys(data) {
+    const enc = new TextEncoder();
+    const aesKey = await deriveEncryptionKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv }, aesKey, enc.encode(JSON.stringify(data))
+    );
+    // Store iv + ciphertext as arrays for JSON serialization
+    return { iv: Array.from(iv), ct: Array.from(new Uint8Array(ct)) };
+  }
+
+  async function decodeKeys(encoded) {
+    try {
+      if (!encoded || !encoded.iv || !encoded.ct) {
+        // Fallback: try legacy base64 format
+        if (typeof encoded === 'string') {
+          const s = atob(encoded);
+          const bytes = new Uint8Array(s.length);
+          for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+          return JSON.parse(new TextDecoder().decode(bytes));
+        }
+        return null;
+      }
+      const aesKey = await deriveEncryptionKey();
+      const iv = new Uint8Array(encoded.iv);
+      const ct = new Uint8Array(encoded.ct);
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ct);
+      return JSON.parse(new TextDecoder().decode(pt));
+    } catch {
+      return null;
+    }
+  }
+
+  /** 生成唯一 ID（与 Web App 的 generateId 一致） */
+  function generateId() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    return `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  /**
+   * 读取 V2 格式 Keys，自动迁移旧格式
+   * @returns {Promise<Array>} UserApiKey[]
+   */
+  async function loadKeysV2() {
+    const result = await chrome.storage.local.get([STORAGE_KEY_V2, STORAGE_KEY_OLD]);
+
+    // 优先读 V2 (encrypted or legacy base64)
+    if (result[STORAGE_KEY_V2]?.d) {
+      const decoded = await decodeKeys(result[STORAGE_KEY_V2].d);
+      if (Array.isArray(decoded)) return decoded;
+    }
+
+    // Fallback: 旧格式迁移
+    const oldKeys = result[STORAGE_KEY_OLD];
+    if (Array.isArray(oldKeys) && oldKeys.length > 0) {
+      const migrated = oldKeys.map(k => ({
+        id: generateId(),
+        provider: k.provider || 'custom',
+        capabilities: k.capabilities || PROVIDER_CAPABILITIES[k.provider] || ['text'],
+        key: k.key || '',
+        baseUrl: k.baseUrl,
+        name: k.name,
+        isDefault: false,
+        status: 'unknown',
+        customModels: k.customModels,
+        defaultModel: k.defaultModel,
+        models: k.models,
+        extraConfig: k.extraConfig,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }));
+      // 写入 V2 格式，清理旧格式
+      await saveKeysV2(migrated);
+      await chrome.storage.local.remove(STORAGE_KEY_OLD);
+      return migrated;
+    }
+
+    return [];
+  }
+
+  /**
+   * 写入 V2 格式 Keys
+   * @param {Array} keys UserApiKey[]
+   */
+  async function saveKeysV2(keys) {
+    const encrypted = await encodeKeys(keys);
+    await chrome.storage.local.set({
+      [STORAGE_KEY_V2]: { d: encrypted, v: 3 },
+    });
+  }
+
   function trimTrailingSlashes(value) {
     return (value || '').trim().replace(/\/+$/, '');
   }
@@ -326,9 +454,8 @@ document.addEventListener('DOMContentLoaded', () => {
     syncProviderUi();
   }
 
-  // Load existing keys and show status
-  chrome.storage.local.get('flovart_user_api_keys', (result) => {
-    const keys = result.flovart_user_api_keys || [];
+  // Load existing keys and show status (V2 unified format)
+  loadKeysV2().then(keys => {
     if (keys.length > 0) {
       keyIndicator.classList.add('active');
       const providers = [...new Set(keys.map(k => k.provider))];
@@ -367,11 +494,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       try {
-        const result = await chrome.storage.local.get('flovart_user_api_keys');
-        const keys = result.flovart_user_api_keys || [];
+        const keys = await loadKeysV2();
         let effectiveBaseUrl = '';
         let discoveredModels = [];
-        let capabilities = getDefaultCapabilities(provider);
+        let capabilities = PROVIDER_CAPABILITIES[provider] || ['text'];
         let extraConfig;
 
         if (provider === 'custom') {
@@ -404,18 +530,24 @@ document.addEventListener('DOMContentLoaded', () => {
           return;
         }
 
-        // Add new key
+        // Add new key — full UserApiKey structure (与 Web App 统一)
+        const now = Date.now();
         keys.push({
+          id: generateId(),
           provider,
+          capabilities,
           key,
           baseUrl: effectiveBaseUrl || undefined,
-          capabilities,
+          name: provider === 'custom' && effectiveBaseUrl ? new URL(effectiveBaseUrl).host : undefined,
+          isDefault: keys.length === 0,
+          status: 'unknown',
           models: discoveredModels,
           extraConfig,
-          name: provider === 'custom' && effectiveBaseUrl ? new URL(effectiveBaseUrl).host : undefined,
+          createdAt: now,
+          updatedAt: now,
         });
 
-        await chrome.storage.local.set({ flovart_user_api_keys: keys });
+        await saveKeysV2(keys);
         
         // Update status
         keyIndicator.classList.remove('empty');
@@ -435,21 +567,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function getDefaultCapabilities(provider) {
-    const caps = {
-      google: ['text', 'image', 'video'],
-      openai: ['text', 'image'],
-      openrouter: ['text', 'image'],
-      deepseek: ['text'],
-      siliconflow: ['text'],
-      anthropic: ['text'],
-      minimax: ['text', 'image', 'video'],
-      volcengine: ['text'],
-      qwen: ['text'],
-      custom: ['text', 'image', 'video'],
-    };
-    return caps[provider] || ['text'];
-  }
+  // getDefaultCapabilities is superseded by PROVIDER_CAPABILITIES map above
 
   function showKeySaveStatus(text, type) {
     if (keySaveStatus) {

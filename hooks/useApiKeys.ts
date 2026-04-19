@@ -4,6 +4,7 @@ import { saveKeysEncrypted, loadKeysDecrypted, clearAllKeyData, migrateLegacyKey
 import { getUsageSummary } from '../utils/usageMonitor';
 import {
     DEFAULT_PROVIDER_MODELS,
+    explainKeyCapabilities,
     inferCapabilitiesByProvider,
     inferCapabilityFromModel,
     inferProviderFromModel,
@@ -95,6 +96,25 @@ export const normalizeApiKeyEntry = (item: Partial<UserApiKey>): UserApiKey | nu
 
 const hasCapabilityOverlap = (left: AICapability[], right: AICapability[]) =>
     left.some(capability => right.includes(capability));
+
+/**
+ * Distinguishes generic multi-agent discussion support (any text model key)
+ * from Banana-specific runtime endpoint availability.
+ */
+export function buildAgentRuntimeSummary(input: {
+    textModel: string;
+    keys: Array<Pick<UserApiKey, 'provider' | 'key' | 'capabilities'>>;
+}) {
+    const discussionProvider = inferProviderFromModel(input.textModel);
+    const discussionSupported = input.keys.some(
+        k => !!k.key && (
+            k.provider === discussionProvider ||
+            (k.capabilities ?? inferCapabilitiesByProvider(k.provider as AIProvider)).includes('text')
+        ),
+    );
+    const bananaRuntimeSupported = input.keys.some(k => !!k.key && k.provider === 'banana');
+    return { discussionSupported, bananaRuntimeSupported };
+}
 
 export function useApiKeys(isSettingsPanelOpen: boolean) {
     const [userApiKeys, setUserApiKeys] = useState<UserApiKey[]>([]);
@@ -267,7 +287,7 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
 
     // 持久化 clearKeysOnExit 设置
     useEffect(() => {
-        localStorage.setItem('security.clearKeysOnExit', clearKeysOnExit.toString());
+        try { localStorage.setItem('security.clearKeysOnExit', clearKeysOnExit.toString()); } catch { /* non-critical */ }
     }, [clearKeysOnExit]);
 
     // 退出时清除 API Key
@@ -278,53 +298,123 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [clearKeysOnExit]);
 
-    // Chrome Extension bridge: sync API keys to chrome.storage for content script access
+    // ─── Chrome Extension bridge V3: AES-GCM encrypted shared storage ───
+    // Storage key and encryption scheme must match extension/popup/popup.js
+    const STORAGE_KEY_V2 = 'flovart_api_keys_v2';
+    const EXT_ENC_SALT = 'flovart-ext-v3';
+
+    const getExtensionEncryptionKey = async (): Promise<CryptoKey | null> => {
+        try {
+            // In extension context, chrome.runtime.id is available as key material
+            const runtimeId = chrome?.runtime?.id;
+            if (!runtimeId) return null;
+            const enc = new TextEncoder();
+            const keyMaterial = await crypto.subtle.importKey(
+                'raw', enc.encode(runtimeId), 'PBKDF2', false, ['deriveKey']
+            );
+            return crypto.subtle.deriveKey(
+                { name: 'PBKDF2', salt: enc.encode(EXT_ENC_SALT), iterations: 100000, hash: 'SHA-256' },
+                keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+            );
+        } catch { return null; }
+    };
+
+    const encodeKeysForStorage = async (data: unknown): Promise<{ iv: number[]; ct: number[] } | string> => {
+        const aesKey = await getExtensionEncryptionKey();
+        if (aesKey) {
+            const enc = new TextEncoder();
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const ct = await crypto.subtle.encrypt(
+                { name: 'AES-GCM', iv }, aesKey, enc.encode(JSON.stringify(data))
+            );
+            return { iv: Array.from(iv), ct: Array.from(new Uint8Array(ct)) };
+        }
+        // Fallback: base64 when not in extension context (shouldn't happen but safe)
+        const bytes = new TextEncoder().encode(JSON.stringify(data));
+        let s = '';
+        for (const b of bytes) s += String.fromCharCode(b);
+        return btoa(s);
+    };
+
+    const decodeKeysFromStorage = async (encoded: unknown): Promise<unknown> => {
+        try {
+            // V3: AES-GCM encrypted object { iv, ct }
+            if (encoded && typeof encoded === 'object' && 'iv' in encoded && 'ct' in encoded) {
+                const aesKey = await getExtensionEncryptionKey();
+                if (aesKey) {
+                    const obj = encoded as { iv: number[]; ct: number[] };
+                    const iv = new Uint8Array(obj.iv);
+                    const ct = new Uint8Array(obj.ct);
+                    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ct);
+                    return JSON.parse(new TextDecoder().decode(pt));
+                }
+            }
+            // V2 fallback: base64 string
+            if (typeof encoded === 'string') {
+                const s = atob(encoded);
+                const bytes = new Uint8Array(s.length);
+                for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+                return JSON.parse(new TextDecoder().decode(bytes));
+            }
+            return null;
+        } catch { return null; }
+    };
+
+    // Chrome Extension bridge: sync API keys to chrome.storage.local (V3 encrypted) for content script access
+    const isWritingToChromeStorage = useRef(false);
     useEffect(() => {
         if (!apiKeysLoaded || typeof chrome === 'undefined' || !chrome?.storage?.local) return;
-        const safeKeys = userApiKeys.map(k => ({
-            provider: k.provider,
-            key: k.key,
-            baseUrl: k.baseUrl,
-            models: k.models,
-            capabilities: k.capabilities,
-            name: k.name,
-            defaultModel: k.defaultModel,
-            customModels: k.customModels,
-            extraConfig: k.extraConfig,
-        }));
-        chrome.storage.local.set({ flovart_user_api_keys: safeKeys });
+        isWritingToChromeStorage.current = true;
+        encodeKeysForStorage(userApiKeys).then(encrypted => {
+            chrome.storage.local.set({
+                [STORAGE_KEY_V2]: { d: encrypted, v: 3 },
+            }, () => {
+                // 短暂延迟后重置标志，避免自己触发的 onChanged 导致循环
+                setTimeout(() => { isWritingToChromeStorage.current = false; }, 100);
+            });
+        }).catch(() => {
+            isWritingToChromeStorage.current = false;
+        });
     }, [userApiKeys, apiKeysLoaded]);
 
-    // Chrome Extension bridge: listen for keys added from extension popup → merge into app
+    // Chrome Extension bridge: listen for keys added from extension popup → merge into app (V3 encrypted)
     useEffect(() => {
         if (typeof chrome === 'undefined' || !chrome?.storage?.onChanged) return;
         const handleStorageChange = (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, areaName: string) => {
-            if (areaName !== 'local' || !changes.flovart_user_api_keys) return;
-            const extKeys = changes.flovart_user_api_keys.newValue as Array<Partial<UserApiKey>> | undefined;
-            if (!Array.isArray(extKeys)) return;
-            setUserApiKeys(prev => {
-                const existingFingerprints = new Set(prev.map(buildApiKeyFingerprint));
-                const newKeys: UserApiKey[] = [];
-                for (const ek of extKeys) {
-                    if (!ek.provider || !ek.key) continue;
-                    const fp = buildApiKeyFingerprint(ek);
-                    if (existingFingerprints.has(fp)) continue;
-                    newKeys.push(normalizeApiKeyEntry({
-                        id: crypto.randomUUID(),
-                        provider: ek.provider,
-                        key: ek.key,
-                        baseUrl: ek.baseUrl,
-                        capabilities: ek.capabilities,
-                        models: ek.models,
-                        name: ek.name,
-                        defaultModel: ek.defaultModel,
-                        customModels: ek.customModels,
-                        extraConfig: ek.extraConfig,
-                        createdAt: Date.now(),
-                        updatedAt: Date.now(),
-                    }) as UserApiKey);
-                }
-                return newKeys.length > 0 ? [...prev, ...newKeys.filter(Boolean)] : prev;
+            if (areaName !== 'local' || !changes[STORAGE_KEY_V2]) return;
+            // 忽略自身写入触发的变更
+            if (isWritingToChromeStorage.current) return;
+
+            const newVal = changes[STORAGE_KEY_V2].newValue as { d?: unknown; v?: number } | undefined;
+            if (!newVal?.d) return;
+            decodeKeysFromStorage(newVal.d).then(extKeysRaw => {
+                const extKeys = extKeysRaw as Array<Partial<UserApiKey>> | null;
+                if (!Array.isArray(extKeys)) return;
+
+                setUserApiKeys(prev => {
+                    const existingFingerprints = new Set(prev.map(buildApiKeyFingerprint));
+                    const newKeys: UserApiKey[] = [];
+                    for (const ek of extKeys) {
+                        if (!ek.provider || !ek.key) continue;
+                        const fp = buildApiKeyFingerprint(ek);
+                        if (existingFingerprints.has(fp)) continue;
+                        newKeys.push(normalizeApiKeyEntry({
+                            id: ek.id || crypto.randomUUID(),
+                            provider: ek.provider,
+                            key: ek.key,
+                            baseUrl: ek.baseUrl,
+                            capabilities: ek.capabilities,
+                            models: ek.models,
+                            name: ek.name,
+                            defaultModel: ek.defaultModel,
+                            customModels: ek.customModels,
+                            extraConfig: ek.extraConfig,
+                            createdAt: ek.createdAt || Date.now(),
+                            updatedAt: ek.updatedAt || Date.now(),
+                        }) as UserApiKey);
+                    }
+                    return newKeys.length > 0 ? [...prev, ...newKeys.filter(Boolean)] : prev;
+                });
             });
         };
         chrome.storage.onChanged.addListener(handleStorageChange);
@@ -353,7 +443,7 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
 
     // 持久化 modelPreference
     useEffect(() => {
-        localStorage.setItem('modelPreference.v1', JSON.stringify(modelPreference));
+        try { localStorage.setItem('modelPreference.v1', JSON.stringify(modelPreference)); } catch { /* non-critical */ }
     }, [modelPreference]);
 
     const getPreferredApiKey = useCallback((capability: AICapability, provider?: AIProvider) => {
@@ -471,6 +561,9 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
         });
     }, []);
 
+    const capabilityStatus = useMemo(() => explainKeyCapabilities(userApiKeys), [userApiKeys]);
+    const agentWarning = capabilityStatus.find(item => item.capability === 'agent' && !item.supported)?.reason;
+
     return {
         userApiKeys,
         setUserApiKeys,
@@ -493,5 +586,7 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
         handleUpdateApiKey,
         handleSetDefaultApiKey,
         modelAutoSwitchNotice,
+        capabilityStatus,
+        agentWarning,
     };
 }

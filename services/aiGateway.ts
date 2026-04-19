@@ -1649,3 +1649,62 @@ export function diagnoseKeyCapabilities(keys: UserApiKey[]): {
 
     return { covered, missing, warnings };
 }
+
+// --- Structured capability reasons ---------------------------------------------------
+
+export type CapabilityStatus = {
+    capability: AICapability;
+    supported: boolean;
+    reason: string;
+};
+
+/**
+ * Return per-capability support status **with human-readable reasons**.
+ * Unlike `diagnoseKeyCapabilities` (which is consumed by DiagnosticBar),
+ * this function is intended for panels that need to explain *why*
+ * a capability is available or missing.
+ */
+export function explainKeyCapabilities(keys: UserApiKey[]): CapabilityStatus[] {
+    const covered = new Set<AICapability>(
+        keys.flatMap(key =>
+            key.capabilities?.length
+                ? key.capabilities
+                : inferCapabilitiesByProvider(key.provider),
+        ),
+    );
+
+    const hasBanana = keys.some(k => k.provider === 'banana' && k.key);
+
+    return [
+        {
+            capability: 'text',
+            supported: covered.has('text'),
+            reason: covered.has('text')
+                ? '至少一个文本模型 Key 可用。'
+                : '未找到文本模型 Key — 提示词润色、AI 对话不可用。',
+        },
+        {
+            capability: 'image',
+            supported: covered.has('image'),
+            reason: covered.has('image')
+                ? '至少一个图片模型 Key 可用。'
+                : '未找到图片模型 Key — AI 绘图、图片编辑不可用。',
+        },
+        {
+            capability: 'video',
+            supported: covered.has('video'),
+            reason: covered.has('video')
+                ? '至少一个视频模型 Key 可用。'
+                : '未找到视频模型 Key — AI 视频生成不可用。',
+        },
+        {
+            capability: 'agent',
+            supported: covered.has('agent'),
+            reason: covered.has('agent')
+                ? 'Banana agent 端点可用。'
+                : hasBanana
+                    ? 'Banana Key 已配置但未声明 agent 能力，请检查 Key 配置。'
+                    : '多 Agent 讨论可使用文本模型运行，但 Banana 专用 agent 端点未配置。',
+        },
+    ];
+}

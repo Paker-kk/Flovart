@@ -24,6 +24,9 @@ interface RightPanelProps {
     onRename: (category: AssetCategory, id: string, name: string) => void;
     onWidthChange?: (width: number) => void;
     onReversePrompt?: (imageDataUrl: string, mimeType: string, width?: number, height?: number) => void;
+    agentWarning?: string;
+    discussionSupported?: boolean;
+    onOpenSettings?: () => void;
 }
 
 const CATEGORY_LABELS: Record<AssetCategory, string> = {
@@ -99,8 +102,8 @@ const RunningHubWebAppPanel: React.FC<{ theme: 'light' | 'dark'; compactMode: bo
     }`;
 
     // 持久化 apiKey & webappId
-    useEffect(() => { localStorage.setItem('rh_webapp_apikey', apiKey); }, [apiKey]);
-    useEffect(() => { localStorage.setItem('rh_webapp_id', webappId); }, [webappId]);
+    useEffect(() => { try { localStorage.setItem('rh_webapp_apikey', apiKey); } catch { /* non-critical */ } }, [apiKey]);
+    useEffect(() => { try { localStorage.setItem('rh_webapp_id', webappId); } catch { /* non-critical */ } }, [webappId]);
 
     // 获取节点列表
     const handleFetchNodes = async () => {
@@ -317,6 +320,9 @@ export const RightPanel: React.FC<RightPanelProps> = ({
     onAgentFinalPrompt,
     onAgentGenerateImage,
     onReversePrompt,
+    agentWarning,
+    discussionSupported,
+    onOpenSettings,
 }) => {
     const isDark = theme === 'dark';
     const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
@@ -684,6 +690,9 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                             getApiKeyForModel={getApiKeyForModel}
                             onFinalPrompt={onAgentFinalPrompt || (() => {})}
                             onGenerateImage={onAgentGenerateImage || (() => {})}
+                            agentWarning={agentWarning}
+                            discussionSupported={discussionSupported}
+                            onOpenSettings={onOpenSettings}
                         />
                     )}
 

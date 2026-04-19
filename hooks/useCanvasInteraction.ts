@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback } from 'react';
 import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, LineElement, WheelAction, Board, VideoElement } from '../types';
 import { generateId, getElementBounds, isPointInPolygon, SNAP_THRESHOLD, type Rect, type Guide } from '../utils/canvasHelpers';
+import { createRafBatcher, type RafBatcher } from '../utils/rafBatcher';
 
 export interface UseCanvasInteractionParams {
     // Board state (readonly)
@@ -64,6 +65,8 @@ export function useCanvasInteraction(params: UseCanvasInteractionParams) {
     const resizeStartInfo = useRef<{ originalElement: ImageElement | ShapeElement | TextElement | VideoElement; startCanvasPoint: Point; handle: string; shiftKey: boolean } | null>(null);
     const cropStartInfo = useRef<{ originalCropBox: Rect; startCanvasPoint: Point } | null>(null);
     const dragStartElementPositions = useRef<Map<string, { x: number; y: number } | Point[]>>(new Map());
+    const cachedStaticSnap = useRef<{ v: Set<number>; h: Set<number> } | null>(null);
+    const dragRafBatcher = useRef<RafBatcher<Point> | null>(null);
     const elementsRef = useRef(elements);
     const svgRef = useRef<SVGSVGElement>(null);
     const editingTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -256,6 +259,21 @@ export function useCanvasInteraction(params: UseCanvasInteractionParams) {
                 });
                 dragStartElementPositions.current = initialPositions;
 
+                // Cache static snap points for the entire drag session
+                const getSnapPts = (bounds: Rect) => ({
+                    v: [bounds.x, bounds.x + bounds.width / 2, bounds.x + bounds.width],
+                    h: [bounds.y, bounds.y + bounds.height / 2, bounds.y + bounds.height],
+                });
+                const snap = { v: new Set<number>(), h: new Set<number>() };
+                elementsRef.current.forEach(el => {
+                    if (!idsToDrag.has(el.id)) {
+                        const bounds = getElementBounds(el);
+                        getSnapPts(bounds).v.forEach(p => snap.v.add(p));
+                        getSnapPts(bounds).h.forEach(p => snap.h.add(p));
+                    }
+                });
+                cachedStaticSnap.current = snap;
+
             } else {
                 setSelectedElementIds([]);
                 interactionMode.current = 'selectBox';
@@ -447,100 +465,101 @@ export function useCanvasInteraction(params: UseCanvasInteractionParams) {
                 break;
             }
             case 'dragElements': {
-                const dx = point.x - startCanvasPoint.x;
-                const dy = point.y - startCanvasPoint.y;
+                // Defer the heavy snap + position work to the next animation frame.
+                // Only the latest pointer position is kept; earlier moves are dropped.
+                if (!dragRafBatcher.current) {
+                    dragRafBatcher.current = createRafBatcher<Point>(latestPoint => {
+                        const dx = latestPoint.x - startCanvasPoint.x;
+                        const dy = latestPoint.y - startCanvasPoint.y;
                 
-                const movingElementIds = Array.from(dragStartElementPositions.current.keys());
-                const movingElements = elements.filter(el => movingElementIds.includes(el.id));
-                const otherElements = elements.filter(el => !movingElementIds.includes(el.id));
-                const snapThresholdCanvas = SNAP_THRESHOLD / zoom;
+                        const movingElementIds = Array.from(dragStartElementPositions.current.keys());
+                        const movingElements = elementsRef.current.filter(el => movingElementIds.includes(el.id));
+                        const snapThresholdCanvas = SNAP_THRESHOLD / zoom;
 
-                let finalDx = dx;
-                let finalDy = dy;
-                let activeGuides: Guide[] = [];
+                        let finalDx = dx;
+                        let finalDy = dy;
+                        let activeGuides: Guide[] = [];
 
-                // Alignment Snapping
-                const getSnapPoints = (bounds: Rect) => ({
-                    v: [bounds.x, bounds.x + bounds.width / 2, bounds.x + bounds.width],
-                    h: [bounds.y, bounds.y + bounds.height / 2, bounds.y + bounds.height],
-                });
-
-                const staticSnapPoints = { v: new Set<number>(), h: new Set<number>() };
-                otherElements.forEach(el => {
-                    const bounds = getElementBounds(el);
-                    getSnapPoints(bounds).v.forEach(p => staticSnapPoints.v.add(p));
-                    getSnapPoints(bounds).h.forEach(p => staticSnapPoints.h.add(p));
-                });
-                
-                let bestSnapX = { dist: Infinity, val: finalDx, guide: null as Guide | null };
-                let bestSnapY = { dist: Infinity, val: finalDy, guide: null as Guide | null };
-                
-                movingElements.forEach(movingEl => {
-                    const startPos = dragStartElementPositions.current.get(movingEl.id);
-                    if (!startPos) return;
-
-                    let movingBounds: Rect;
-                     if (movingEl.type !== 'path' && movingEl.type !== 'arrow' && movingEl.type !== 'line') {
-                        movingBounds = getElementBounds({...movingEl, x: (startPos as Point).x, y: (startPos as Point).y });
-                    } else { // path or arrow or line
-                        if (movingEl.type === 'arrow' || movingEl.type === 'line') {
-                            movingBounds = getElementBounds({...movingEl, points: startPos as [Point, Point]});
-                        } else {
-                            movingBounds = getElementBounds({...movingEl, points: startPos as Point[]});
-                        }
-                    }
-
-                    const movingSnapPoints = getSnapPoints(movingBounds);
-
-                    movingSnapPoints.v.forEach(p => {
-                        staticSnapPoints.v.forEach(staticP => {
-                            const dist = Math.abs((p + finalDx) - staticP);
-                            if (dist < snapThresholdCanvas && dist < bestSnapX.dist) {
-                                bestSnapX = { dist, val: staticP - p, guide: { type: 'v', position: staticP, start: movingBounds.y, end: movingBounds.y + movingBounds.height }};
-                            }
+                        const getSnapPoints = (bounds: Rect) => ({
+                            v: [bounds.x, bounds.x + bounds.width / 2, bounds.x + bounds.width],
+                            h: [bounds.y, bounds.y + bounds.height / 2, bounds.y + bounds.height],
                         });
-                    });
-                    movingSnapPoints.h.forEach(p => {
-                        staticSnapPoints.h.forEach(staticP => {
-                            const dist = Math.abs((p + finalDy) - staticP);
-                            if (dist < snapThresholdCanvas && dist < bestSnapY.dist) {
-                                bestSnapY = { dist, val: staticP - p, guide: { type: 'h', position: staticP, start: movingBounds.x, end: movingBounds.x + movingBounds.width }};
-                            }
-                        });
-                    });
-                });
-                
-                if (bestSnapX.guide) { finalDx = bestSnapX.val; activeGuides.push(bestSnapX.guide); }
-                if (bestSnapY.guide) { finalDy = bestSnapY.val; activeGuides.push(bestSnapY.guide); }
-                
-                setAlignmentGuides(activeGuides);
 
-                setElements(prev => prev.map(el => {
-                    if (movingElementIds.includes(el.id)) {
-                        const startPos = dragStartElementPositions.current.get(el.id);
-                        if (!startPos) return el;
+                        // Use cached snap points computed at drag start
+                        const staticSnapPoints = cachedStaticSnap.current ?? { v: new Set<number>(), h: new Set<number>() };
+                
+                        let bestSnapX = { dist: Infinity, val: finalDx, guide: null as Guide | null };
+                        let bestSnapY = { dist: Infinity, val: finalDy, guide: null as Guide | null };
+                
+                        movingElements.forEach(movingEl => {
+                            const startPos = dragStartElementPositions.current.get(movingEl.id);
+                            if (!startPos) return;
+
+                            let movingBounds: Rect;
+                            if (movingEl.type !== 'path' && movingEl.type !== 'arrow' && movingEl.type !== 'line') {
+                                movingBounds = getElementBounds({...movingEl, x: (startPos as Point).x, y: (startPos as Point).y });
+                            } else {
+                                if (movingEl.type === 'arrow' || movingEl.type === 'line') {
+                                    movingBounds = getElementBounds({...movingEl, points: startPos as [Point, Point]});
+                                } else {
+                                    movingBounds = getElementBounds({...movingEl, points: startPos as Point[]});
+                                }
+                            }
+
+                            const movingSnapPoints = getSnapPoints(movingBounds);
+
+                            movingSnapPoints.v.forEach(p => {
+                                staticSnapPoints.v.forEach(staticP => {
+                                    const dist = Math.abs((p + finalDx) - staticP);
+                                    if (dist < snapThresholdCanvas && dist < bestSnapX.dist) {
+                                        bestSnapX = { dist, val: staticP - p, guide: { type: 'v', position: staticP, start: movingBounds.y, end: movingBounds.y + movingBounds.height }};
+                                    }
+                                });
+                            });
+                            movingSnapPoints.h.forEach(p => {
+                                staticSnapPoints.h.forEach(staticP => {
+                                    const dist = Math.abs((p + finalDy) - staticP);
+                                    if (dist < snapThresholdCanvas && dist < bestSnapY.dist) {
+                                        bestSnapY = { dist, val: staticP - p, guide: { type: 'h', position: staticP, start: movingBounds.x, end: movingBounds.x + movingBounds.width }};
+                                    }
+                                });
+                            });
+                        });
+                
+                        if (bestSnapX.guide) { finalDx = bestSnapX.val; activeGuides.push(bestSnapX.guide); }
+                        if (bestSnapY.guide) { finalDy = bestSnapY.val; activeGuides.push(bestSnapY.guide); }
+                
+                        setAlignmentGuides(activeGuides);
+
+                        setElements(prev => prev.map(el => {
+                            if (movingElementIds.includes(el.id)) {
+                                const startPos = dragStartElementPositions.current.get(el.id);
+                                if (!startPos) return el;
                         
-                        if (el.type !== 'path' && el.type !== 'arrow' && el.type !== 'line') {
-                            return { ...el, x: (startPos as Point).x + finalDx, y: (startPos as Point).y + finalDy };
-                        }
+                                if (el.type !== 'path' && el.type !== 'arrow' && el.type !== 'line') {
+                                    return { ...el, x: (startPos as Point).x + finalDx, y: (startPos as Point).y + finalDy };
+                                }
                         
-                        if (el.type === 'path') {
-                            const startPoints = startPos as Point[];
-                            const newPoints = startPoints.map(p => ({ x: p.x + finalDx, y: p.y + finalDy }));
-                            const updatedEl: PathElement = { ...el, points: newPoints };
-                            return updatedEl;
-                        } else if (el.type === 'arrow' || el.type === 'line') {
-                            const startPoints = startPos as [Point, Point];
-                            const newPoints: [Point, Point] = [
-                                { x: startPoints[0].x + finalDx, y: startPoints[0].y + finalDy },
-                                { x: startPoints[1].x + finalDx, y: startPoints[1].y + finalDy },
-                            ];
-                            const updatedEl = { ...el, points: newPoints };
-                            return updatedEl;
-                        }
-                    }
-                    return el;
-                }), false);
+                                if (el.type === 'path') {
+                                    const startPoints = startPos as Point[];
+                                    const newPoints = startPoints.map(p => ({ x: p.x + finalDx, y: p.y + finalDy }));
+                                    const updatedEl: PathElement = { ...el, points: newPoints };
+                                    return updatedEl;
+                                } else if (el.type === 'arrow' || el.type === 'line') {
+                                    const startPoints = startPos as [Point, Point];
+                                    const newPoints: [Point, Point] = [
+                                        { x: startPoints[0].x + finalDx, y: startPoints[0].y + finalDy },
+                                        { x: startPoints[1].x + finalDx, y: startPoints[1].y + finalDy },
+                                    ];
+                                    const updatedEl = { ...el, points: newPoints };
+                                    return updatedEl;
+                                }
+                            }
+                            return el;
+                        }), false);
+                    });
+                }
+                dragRafBatcher.current.schedule(point);
                 break;
             }
              case 'selectBox': {
@@ -612,10 +631,21 @@ export function useCanvasInteraction(params: UseCanvasInteractionParams) {
                 setSelectedElementIds(prev => [...new Set([...prev, ...selectedIds])]);
                 setLassoPath(null);
             } else if (['draw', 'drawShape', 'drawArrow', 'drawLine', 'dragElements', 'erase'].some(prefix => interactionMode.current?.startsWith(prefix)) || interactionMode.current.startsWith('resize-')) {
+                 // Flush any pending RAF drag before committing to history
+                 if (dragRafBatcher.current) {
+                     dragRafBatcher.current.flush();
+                 }
                  commitAction(els => els); // This effectively commits the current state to history
             }
         }
         
+        // Tear down drag RAF batcher and cached snap points
+        if (dragRafBatcher.current) {
+            dragRafBatcher.current.cancel();
+            dragRafBatcher.current = null;
+        }
+        cachedStaticSnap.current = null;
+
         interactionMode.current = null;
         currentDrawingElementId.current = null;
         setSelectionBox(null);

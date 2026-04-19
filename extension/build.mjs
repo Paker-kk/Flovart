@@ -84,16 +84,61 @@ function createMinimalPng(size) {
   
   // IDAT chunk (uncompressed image data with zlib wrapper)
   const rawData = [];
+  const radius = Math.max(2, Math.floor(size * 0.22)); // Apple-style corner radius
+
   for (let y = 0; y < size; y++) {
     rawData.push(0); // filter byte: None
     for (let x = 0; x < size; x++) {
-      // Gradient from red (#DC2626) to rose (#F43F5E)
-      const t = (x + y) / (size * 2);
-      const r = Math.round(220 + (244 - 220) * t);
-      const g = Math.round(38 + (63 - 38) * t);
-      const b = Math.round(38 + (94 - 38) * t);
-      rawData.push(r, g, b);
+      // Check if inside rounded rect (entire icon area)
+      const inRoundedRect = isInRoundedRect(x, y, 0, 0, size, size, radius);
+
+      if (!inRoundedRect) {
+        // Transparent (black for RGB PNG — will appear as bg in browser chrome)
+        rawData.push(0, 0, 0);
+        continue;
+      }
+
+      // Gradient background: #FF453A (top) → #FF6961 (bottom)
+      const t = y / size;
+      const r = Math.round(255);
+      const g = Math.round(69 + (105 - 69) * t);   // 69 → 105
+      const b = Math.round(58 + (97 - 58) * t);     // 58 → 97
+
+      // Draw white "F" letter and canvas strokes
+      const fx = x / size;
+      const fy = y / size;
+      const sw = Math.max(1, Math.floor(size * 0.07)); // stroke width in px
+      const sn = sw / size; // normalized stroke width
+
+      // "F" letter — bold, centered
+      const ox = 0.28; // letter offset-x (centered)
+      const isVertical = fx >= ox && fx < ox + sn * 1.5 && fy > 0.22 && fy < 0.78;
+      const isTopBar = fy >= 0.22 && fy < 0.22 + sn * 1.2 && fx >= ox && fx < 0.72;
+      const isMidBar = fy >= 0.47 && fy < 0.47 + sn * 1.2 && fx >= ox && fx < 0.60;
+
+      if (isVertical || isTopBar || isMidBar) {
+        rawData.push(255, 255, 255); // white letter
+      } else {
+        rawData.push(r, g, b); // gradient fill
+      }
     }
+  }
+
+  function isInRoundedRect(px, py, rx, ry, rw, rh, cr) {
+    // Check four corners for rounded rect
+    if (px < rx + cr && py < ry + cr) {
+      return Math.hypot(px - (rx + cr), py - (ry + cr)) <= cr;
+    }
+    if (px >= rx + rw - cr && py < ry + cr) {
+      return Math.hypot(px - (rx + rw - cr - 1), py - (ry + cr)) <= cr;
+    }
+    if (px < rx + cr && py >= ry + rh - cr) {
+      return Math.hypot(px - (rx + cr), py - (ry + rh - cr - 1)) <= cr;
+    }
+    if (px >= rx + rw - cr && py >= ry + rh - cr) {
+      return Math.hypot(px - (rx + rw - cr - 1), py - (ry + rh - cr - 1)) <= cr;
+    }
+    return px >= rx && px < rx + rw && py >= ry && py < ry + rh;
   }
   
   // Compress with Node.js zlib

@@ -78,7 +78,11 @@ export async function decryptKeys<T = unknown>(encoded: string): Promise<T | nul
  */
 export async function saveKeysEncrypted(keys: unknown): Promise<void> {
     const encrypted = await encryptKeys(keys);
-    localStorage.setItem(VAULT_STORAGE_KEY, encrypted);
+    try {
+        localStorage.setItem(VAULT_STORAGE_KEY, encrypted);
+    } catch (err) {
+        console.error('[Storage] Failed to save encrypted keys', err);
+    }
 }
 
 /**

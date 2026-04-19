@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://*;" />
   <title>Flovart Extension</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
@@ -11,14 +12,14 @@
     <!-- Header -->
     <div class="popup-header">
       <div class="popup-logo">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-          <rect x="2" y="2" width="20" height="20" rx="6" fill="url(#g1)" />
-          <path d="M7 12l3 3 7-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-          <defs><linearGradient id="g1" x1="2" y1="2" x2="22" y2="22"><stop stop-color="#DC2626"/><stop offset="1" stop-color="#F43F5E"/></linearGradient></defs>
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <rect width="28" height="28" rx="7" fill="url(#apple-g)"/>
+          <path d="M8 9h12M8 14h8M8 19h10" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+          <defs><linearGradient id="apple-g" x1="0" y1="0" x2="28" y2="28"><stop stop-color="#FF453A"/><stop offset="1" stop-color="#FF6961"/></linearGradient></defs>
         </svg>
         <span class="popup-title">Flovart</span>
       </div>
-      <span class="popup-version">v1.1</span>
+      <span class="popup-version">v1.2</span>
     </div>
 
     <!-- Open Canvas CTA -->
@@ -96,7 +97,7 @@
     <!-- Status -->
     <div class="popup-footer">
       <div class="popup-status" id="statusDot"></div>
-      <span id="statusText">右键任意图片可快速操作，第三方兼容入口已接入</span>
+      <span id="statusText">右键任意图片可快速操作</span>
     </div>
   </div>
 

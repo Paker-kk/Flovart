@@ -1,32 +1,40 @@
-/* Flovart Popup — Compact Extension Popup Styles */
+/* Flovart Popup — Apple-inspired Dark Mode Design */
 :root {
-  --bg: #0A0A0B;
-  --bg-card: #121214;
-  --border: #2A2A2E;
-  --text: #F0F0F2;
-  --text-dim: #71717A;
-  --accent: #DC2626;
-  --accent-hover: #EF4444;
-  --radius: 14px;
+  --bg: #000000;
+  --bg-secondary: #1C1C1E;
+  --bg-tertiary: #2C2C2E;
+  --border: #38383A;
+  --text: #FFFFFF;
+  --text-secondary: #8E8E93;
+  --text-tertiary: #636366;
+  --accent: #FF453A;
+  --accent-soft: rgba(255, 69, 58, 0.12);
+  --blue: #0A84FF;
+  --green: #30D158;
+  --yellow: #FFD60A;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  width: 320px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  width: 340px;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
   background: var(--bg);
   color: var(--text);
   overflow-x: hidden;
   overflow-y: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .popup-root {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-  padding-bottom: 20px;
+  gap: 16px;
+  padding: 20px;
 }
 
 /* Header */
@@ -39,18 +47,14 @@ body {
 .popup-logo {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .popup-title {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 600;
   letter-spacing: -0.02em;
-  background: linear-gradient(135deg, #DC2626, #F43F5E);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
+  color: var(--text);
 }
 
 .is-hidden {
@@ -58,12 +62,12 @@ body {
 }
 
 .popup-version {
-  font-size: 10px;
-  color: var(--text-dim);
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  padding: 3px 10px;
   border-radius: 20px;
+  font-weight: 500;
 }
 
 /* CTA Button */
@@ -73,15 +77,16 @@ body {
   justify-content: center;
   gap: 8px;
   width: 100%;
-  padding: 12px;
+  padding: 14px;
   border: none;
-  border-radius: var(--radius);
-  background: linear-gradient(135deg, #DC2626, #9F1239);
+  border-radius: var(--radius-md);
+  background: var(--accent);
   color: #fff;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
   position: relative;
   overflow: hidden;
 }
@@ -90,64 +95,59 @@ body {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.15) 50%, transparent 60%);
-  transform: translateX(-100%);
-  transition: transform 0.6s ease;
+  background: linear-gradient(180deg, rgba(255,255,255,0.12) 0%, transparent 50%);
+  pointer-events: none;
 }
 
 .popup-cta:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 20px rgba(220, 38, 38, 0.4);
-}
-
-.popup-cta:hover::before {
-  transform: translateX(100%);
+  filter: brightness(1.1);
+  transform: scale(1.01);
 }
 
 .popup-cta:active {
   transform: scale(0.98);
+  filter: brightness(0.95);
 }
 
 /* Section */
 .popup-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .popup-section-title {
-  font-size: 11px;
-  color: var(--text-dim);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .popup-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 10px;
 }
 
 .popup-action {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 14px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-card);
+  gap: 8px;
+  padding: 16px 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
 .popup-action:hover {
-  border-color: var(--accent);
-  background: rgba(220, 38, 38, 0.08);
-  transform: translateY(-1px);
+  background: var(--bg-tertiary);
+  transform: scale(1.02);
 }
 
 .popup-action:active {
@@ -162,134 +162,153 @@ body {
 .popup-action-full {
   flex-direction: row;
   width: 100%;
-  padding: 10px 14px;
-  gap: 8px;
+  padding: 12px 16px;
+  gap: 10px;
+  justify-content: flex-start;
 }
 
 /* API Key Status */
 .popup-key-status {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  font-size: 11px;
-  color: var(--text-dim);
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .popup-key-indicator {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: #71717A;
-  transition: background 0.3s;
+  background: var(--text-tertiary);
+  transition: all 0.3s ease;
 }
 
 .popup-key-indicator.active {
-  background: #10B981;
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(48, 209, 88, 0.4);
 }
 
 .popup-key-indicator.empty {
-  background: #F59E0B;
+  background: var(--yellow);
+  animation: indicator-pulse 2s ease-in-out infinite;
+}
+
+@keyframes indicator-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 /* Key Setup Form */
 .popup-key-setup {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  animation: flovart-popup-slide 0.25s ease;
+  gap: 10px;
+  padding: 14px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  animation: apple-slide 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
-@keyframes flovart-popup-slide {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes apple-slide {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .popup-select {
   width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
+  font-family: inherit;
   outline: none;
   cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: all 0.2s ease;
 }
 
 .popup-select:focus {
-  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.3);
 }
 
 .popup-provider-hint,
 .popup-inline-note {
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
 }
 
 .popup-custom-base-url {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .popup-key-input-row {
   display: flex;
-  gap: 6px;
+  gap: 8px;
 }
 
 .popup-input {
   flex: 1;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
+  font-family: inherit;
   outline: none;
+  transition: all 0.2s ease;
 }
 
 .popup-input:focus {
-  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.3);
+}
+
+.popup-input::placeholder {
+  color: var(--text-tertiary);
 }
 
 .popup-btn-save {
-  padding: 8px 14px;
+  padding: 10px 18px;
   border: none;
-  border-radius: 8px;
-  background: var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--blue);
   color: #fff;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
+  font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s ease;
   white-space: nowrap;
 }
 
 .popup-btn-save:hover {
-  background: var(--accent-hover);
+  filter: brightness(1.15);
 }
 
 .popup-btn-save:active {
   transform: scale(0.96);
+  filter: brightness(0.9);
 }
 
 .popup-key-save-status {
-  font-size: 11px;
+  font-size: 12px;
   min-height: 16px;
+  font-weight: 500;
 }
 
-.popup-key-save-status.success { color: #10B981; }
-.popup-key-save-status.info { color: #60A5FA; }
-.popup-key-save-status.error { color: #EF4444; }
+.popup-key-save-status.success { color: var(--green); }
+.popup-key-save-status.info { color: var(--blue); }
+.popup-key-save-status.error { color: var(--accent); }
 
 .popup-links {
   display: grid;
@@ -298,32 +317,32 @@ body {
 }
 
 .popup-link-card {
-  padding: 10px 8px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+  padding: 12px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
+  text-align: center;
 }
 
 .popup-link-card:hover {
-  border-color: rgba(220, 38, 38, 0.7);
-  background: rgba(220, 38, 38, 0.08);
-  transform: translateY(-1px);
+  background: var(--bg-tertiary);
+  transform: scale(1.03);
 }
 
 .popup-link-card:active {
-  transform: scale(0.98);
+  transform: scale(0.97);
 }
 
 /* Footer */
 .popup-footer {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding-top: 4px;
 }
 
@@ -331,16 +350,12 @@ body {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #10B981;
-  animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  background: var(--green);
+  box-shadow: 0 0 6px rgba(48, 209, 88, 0.4);
 }
 
 .popup-footer span {
-  font-size: 10px;
-  color: var(--text-dim);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 400;
 }

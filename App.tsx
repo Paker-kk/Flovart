@@ -22,7 +22,7 @@ const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard'
 const RightPanel = React.lazy(() => import('./components/RightPanel').then(m => ({ default: m.RightPanel })));
 const AssetAddModal = React.lazy(() => import('./components/AssetAddModal').then(m => ({ default: m.AssetAddModal })));
 const ABCompareOverlay = React.lazy(() => import('./components/ABCompareOverlay').then(m => ({ default: m.ABCompareOverlay })));
-import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/assetStorage';
+import { loadAssetLibrary, addAsset, removeAsset, renameAsset, loadAssetLibraryAsync, saveAssetLibraryAsync } from './utils/assetStorage';
 import { loadGenerationHistory, addGenerationHistoryItem } from './utils/generationHistory';
 import { inferProviderFromModel, reversePromptStreamWithProvider, DEFAULT_PROVIDER_MODELS } from './services/aiGateway';
 import { fileToDataUrl, validateAndResizeImage } from './utils/fileUtils';
@@ -30,10 +30,14 @@ import { translations } from './translations';
 // keyVault imports moved to hooks/useApiKeys.ts
 // usageMonitor imports moved to hooks
 import { getCompactChromeMetrics } from './utils/uiScale';
+import { putImages, getImages, isIdbRef, isDataUrl, toIdbRef, fromIdbRef } from './utils/imageDB';
+import { putVideoBlob, getVideoBlob, isIdbVideoRef, toIdbVideoRef, fromIdbVideoRef } from './utils/mediaDB';
+import { collectVideoObjectUrls, diffRemovedObjectUrls } from './utils/objectUrlRegistry';
+import { appendHistorySnapshot } from './utils/historyState';
 import termsRaw from './TERMS_OF_SERVICE.md?raw';
 import privacyRaw from './PRIVACY_POLICY.md?raw';
 import { generateId, getElementBounds, isPointInPolygon, rasterizeElement, rasterizeElements, rasterizeMask, createNewBoard, THEME_PALETTES, SNAP_THRESHOLD, type Rect, type Guide } from './utils/canvasHelpers';
-import { useApiKeys, DEFAULT_MODEL_PREFS, normalizeApiKeyEntry } from './hooks/useApiKeys';
+import { useApiKeys, DEFAULT_MODEL_PREFS, normalizeApiKeyEntry, buildAgentRuntimeSummary } from './hooks/useApiKeys';
 import { useCanvasInteraction } from './hooks/useCanvasInteraction';
 import { useGeneration } from './hooks/useGeneration';
 
@@ -46,22 +50,207 @@ import { useGeneration } from './hooks/useGeneration';
 const BOARDS_STORAGE_KEY = 'boards.v1';
 const ACTIVE_BOARD_STORAGE_KEY = 'boards.activeId.v1';
 
-const loadBoardsFromStorage = (): Board[] => {
+const STORAGE_QUOTA_ERROR_NAMES = new Set(['QuotaExceededError', 'NS_ERROR_DOM_QUOTA_REACHED']);
+
+type RuntimeJobStatus = 'accepted' | 'running' | 'succeeded' | 'failed' | 'canceled';
+
+type RuntimeProgress = {
+    pct: number;
+    stage: string;
+};
+
+type RuntimeError = {
+    code: 'BAD_REQUEST' | 'UNAUTHORIZED' | 'RATE_LIMITED' | 'PAYLOAD_TOO_LARGE' | 'PROVIDER_UNAVAILABLE' | 'TIMEOUT' | 'INTERNAL_ERROR';
+    message: string;
+    retryAfterMs?: number;
+};
+
+type RuntimeJob = {
+    requestId: string;
+    sessionId: string;
+    jobId: string;
+    command: string;
+    args: unknown;
+    status: RuntimeJobStatus;
+    progress: RuntimeProgress;
+    result?: unknown;
+    error?: RuntimeError;
+    source: 'agent' | 'ui' | 'script';
+    timeoutMs: number;
+    createdAt: number;
+    updatedAt: number;
+};
+
+type RuntimeSession = {
+    id: string;
+    name: string;
+    createdAt: number;
+    lastActiveAt: number;
+    idempotencyMap: Record<string, string>;
+    jobIds: string[];
+};
+
+const isStorageQuotaError = (error: unknown): boolean => {
+    if (!(error instanceof DOMException)) return false;
+    return STORAGE_QUOTA_ERROR_NAMES.has(error.name) || error.code === 22 || error.code === 1014;
+};
+
+/** 安全写 localStorage —— 捕获 QuotaExceeded 等异常, 返回是否成功 */
+const safeSetItem = (key: string, value: string): boolean => {
+    try {
+        localStorage.setItem(key, value);
+        return true;
+    } catch (err) {
+        console.error(`[Storage] Failed to write "${key}" (${(value.length / 1024).toFixed(0)} KB)`, err);
+        return false;
+    }
+};
+
+/** 序列化 boards 时剥离 undo history, 同时将图片 base64 转存到 IndexedDB */
+const persistBoardsToIDB = async (boards: Board[]): Promise<void> => {
+    const imageEntries: { key: string; data: string }[] = [];
+    const videoPromises: Promise<void>[] = [];
+    const slim = boards.map(b => ({
+        ...b,
+        history: [b.elements],   // 只保留当前快照, 丢弃 undo 栈
+        historyIndex: 0,
+        elements: b.elements.map(el => {
+            if (el.type === 'image') {
+                const img = { ...el } as ImageElement;
+                if (isDataUrl(img.href)) {
+                    const key = `board:${el.id}`;
+                    imageEntries.push({ key, data: img.href });
+                    img.href = toIdbRef(key);
+                }
+                if (img.mask && isDataUrl(img.mask)) {
+                    const key = `board:${el.id}:mask`;
+                    imageEntries.push({ key, data: img.mask });
+                    img.mask = toIdbRef(key);
+                }
+                return img;
+            }
+            if (el.type === 'video' && (el as VideoElement).href.startsWith('blob:')) {
+                const vid = { ...el } as VideoElement;
+                const key = `board:${el.id}`;
+                videoPromises.push(
+                    fetch(vid.href)
+                        .then(r => r.blob())
+                        .then(blob => putVideoBlob(key, blob))
+                        .catch(() => { /* best-effort: keep blob URL as fallback */ })
+                );
+                vid.href = toIdbVideoRef(key);
+                return vid;
+            }
+            return el;
+        }),
+    }));
+    if (imageEntries.length > 0) await putImages(imageEntries);
+    await Promise.all(videoPromises);
+    localStorage.setItem(BOARDS_STORAGE_KEY, JSON.stringify(slim));
+};
+
+/** Load boards from localStorage and resolve idb: refs from IndexedDB */
+const loadBoardsWithIDB = async (): Promise<Board[]> => {
+    let boards: Board[];
     try {
         const raw = localStorage.getItem(BOARDS_STORAGE_KEY);
         const parsed = raw ? JSON.parse(raw) : null;
         if (!Array.isArray(parsed) || parsed.length === 0) {
             return [createNewBoard('Board 1')];
         }
-
-        const boards = parsed.filter((board): board is Board => {
-            return !!board && typeof board.id === 'string' && typeof board.name === 'string' && Array.isArray(board.elements);
-        });
-
-        return boards.length > 0 ? boards : [createNewBoard('Board 1')];
+        boards = parsed.filter((board): board is Board =>
+            !!board && typeof board.id === 'string' && typeof board.name === 'string' && Array.isArray(board.elements)
+        );
+        if (boards.length === 0) return [createNewBoard('Board 1')];
     } catch {
         return [createNewBoard('Board 1')];
     }
+    // Collect all idb: refs (images)
+    const refs: string[] = [];
+    // Collect all idb-video: element ids
+    const videoRefs: { boardIdx: number; elIdx: number; key: string }[] = [];
+    for (let bi = 0; bi < boards.length; bi++) {
+        const b = boards[bi];
+        for (let ei = 0; ei < b.elements.length; ei++) {
+            const el = b.elements[ei];
+            if (el.type === 'image') {
+                const img = el as ImageElement;
+                if (isIdbRef(img.href)) refs.push(fromIdbRef(img.href));
+                if (img.mask && isIdbRef(img.mask)) refs.push(fromIdbRef(img.mask));
+            }
+            if (el.type === 'video' && isIdbVideoRef((el as VideoElement).href)) {
+                videoRefs.push({ boardIdx: bi, elIdx: ei, key: fromIdbVideoRef((el as VideoElement).href) });
+            }
+        }
+    }
+    // Resolve images
+    const resolved = refs.length > 0 ? await getImages(refs) : new Map<string, string>();
+    // Resolve videos
+    const videoBlobs = new Map<string, Blob>();
+    await Promise.all(videoRefs.map(async ({ key }) => {
+        const blob = await getVideoBlob(key);
+        if (blob) videoBlobs.set(key, blob);
+    }));
+
+    return boards.map(b => ({
+        ...b,
+        elements: b.elements.map(el => {
+            if (el.type === 'image') {
+                const img = { ...el } as ImageElement;
+                if (isIdbRef(img.href)) {
+                    const data = resolved.get(fromIdbRef(img.href));
+                    if (data) img.href = data;
+                }
+                if (img.mask && isIdbRef(img.mask)) {
+                    const data = resolved.get(fromIdbRef(img.mask));
+                    if (data) img.mask = data;
+                }
+                return img;
+            }
+            if (el.type === 'video' && isIdbVideoRef((el as VideoElement).href)) {
+                const key = fromIdbVideoRef((el as VideoElement).href);
+                const blob = videoBlobs.get(key);
+                if (blob) return { ...el, href: URL.createObjectURL(blob) } as VideoElement;
+            }
+            return el;
+        }),
+    }));
+};
+
+/** Load character locks from localStorage, resolving idb: referenceImage refs */
+const loadCharacterLocksWithIDB = async (): Promise<CharacterLockProfile[]> => {
+    try {
+        const raw = localStorage.getItem('characterLocks.v1');
+        if (!raw) return [];
+        const locks: CharacterLockProfile[] = JSON.parse(raw);
+        const refs = locks.filter(l => isIdbRef(l.referenceImage)).map(l => fromIdbRef(l.referenceImage));
+        if (refs.length === 0) return locks;
+        const resolved = await getImages(refs);
+        return locks.map(lock => {
+            if (isIdbRef(lock.referenceImage)) {
+                const data = resolved.get(fromIdbRef(lock.referenceImage));
+                if (data) return { ...lock, referenceImage: data };
+            }
+            return lock;
+        });
+    } catch {
+        return [];
+    }
+};
+
+/** Save character locks: offload referenceImage base64 to IDB */
+const persistCharacterLocksToIDB = async (locks: CharacterLockProfile[]): Promise<void> => {
+    const entries: { key: string; data: string }[] = [];
+    const slim = locks.map(lock => {
+        if (isDataUrl(lock.referenceImage)) {
+            const key = `charlock:${lock.id}`;
+            entries.push({ key, data: lock.referenceImage });
+            return { ...lock, referenceImage: toIdbRef(key) };
+        }
+        return lock;
+    });
+    if (entries.length > 0) await putImages(entries);
+    safeSetItem('characterLocks.v1', JSON.stringify(slim));
 };
 
 const App: React.FC = () => {
@@ -71,7 +260,8 @@ const App: React.FC = () => {
         return commitSha ? `v${version} · ${commitSha}` : `v${version}`;
     }, []);
 
-    const [boards, setBoards] = useState<Board[]>(() => loadBoardsFromStorage());
+    const [boards, setBoards] = useState<Board[]>(() => [createNewBoard('Board 1')]);
+    const [dataReady, setDataReady] = useState(false);
     const [activeBoardId, setActiveBoardId] = useState<string>(() => {
         try {
             const saved = localStorage.getItem(ACTIVE_BOARD_STORAGE_KEY);
@@ -116,18 +306,18 @@ const App: React.FC = () => {
     const [filterPanelElementId, setFilterPanelElementId] = useState<string | null>(null);
     const [outpaintMenuId, setOutpaintMenuId] = useState<string | null>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; elementId: string | null } | null>(null);
-    const [assetLibrary, setAssetLibrary] = useState<AssetLibrary>(() => loadAssetLibrary());
+    const [assetLibrary, setAssetLibrary] = useState<AssetLibrary>({ character: [], scene: [], prop: [] });
     const [generationHistory, setGenerationHistory] = useState<GenerationHistoryItem[]>(() => loadGenerationHistory());
     const [isAssetPanelOpen, setIsAssetPanelOpen] = useState(false);
     const [addAssetModal, setAddAssetModal] = useState<{ open: boolean; dataUrl: string; mimeType: string; width: number; height: number } | null>(null);
     
     // Persist minimize state
     useEffect(() => {
-        localStorage.setItem('layerPanelMinimized', isLayerMinimized.toString());
+        safeSetItem('layerPanelMinimized', isLayerMinimized.toString());
     }, [isLayerMinimized]);
     
     useEffect(() => {
-        localStorage.setItem('inspirationPanelMinimized', isInspirationMinimized.toString());
+        safeSetItem('inspirationPanelMinimized', isInspirationMinimized.toString());
     }, [isInspirationMinimized]);
 
     useEffect(() => {
@@ -138,14 +328,70 @@ const App: React.FC = () => {
 
     const chromeMetrics = useMemo(() => getCompactChromeMetrics(viewportWidth), [viewportWidth]);
 
+    const hasShownStorageErrorRef = useRef(false);
+
+    // ── Async boot: load boards, assets, character locks from IndexedDB ──
     useEffect(() => {
-        localStorage.setItem(BOARDS_STORAGE_KEY, JSON.stringify(boards));
-    }, [boards]);
+        Promise.all([
+            loadBoardsWithIDB(),
+            loadAssetLibraryAsync(),
+            loadCharacterLocksWithIDB(),
+        ]).then(([loadedBoards, loadedAssets, loadedLocks]) => {
+            setBoards(loadedBoards);
+            if (loadedBoards.length > 0) setActiveBoardId(prev => prev || loadedBoards[0].id);
+            setAssetLibrary(loadedAssets);
+            setCharacterLocks(loadedLocks);
+            setDataReady(true);
+        }).catch(() => {
+            setDataReady(true); // fall through with defaults
+        });
+    }, []);
+
+    // ── Persist boards to IDB ──
+    useEffect(() => {
+        if (!dataReady) return;
+        persistBoardsToIDB(boards).then(() => {
+            hasShownStorageErrorRef.current = false;
+        }).catch(err => {
+            if (!hasShownStorageErrorRef.current) {
+                hasShownStorageErrorRef.current = true;
+                console.error('Failed to persist boards to localStorage', err);
+                setError(isStorageQuotaError(err)
+                    ? '本地存储空间不足，无法保存最新画布。请删除部分历史图片或导出后清理项目。'
+                    : '保存画布失败，请刷新后重试。');
+            }
+        });
+    }, [boards, dataReady]);
+
+    // ── Persist asset library to IDB ──
+    useEffect(() => {
+        if (!dataReady) return;
+        saveAssetLibraryAsync(assetLibrary).catch(console.error);
+    }, [assetLibrary, dataReady]);
 
     useEffect(() => {
         if (!activeBoardId) return;
-        localStorage.setItem(ACTIVE_BOARD_STORAGE_KEY, activeBoardId);
+        try {
+            localStorage.setItem(ACTIVE_BOARD_STORAGE_KEY, activeBoardId);
+        } catch (err) {
+            console.error('Failed to persist active board id', err);
+        }
     }, [activeBoardId]);
+
+    // ── Revoke blob: URLs for removed video elements ──
+    const activeVideoUrlsRef = useRef<Set<string>>(new Set());
+    useEffect(() => {
+        const nextUrls = collectVideoObjectUrls(elements);
+        const removed = diffRemovedObjectUrls(activeVideoUrlsRef.current, nextUrls);
+        removed.forEach(url => URL.revokeObjectURL(url));
+        activeVideoUrlsRef.current = nextUrls;
+    }, [elements]);
+    useEffect(() => {
+        return () => {
+            activeVideoUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+            activeVideoUrlsRef.current.clear();
+        };
+    }, []);
     
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -188,7 +434,7 @@ const App: React.FC = () => {
         return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     });
     useEffect(() => {
-        localStorage.setItem('themeMode.v1', themeMode);
+        safeSetItem('themeMode.v1', themeMode);
     }, [themeMode]);
     
     const [userEffects, setUserEffects] = useState<UserEffect[]>(() => {
@@ -200,14 +446,7 @@ const App: React.FC = () => {
             return [];
         }
     });
-    const [characterLocks, setCharacterLocks] = useState<CharacterLockProfile[]>(() => {
-        try {
-            const raw = localStorage.getItem('characterLocks.v1');
-            return raw ? JSON.parse(raw) : [];
-        } catch {
-            return [];
-        }
-    });
+    const [characterLocks, setCharacterLocks] = useState<CharacterLockProfile[]>([]);
     const [activeCharacterLockId, setActiveCharacterLockId] = useState<string | null>(() => {
         return localStorage.getItem('characterLocks.activeId') || null;
     });
@@ -215,6 +454,8 @@ const App: React.FC = () => {
     const [generationMode, setGenerationMode] = useState<'image' | 'video' | 'keyframe'>('image');
     const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '9:16'>('16:9');
     const [progressMessage, setProgressMessage] = useState<string>('');
+    const runtimeSessionsRef = useRef<Record<string, RuntimeSession>>({});
+    const runtimeJobsRef = useRef<Record<string, RuntimeJob>>({});
     const [isAutoEnhanceEnabled, setIsAutoEnhanceEnabled] = useState<boolean>(() => {
         try { return localStorage.getItem('autoEnhance.v1') === 'true'; } catch { return false; }
     });
@@ -240,8 +481,22 @@ const App: React.FC = () => {
 
     // 持久化 autoEnhance 开关
     useEffect(() => {
-        localStorage.setItem('autoEnhance.v1', isAutoEnhanceEnabled.toString());
+        safeSetItem('autoEnhance.v1', isAutoEnhanceEnabled.toString());
     }, [isAutoEnhanceEnabled]);
+
+    useEffect(() => {
+        const stage = progressMessage?.trim();
+        if (!stage) return;
+        const now = Date.now();
+        Object.values(runtimeJobsRef.current).forEach(job => {
+            if (job.status !== 'running') return;
+            job.progress = {
+                pct: Math.max(job.progress.pct, 10),
+                stage,
+            };
+            job.updatedAt = now;
+        });
+    }, [progressMessage]);
 
     const resolvedTheme = themeMode === 'system' ? systemTheme : themeMode;
     const themePalette = THEME_PALETTES[resolvedTheme];
@@ -254,8 +509,13 @@ const App: React.FC = () => {
         activeUserKeyId, activeUserModelId, setActiveUserModelId, handleUserKeyChange,
         dynamicModelOptions, usageSummaryMap, getPreferredApiKey,
         handleAddApiKey, handleDeleteApiKey, handleUpdateApiKey, handleSetDefaultApiKey,
-        modelAutoSwitchNotice,
+        modelAutoSwitchNotice, agentWarning,
     } = useApiKeys(isSettingsPanelOpen);
+
+    const agentRuntimeSummary = useMemo(() => buildAgentRuntimeSummary({
+        textModel: modelPreference.textModel,
+        keys: userApiKeys,
+    }), [modelPreference.textModel, userApiKeys]);
 
     useEffect(() => {
         if (!boards.length) return;
@@ -265,22 +525,19 @@ const App: React.FC = () => {
     }, [boards, activeBoardId]);
     
     useEffect(() => {
-        try {
-            localStorage.setItem('userEffects', JSON.stringify(userEffects));
-        } catch (error) {
-            console.error("Failed to save user effects to localStorage", error);
-        }
+        safeSetItem('userEffects', JSON.stringify(userEffects));
     }, [userEffects]);
 
 
 
     useEffect(() => {
-        localStorage.setItem('characterLocks.v1', JSON.stringify(characterLocks));
-    }, [characterLocks]);
+        if (!dataReady) return;
+        persistCharacterLocksToIDB(characterLocks).catch(console.error);
+    }, [characterLocks, dataReady]);
 
     useEffect(() => {
         if (activeCharacterLockId) {
-            localStorage.setItem('characterLocks.activeId', activeCharacterLockId);
+            safeSetItem('characterLocks.activeId', activeCharacterLockId);
         } else {
             localStorage.removeItem('characterLocks.activeId');
         }
@@ -374,12 +631,12 @@ const App: React.FC = () => {
         updateActiveBoard(board => {
             const newElements = updater(board.elements);
             if (commit) {
-                const newHistory = [...board.history.slice(0, board.historyIndex + 1), newElements];
+                const next = appendHistorySnapshot(board.history, board.historyIndex, newElements);
                 return {
                     ...board,
                     elements: newElements,
-                    history: newHistory,
-                    historyIndex: newHistory.length - 1,
+                    history: next.history,
+                    historyIndex: next.historyIndex,
                 };
             } else {
                  const tempHistory = [...board.history];
@@ -392,12 +649,12 @@ const App: React.FC = () => {
     const commitAction = useCallback((updater: (prev: Element[]) => Element[]) => {
         updateActiveBoard(board => {
             const newElements = updater(board.elements);
-            const newHistory = [...board.history.slice(0, board.historyIndex + 1), newElements];
+            const next = appendHistorySnapshot(board.history, board.historyIndex, newElements);
             return {
                 ...board,
                 elements: newElements,
-                history: newHistory,
-                historyIndex: newHistory.length - 1,
+                history: next.history,
+                historyIndex: next.historyIndex,
             };
         });
     }, [activeBoardId]);
@@ -1298,22 +1555,336 @@ const App: React.FC = () => {
 
     // ── Phase 2: Expose runtime API for AI Agent control ──
     useEffect(() => {
+        const normalizeApiElement = (partial: Partial<Element>): Element => {
+            const base = {
+                id: partial.id || crypto.randomUUID(),
+                x: typeof partial.x === 'number' ? partial.x : 0,
+                y: typeof partial.y === 'number' ? partial.y : 0,
+                name: partial.name,
+                isVisible: partial.isVisible ?? true,
+                isLocked: partial.isLocked ?? false,
+                parentId: partial.parentId,
+            };
+
+            switch (partial.type) {
+                case 'image':
+                    return {
+                        ...base,
+                        type: 'image',
+                        href: partial.href || '',
+                        mimeType: partial.mimeType || 'image/png',
+                        width: typeof partial.width === 'number' ? partial.width : 200,
+                        height: typeof partial.height === 'number' ? partial.height : 200,
+                        borderRadius: partial.borderRadius,
+                        filters: partial.filters,
+                        mask: partial.mask,
+                    };
+                case 'text':
+                    return {
+                        ...base,
+                        type: 'text',
+                        text: partial.text || '',
+                        fontSize: typeof partial.fontSize === 'number' ? partial.fontSize : 28,
+                        fontColor: partial.fontColor || '#111827',
+                        width: typeof partial.width === 'number' ? partial.width : 260,
+                        height: typeof partial.height === 'number' ? partial.height : 120,
+                    };
+                case 'shape':
+                    return {
+                        ...base,
+                        type: 'shape',
+                        shapeType: partial.shapeType || 'rectangle',
+                        width: typeof partial.width === 'number' ? partial.width : 200,
+                        height: typeof partial.height === 'number' ? partial.height : 200,
+                        strokeColor: partial.strokeColor || '#111827',
+                        strokeWidth: typeof partial.strokeWidth === 'number' ? partial.strokeWidth : 2,
+                        fillColor: partial.fillColor || '#6366f1',
+                        borderRadius: partial.borderRadius,
+                        strokeDashArray: partial.strokeDashArray,
+                    };
+                case 'path':
+                    return {
+                        ...base,
+                        type: 'path',
+                        points: partial.points || [],
+                        strokeColor: partial.strokeColor || '#111827',
+                        strokeWidth: typeof partial.strokeWidth === 'number' ? partial.strokeWidth : 4,
+                        strokeOpacity: partial.strokeOpacity,
+                    };
+                case 'arrow':
+                    return {
+                        ...base,
+                        type: 'arrow',
+                        points: partial.points || [{ x: base.x, y: base.y }, { x: base.x + 120, y: base.y }],
+                        strokeColor: partial.strokeColor || '#111827',
+                        strokeWidth: typeof partial.strokeWidth === 'number' ? partial.strokeWidth : 4,
+                    };
+                case 'line':
+                    return {
+                        ...base,
+                        type: 'line',
+                        points: partial.points || [{ x: base.x, y: base.y }, { x: base.x + 120, y: base.y }],
+                        strokeColor: partial.strokeColor || '#111827',
+                        strokeWidth: typeof partial.strokeWidth === 'number' ? partial.strokeWidth : 4,
+                    };
+                case 'group':
+                    return {
+                        ...base,
+                        type: 'group',
+                        width: typeof partial.width === 'number' ? partial.width : 1,
+                        height: typeof partial.height === 'number' ? partial.height : 1,
+                    };
+                case 'video':
+                    return {
+                        ...base,
+                        type: 'video',
+                        href: partial.href || '',
+                        mimeType: partial.mimeType || 'video/mp4',
+                        width: typeof partial.width === 'number' ? partial.width : 320,
+                        height: typeof partial.height === 'number' ? partial.height : 180,
+                    };
+                default:
+                    return {
+                        ...base,
+                        type: 'shape',
+                        shapeType: 'rectangle',
+                        width: 200,
+                        height: 200,
+                        strokeColor: '#111827',
+                        strokeWidth: 2,
+                        fillColor: '#6366f1',
+                    };
+            }
+        };
+
+        const toRuntimeError = (err: unknown): RuntimeError => {
+            const message = err instanceof Error ? err.message : String(err);
+            if (message.includes('TIMEOUT')) {
+                return { code: 'TIMEOUT', message };
+            }
+            if (message.includes('429') || message.toLowerCase().includes('rate limit')) {
+                return { code: 'RATE_LIMITED', message };
+            }
+            if (message.includes('413') || message.toLowerCase().includes('payload too large')) {
+                return { code: 'PAYLOAD_TOO_LARGE', message };
+            }
+            if (message.includes('401') || message.includes('403')) {
+                return { code: 'UNAUTHORIZED', message };
+            }
+            return { code: 'INTERNAL_ERROR', message };
+        };
+
+        const withTimeout = async <T,>(job: Promise<T>, timeoutMs: number): Promise<T> => {
+            return await new Promise<T>((resolve, reject) => {
+                const timer = window.setTimeout(() => reject(new Error('TIMEOUT: command execution exceeded timeoutMs')), timeoutMs);
+                job
+                    .then((value) => {
+                        window.clearTimeout(timer);
+                        resolve(value);
+                    })
+                    .catch((error) => {
+                        window.clearTimeout(timer);
+                        reject(error);
+                    });
+            });
+        };
+
+        const getJobSnapshot = (job: RuntimeJob) => ({
+            requestId: job.requestId,
+            sessionId: job.sessionId,
+            jobId: job.jobId,
+            status: job.status,
+            progress: job.progress,
+            result: job.result,
+            error: job.error,
+            updatedAt: job.updatedAt,
+            command: job.command,
+        });
+
+        const executeRuntimeCommand = async (command: string, args: any): Promise<unknown> => {
+            switch (command) {
+                case 'canvas.addElement':
+                    return api.canvas.addElement(args as Partial<Element>);
+                case 'canvas.getElements':
+                    return api.canvas.getElements();
+                case 'canvas.removeElement':
+                    api.canvas.removeElement(args?.id as string);
+                    return { ok: true };
+                case 'canvas.updateElement':
+                    api.canvas.updateElement(args?.id as string, (args?.updates || {}) as Record<string, unknown>);
+                    return { ok: true };
+                case 'canvas.clear':
+                    api.canvas.clear();
+                    return { ok: true };
+                case 'generate.image':
+                    await handleGenerate(args?.prompt as string, (args?.source || 'agent') as 'prompt' | 'right' | 'agent');
+                    return { ok: true };
+                default:
+                    throw new Error(`BAD_REQUEST: unknown command ${command}`);
+            }
+        };
+
+        const sendCommand = async (payload: {
+            requestId?: string;
+            sessionId: string;
+            idempotencyKey?: string;
+            command: string;
+            args?: unknown;
+            meta?: { source?: 'agent' | 'ui' | 'script'; timeoutMs?: number };
+        }) => {
+            const session = runtimeSessionsRef.current[payload.sessionId];
+            if (!session) {
+                throw new Error(`BAD_REQUEST: session not found (${payload.sessionId})`);
+            }
+
+            const now = Date.now();
+            session.lastActiveAt = now;
+
+            if (payload.idempotencyKey && session.idempotencyMap[payload.idempotencyKey]) {
+                const existingJob = runtimeJobsRef.current[session.idempotencyMap[payload.idempotencyKey]];
+                if (existingJob) return getJobSnapshot(existingJob);
+            }
+
+            const requestId = payload.requestId || crypto.randomUUID();
+            const jobId = crypto.randomUUID();
+            const source = payload.meta?.source || 'agent';
+            const timeoutMs = payload.meta?.timeoutMs ?? 60000;
+
+            const job: RuntimeJob = {
+                requestId,
+                sessionId: session.id,
+                jobId,
+                command: payload.command,
+                args: payload.args,
+                status: 'accepted',
+                progress: { pct: 0, stage: 'queued' },
+                source,
+                timeoutMs,
+                createdAt: now,
+                updatedAt: now,
+            };
+
+            runtimeJobsRef.current[jobId] = job;
+            session.jobIds.push(jobId);
+            if (payload.idempotencyKey) {
+                session.idempotencyMap[payload.idempotencyKey] = jobId;
+            }
+
+            job.status = 'running';
+            job.progress = { pct: 10, stage: 'running' };
+            job.updatedAt = Date.now();
+
+            try {
+                const result = await withTimeout(executeRuntimeCommand(payload.command, payload.args), timeoutMs);
+                job.status = 'succeeded';
+                job.progress = { pct: 100, stage: 'completed' };
+                job.result = result;
+                job.updatedAt = Date.now();
+                return getJobSnapshot(job);
+            } catch (err) {
+                job.status = 'failed';
+                job.progress = { pct: job.progress.pct, stage: 'failed' };
+                job.error = toRuntimeError(err);
+                job.updatedAt = Date.now();
+                return getJobSnapshot(job);
+            }
+        };
+
         const api = {
+            session: {
+                create: (name?: string) => {
+                    const now = Date.now();
+                    const id = crypto.randomUUID();
+                    runtimeSessionsRef.current[id] = {
+                        id,
+                        name: (name || 'runtime-session').trim(),
+                        createdAt: now,
+                        lastActiveAt: now,
+                        idempotencyMap: {},
+                        jobIds: [],
+                    };
+                    return {
+                        sessionId: id,
+                        createdAt: now,
+                        name: runtimeSessionsRef.current[id].name,
+                    };
+                },
+                get: (sessionId: string) => {
+                    const session = runtimeSessionsRef.current[sessionId];
+                    if (!session) return null;
+                    return {
+                        sessionId: session.id,
+                        name: session.name,
+                        createdAt: session.createdAt,
+                        lastActiveAt: session.lastActiveAt,
+                        jobCount: session.jobIds.length,
+                    };
+                },
+                list: () => Object.values(runtimeSessionsRef.current).map(session => ({
+                    sessionId: session.id,
+                    name: session.name,
+                    createdAt: session.createdAt,
+                    lastActiveAt: session.lastActiveAt,
+                    jobCount: session.jobIds.length,
+                })),
+            },
+            command: {
+                send: sendCommand,
+                get: (jobId: string) => {
+                    const job = runtimeJobsRef.current[jobId];
+                    return job ? getJobSnapshot(job) : null;
+                },
+                list: (sessionId?: string) => {
+                    const jobs = Object.values(runtimeJobsRef.current);
+                    return jobs
+                        .filter(job => !sessionId || job.sessionId === sessionId)
+                        .map(getJobSnapshot);
+                },
+            },
+            progress: {
+                query: (jobId: string) => {
+                    const job = runtimeJobsRef.current[jobId];
+                    if (!job) return null;
+                    return {
+                        jobId: job.jobId,
+                        status: job.status,
+                        progress: job.progress,
+                        error: job.error,
+                        updatedAt: job.updatedAt,
+                    };
+                },
+            },
             canvas: {
                 addElement: (partial: Partial<Element>) => {
-                    const el = { id: crypto.randomUUID(), x: 0, y: 0, width: 200, height: 200, opacity: 1, rotation: 0, blendMode: 'normal' as const, visible: true, locked: false, type: 'shape' as const, shape: 'rect' as const, fill: '#6366f1', stroke: '#000', strokeWidth: 0, ...partial } as Element;
+                    const el = normalizeApiElement(partial);
                     commitAction(prev => [...prev, el]);
                     return el.id;
                 },
-                getElements: () => elementsRef.current.map(el => ({ id: el.id, type: el.type, x: el.x, y: el.y, width: el.width, height: el.height, opacity: el.opacity, rotation: el.rotation, visible: el.visible, locked: el.locked, ...(el.type === 'text' ? { text: (el as any).text } : {}), ...(el.type === 'image' ? { name: (el as any).name } : {}) })),
+                getElements: () => elementsRef.current.map(el => {
+                    const bounds = getElementBounds(el, elementsRef.current);
+                    return {
+                        id: el.id,
+                        type: el.type,
+                        x: el.x,
+                        y: el.y,
+                        width: bounds.width,
+                        height: bounds.height,
+                        isVisible: el.isVisible ?? true,
+                        isLocked: el.isLocked ?? false,
+                        ...(el.type === 'text' ? { text: el.text } : {}),
+                        ...(el.type === 'image' ? { name: el.name, mimeType: el.mimeType } : {}),
+                    };
+                }),
                 removeElement: (id: string) => { commitAction(prev => prev.filter(e => e.id !== id)); },
-                updateElement: (id: string, updates: Partial<Element>) => { commitAction(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e)); },
+                updateElement: (id: string, updates: Record<string, unknown>) => {
+                    commitAction(prev => prev.map(e => e.id === id ? ({ ...e, ...updates } as Element) : e));
+                },
                 clear: () => { commitAction(() => []); },
                 getSelected: () => [...selectedElementIds],
                 select: (ids: string[]) => { setSelectedElementIds(ids); },
             },
             generate: {
-                image: async (p: string, source?: string) => { handleGenerate(p, source || 'api'); },
+                image: async (p: string, source?: 'prompt' | 'agent' | 'right') => { await handleGenerate(p, source || 'agent'); },
             },
             view: {
                 getZoom: () => zoom,
@@ -1322,7 +1893,7 @@ const App: React.FC = () => {
             config: {
                 getProviders: () => Object.keys(DEFAULT_PROVIDER_MODELS),
             },
-            _version: '2.0.0',
+            _version: '2.1.0',
         };
         (window as any).__flovartAPI = api;
         // Listen for postMessage commands from extension content script
@@ -1610,6 +2181,9 @@ const App: React.FC = () => {
                     handleGenerate(finalPrompt, 'agent');
                 }}
                 onReversePrompt={handleReversePrompt}
+                agentWarning={agentWarning}
+                discussionSupported={agentRuntimeSummary.discussionSupported}
+                onOpenSettings={() => setIsSettingsPanelOpen(true)}
             />
             </Suspense>
             <Suspense fallback={null}>

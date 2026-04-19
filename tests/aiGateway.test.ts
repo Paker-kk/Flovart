@@ -4,7 +4,7 @@
  * 2026 模型名更新：Gemini 3, GPT-5.4, Claude Opus 4.6, Veo 3.1
  */
 import { describe, it, expect } from 'vitest';
-import { diagnoseKeyCapabilities, inferCapabilityFromModel, inferProviderFromModel, isGoogleImageEditModel, isGoogleTextToImageModel, supportsMaskImageEditing, supportsReferenceImageEditing } from '../services/aiGateway';
+import { diagnoseKeyCapabilities, explainKeyCapabilities, inferCapabilityFromModel, inferProviderFromModel, isGoogleImageEditModel, isGoogleTextToImageModel, supportsMaskImageEditing, supportsReferenceImageEditing } from '../services/aiGateway';
 import type { UserApiKey } from '../types';
 
 describe('inferProviderFromModel', () => {
@@ -123,5 +123,38 @@ describe('diagnoseKeyCapabilities', () => {
         }];
         const result = diagnoseKeyCapabilities(keys);
         expect(result.warnings.some(w => w.includes('Google'))).toBe(true);
+    });
+});
+
+describe('explainKeyCapabilities', () => {
+    it('reports unsupported agent for non-Banana keysets with Banana reason', () => {
+        const keys: UserApiKey[] = [{
+            id: '1', provider: 'custom', key: 'sk-test',
+            capabilities: ['text', 'image', 'video'],
+            createdAt: Date.now(), updatedAt: Date.now(),
+        }];
+
+        const result = explainKeyCapabilities(keys);
+        const agent = result.find(r => r.capability === 'agent')!;
+        expect(agent.supported).toBe(false);
+        expect(agent.reason).toContain('Banana');
+    });
+
+    it('reports all supported with full keyset', () => {
+        const keys: UserApiKey[] = [
+            { id: '1', provider: 'google', key: 'k1', capabilities: ['text', 'image', 'video'], createdAt: 0, updatedAt: 0 },
+            { id: '2', provider: 'banana', key: 'k2', capabilities: ['agent'], createdAt: 0, updatedAt: 0 },
+        ];
+        const result = explainKeyCapabilities(keys);
+        expect(result.every(r => r.supported)).toBe(true);
+    });
+
+    it('returns per-capability reasons', () => {
+        const result = explainKeyCapabilities([]);
+        expect(result).toHaveLength(4);
+        result.forEach(r => {
+            expect(r.supported).toBe(false);
+            expect(r.reason.length).toBeGreaterThan(0);
+        });
     });
 });
