@@ -452,7 +452,7 @@ const App: React.FC = () => {
     });
     
     const [generationMode, setGenerationMode] = useState<'image' | 'video' | 'keyframe'>('image');
-    const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '9:16'>('16:9');
+    const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9'>('16:9');
     const [progressMessage, setProgressMessage] = useState<string>('');
     const runtimeSessionsRef = useRef<Record<string, RuntimeSession>>({});
     const runtimeJobsRef = useRef<Record<string, RuntimeJob>>({});
@@ -1043,8 +1043,8 @@ const App: React.FC = () => {
                             name: name || 'Extension Image',
                             x: 100,
                             y: 100,
-                            width: Math.min(img.width, 800),
-                            height: Math.min(img.height, 600),
+                            width: Math.min(img.width, 1440),
+                            height: Math.min(img.height, 1080),
                             href: dataUrl,
                             mimeType: 'image/png',
                         };

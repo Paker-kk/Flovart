@@ -425,7 +425,7 @@ export async function generateImageFromText(prompt: string, apiKey?: string): Pr
  * 使用 Veo 3.1 模型从图片生成视频，支持纯文本或图片+文本模式
  * 
  * @param {string} prompt - 视频描述提示词
- * @param {'16:9' | '9:16'} aspectRatio - 视频宽高比
+ * @param {'16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9'} aspectRatio - 视频宽高比
  * @param {Function} onProgress - 进度回调函数，用于显示生成状态
  * @param {ImageInput} [image] - 可选的参考图片，用于图生视频
  * @returns {Promise} 返回视频 Blob 和 MIME 类型
@@ -452,7 +452,7 @@ export async function generateImageFromText(prompt: string, apiKey?: string): Pr
  */
 export async function generateVideo(
   prompt: string,
-  aspectRatio: '16:9' | '9:16',
+  aspectRatio: '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9',
   onProgress: (message: string) => void,
   image?: ImageInput,
   apiKey?: string

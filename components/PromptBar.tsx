@@ -29,8 +29,8 @@ interface PromptBarProps {
     onDeleteUserEffect: (id: string) => void;
     generationMode: GenerationMode;
     setGenerationMode: (mode: GenerationMode) => void;
-    videoAspectRatio: '16:9' | '9:16';
-    setVideoAspectRatio: (ratio: '16:9' | '9:16') => void;
+    videoAspectRatio: '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';
+    setVideoAspectRatio: (ratio: '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9') => void;
     selectedTextModel?: string;
     selectedImageModel?: string;
     selectedVideoModel?: string;
@@ -463,8 +463,8 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                             })()}
 
                                             {generationMode === 'video' && (
-                                                <div className="grid grid-cols-2 gap-2 px-1 pt-3">
-                                                    {(['16:9', '9:16'] as const).map(ratio => (
+                                                <div className="grid grid-cols-3 gap-2 px-1 pt-3">
+                                                    {(['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] as const).map(ratio => (
                                                         <button
                                                             key={ratio}
                                                             type="button"

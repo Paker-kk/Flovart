@@ -24,7 +24,7 @@ export interface UseGenerationParams {
     selectedElementIds: string[];
     prompt: string;
     generationMode: 'image' | 'video' | 'keyframe';
-    videoAspectRatio: '16:9' | '9:16';
+    videoAspectRatio: '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';
     isAutoEnhanceEnabled: boolean;
     mentionedElementIds: string[];
     chatAttachments: ChatAttachment[];
@@ -649,7 +649,7 @@ export function useGeneration(params: UseGenerationParams) {
 
                     let newWidth = video.videoWidth;
                     let newHeight = video.videoHeight;
-                    const MAX_DIM = 800;
+                    const MAX_DIM = 1440;
                     if (newWidth > MAX_DIM || newHeight > MAX_DIM) {
                         const ratio = newWidth / newHeight;
                         if (ratio > 1) { newWidth = MAX_DIM; newHeight = MAX_DIM / ratio; }
@@ -746,7 +746,7 @@ export function useGeneration(params: UseGenerationParams) {
 
                     let newWidth = video.videoWidth;
                     let newHeight = video.videoHeight;
-                    const MAX_DIM = 800;
+                    const MAX_DIM = 1440;
                     if (newWidth > MAX_DIM || newHeight > MAX_DIM) {
                         const ratio = newWidth / newHeight;
                         if (ratio > 1) { newWidth = MAX_DIM; newHeight = MAX_DIM / ratio; }

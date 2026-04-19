@@ -585,7 +585,7 @@ async function generateVideoWithUnifiedAsyncApi(
     model: string,
     key: UserApiKey,
     options?: {
-        aspectRatio?: '16:9' | '9:16';
+        aspectRatio?: '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';
         onProgress?: (message: string) => void;
         image?: ImageInput;
     },
@@ -1411,7 +1411,7 @@ export async function generateVideoWithProvider(
     model: string,
     key?: UserApiKey,
     options?: {
-        aspectRatio?: '16:9' | '9:16';
+        aspectRatio?: '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';
         onProgress?: (message: string) => void;
         image?: ImageInput;
     },

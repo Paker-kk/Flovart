@@ -80,7 +80,7 @@ export const ConfigSelector: React.FC<ConfigSelectorProps> = ({
   const pillActiveClass = isDark
     ? 'border-[#4B5B78] bg-[#202734] text-white shadow-sm'
     : 'border-[#D0D5DD] bg-white text-[#111827] shadow-sm';
-  const menuClass = `absolute bottom-full left-0 z-[80] mb-2 min-w-[200px] rounded-[16px] border p-1.5 shadow-[0_20px_50px_rgba(15,23,42,0.14)] ${
+  const menuClass = `absolute bottom-full left-0 z-[85] mb-2 min-w-[200px] rounded-[16px] border p-1.5 shadow-[0_20px_50px_rgba(15,23,42,0.14)] ${
     isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E5E7EB] bg-white'
   }`;
   const optionClass = (active: boolean) =>

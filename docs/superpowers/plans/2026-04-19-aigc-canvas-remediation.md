@@ -64,17 +64,18 @@
 > **层级表**：z-10(resize) → z-20(拖拽) → z-30(面板) → z-40(工具栏) → z-45(侧栏) → z-48(PromptDock) → z-50(Crop) → z-80(Popover/Config) → z-120(Workflow菜单) → z-9998(通知) → z-9999(Modal)
 >
 > **风险项**：
-> 1. z-80 被 PromptBar 和 ConfigSelector 共用——如果同时出现会互相遮叠
-> 2. PromptBar popover 的 z-80 在 z-48 stacking context 内，全局实际效力仅 48，可能被 z-50 Toolbar Crop 遮挡
-> 3. Chrome 扩展 z-index: 2147483647（INT32 最大值）过于激进
+> 1. ~~z-80 被 PromptBar 和 ConfigSelector 共用~~ → ✅ 已修复：ConfigSelector 升级到 z-85
+> 2. PromptBar popover 的 z-80 在 z-48 stacking context 内，全局实际效力仅 48，可能被 z-50 Toolbar Crop 遮挡（低概率，两者不会同时出现）
+> 3. Chrome 扩展 z-index: 2147483647（INT32 最大值）过于激进（Extension scope，暂不修改）
+> 4. ✅ 已创建 `utils/zLayers.ts` 统一常量，未来新增浮层应引用此文件
 >
 > ### 图片/视频尺寸审计 (2026-04-19)
 >
-> **问题**：
-> 1. 🔴 视频画布展示上限 `MAX_DIM = 800px` (useGeneration.ts:652)——创意工具不应限制 2K/4K 素材展示
-> 2. 🔴 扩展导入图片上限 `800×600` (App.tsx:1046)——过于保守
-> 3. 🟡 DALL-E 3 硬编码 1024×1024——不跟随用户 aspect ratio 选择
-> 4. 🟡 视频仅支持 16:9 / 9:16——缺少 1:1、4:3、21:9 等创意常用比例
+> **问题及修复**：
+> 1. ~~🔴 视频画布展示上限 `MAX_DIM = 800px`~~ → ✅ 已提升至 1440px（对齐 Lovart 竞品展示尺寸）
+> 2. ~~🔴 扩展导入图片上限 `800×600`~~ → ✅ 已提升至 1440×1080
+> 3. 🟡 DALL-E 3 硬编码 1024×1024——不跟随用户 aspect ratio 选择（待 Provider 支持后修复）
+> 4. ~~🟡 视频仅支持 16:9 / 9:16~~ → ✅ 已扩展至 6 种比例：16:9 / 9:16 / 1:1 / 4:3 / 3:4 / 21:9（对齐 Midjourney 常用比例）
 
 **Goal:** Stabilize the AIGC canvas for large image/video workloads, make provider/key behavior truthful, and remove the highest-friction extension/web sync bugs without rewriting the app architecture.
 
