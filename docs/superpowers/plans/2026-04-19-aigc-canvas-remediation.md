@@ -50,6 +50,31 @@
 > - Provider abstraction rewrite
 > - Agent UX redesign
 > - General-purpose web↔extension sync service
+>
+> ### Hotfix: PromptBar Popover 不可见 (2026-04-19)
+>
+> **症状**：模型选择 / 更多操作弹窗点击后不弹出。
+>
+> **根因**：`PromptBar.tsx` 按钮容器使用 `overflow-x-auto`（允许横向滚动），CSS spec 规定当 `overflow-x` 为非 `visible` 值时，`overflow-y` 从默认 `visible` 被隐式计算为 `auto`。弹窗使用 `absolute bottom-full`（向上弹出），被父容器的 `overflow-y: auto` 裁切至不可见。
+>
+> **修复**：将按钮容器的 `overflow-x-auto` 替换为 `flex-wrap`，保留窄屏兜底的同时解除 overflow 裁切。
+>
+> ### Z-Index 全局审计 (2026-04-19)
+>
+> **层级表**：z-10(resize) → z-20(拖拽) → z-30(面板) → z-40(工具栏) → z-45(侧栏) → z-48(PromptDock) → z-50(Crop) → z-80(Popover/Config) → z-120(Workflow菜单) → z-9998(通知) → z-9999(Modal)
+>
+> **风险项**：
+> 1. z-80 被 PromptBar 和 ConfigSelector 共用——如果同时出现会互相遮叠
+> 2. PromptBar popover 的 z-80 在 z-48 stacking context 内，全局实际效力仅 48，可能被 z-50 Toolbar Crop 遮挡
+> 3. Chrome 扩展 z-index: 2147483647（INT32 最大值）过于激进
+>
+> ### 图片/视频尺寸审计 (2026-04-19)
+>
+> **问题**：
+> 1. 🔴 视频画布展示上限 `MAX_DIM = 800px` (useGeneration.ts:652)——创意工具不应限制 2K/4K 素材展示
+> 2. 🔴 扩展导入图片上限 `800×600` (App.tsx:1046)——过于保守
+> 3. 🟡 DALL-E 3 硬编码 1024×1024——不跟随用户 aspect ratio 选择
+> 4. 🟡 视频仅支持 16:9 / 9:16——缺少 1:1、4:3、21:9 等创意常用比例
 
 **Goal:** Stabilize the AIGC canvas for large image/video workloads, make provider/key behavior truthful, and remove the highest-friction extension/web sync bugs without rewriting the app architecture.
 
