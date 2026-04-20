@@ -22,6 +22,7 @@ const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard'
 const RightPanel = React.lazy(() => import('./components/RightPanel').then(m => ({ default: m.RightPanel })));
 const AssetAddModal = React.lazy(() => import('./components/AssetAddModal').then(m => ({ default: m.AssetAddModal })));
 const ABCompareOverlay = React.lazy(() => import('./components/ABCompareOverlay').then(m => ({ default: m.ABCompareOverlay })));
+const NodeWorkflowPanel = React.lazy(() => import('./components/NodeWorkflowPanel').then(m => ({ default: m.NodeWorkflowPanel })));
 import { loadAssetLibrary, addAsset, removeAsset, renameAsset, loadAssetLibraryAsync, saveAssetLibraryAsync } from './utils/assetStorage';
 import { loadGenerationHistory, addGenerationHistoryItem } from './utils/generationHistory';
 import { inferProviderFromModel, reversePromptStreamWithProvider, DEFAULT_PROVIDER_MODELS } from './services/aiGateway';
@@ -40,6 +41,16 @@ import { generateId, getElementBounds, isPointInPolygon, rasterizeElement, raste
 import { useApiKeys, DEFAULT_MODEL_PREFS, normalizeApiKeyEntry, buildAgentRuntimeSummary } from './hooks/useApiKeys';
 import { useCanvasInteraction } from './hooks/useCanvasInteraction';
 import { useGeneration } from './hooks/useGeneration';
+import { useToast } from './hooks/useToast';
+import ToastStack from './components/Toast';
+import { AppShell } from './components/AppShell';
+import { TopWorkspaceBar } from './components/TopWorkspaceBar';
+import { CanvasWorkspace } from './components/workspaces/CanvasWorkspace';
+import { WorkflowWorkspace } from './components/workspaces/WorkflowWorkspace';
+import { StoryboardWorkspace } from './components/workspaces/StoryboardWorkspace';
+import { AssetsWorkspace } from './components/workspaces/AssetsWorkspace';
+import { useWorkspaceStore } from './stores/useWorkspaceStore';
+import type { WorkspaceView } from './types';
 
 
 
@@ -287,6 +298,7 @@ const App: React.FC = () => {
     const [mentionedElementIds, setMentionedElementIds] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const toast = useToast();
     const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
     const [legalModal, setLegalModal] = useState<'terms' | 'privacy' | null>(null);
     const [legalContent, setLegalContent] = useState('');
@@ -420,22 +432,17 @@ const App: React.FC = () => {
     } | null>(null);
     const [inpaintPrompt, setInpaintPrompt] = useState('');
 
-    const [language, setLanguage] = useState<'en' | 'zho'>('en');
-    const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
-        try {
-            const saved = localStorage.getItem('themeMode.v1');
-            return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'system';
-        } catch {
-            return 'system';
-        }
-    });
+    // ── Zustand store: shell-level state ──
+    const activeView = useWorkspaceStore(s => s.activeView);
+    const setActiveView = useWorkspaceStore(s => s.setActiveView);
+    const language = useWorkspaceStore(s => s.language);
+    const setLanguage = useWorkspaceStore(s => s.setLanguage);
+    const themeMode = useWorkspaceStore(s => s.themeMode);
+    const setThemeMode = useWorkspaceStore(s => s.setThemeMode);
     const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(() => {
         if (typeof window === 'undefined') return 'light';
         return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     });
-    useEffect(() => {
-        safeSetItem('themeMode.v1', themeMode);
-    }, [themeMode]);
     
     const [userEffects, setUserEffects] = useState<UserEffect[]>(() => {
         try {
@@ -779,14 +786,13 @@ const App: React.FC = () => {
                 });
             });
             if (anyResized) {
-                setError('部分图片尺寸过大，已自动压缩。');
-                setTimeout(() => setError(prev => prev === '部分图片尺寸过大，已自动压缩。' ? null : prev), 3000);
+                toast.show('部分图片尺寸过大，已自动压缩。', 'warning');
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Attachment upload failed.';
             setError(message);
         }
-    }, [addChatAttachment]);
+    }, [addChatAttachment, toast]);
 
     const handleAddPromptAttachmentFiles = useCallback(async (files: FileList | File[]) => {
         const list = Array.from(files).filter(file => file.type.startsWith('image/'));
@@ -804,14 +810,13 @@ const App: React.FC = () => {
                 });
             });
             if (anyResized) {
-                setError('部分图片尺寸过大，已自动压缩。');
-                setTimeout(() => setError(prev => prev === '部分图片尺寸过大，已自动压缩。' ? null : prev), 3000);
+                toast.show('部分图片尺寸过大，已自动压缩。', 'warning');
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Attachment upload failed.';
             setError(message);
         }
-    }, [addPromptAttachment]);
+    }, [addPromptAttachment, toast]);
 
     const handleRemoveChatAttachment = useCallback((id: string) => {
         setChatAttachments(prev => prev.filter(item => item.id !== id));
@@ -998,8 +1003,7 @@ const App: React.FC = () => {
         try {
             const { dataUrl, mimeType, width, height, resized } = await validateAndResizeImage(file);
             if (resized) {
-                setError(`图片尺寸过大，已自动缩小到 ${width}×${height}。`);
-                setTimeout(() => setError(prev => prev?.startsWith('图片尺寸过大') ? null : prev), 3000);
+                toast.show(`图片尺寸过大，已自动缩小到 ${width}×${height}。`, 'warning');
             }
             if (!svgRef.current) return;
             const svgBounds = svgRef.current.getBoundingClientRect();
@@ -2099,23 +2103,21 @@ const App: React.FC = () => {
     }, []);
 
     return (
-        <div className="theme-aware w-screen h-screen flex flex-col font-sans" style={{ backgroundColor: themePalette.appBackground }} onDragOver={handleDragOver} onDrop={handleDrop}>
-            {isLoading && <Loader progressMessage={progressMessage} />}
-            {error && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 p-3 bg-red-100 border border-red-400 text-red-700 rounded-md shadow-lg flex items-center max-w-lg">
-                    <span className="flex-grow">{error}</span>
-                    <button onClick={() => setError(null)} className="ml-4 p-1 rounded-full hover:bg-red-200" title={t('common.close')} aria-label={t('common.close')}>
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"></path></svg>
-                    </button>
-                </div>
-            )}
-            {modelAutoSwitchNotice && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 p-3 bg-blue-100 border border-blue-400 text-blue-700 rounded-md shadow-lg flex items-center max-w-lg animate-fade-in">
-                    <span className="mr-2">🔄</span>
-                    <span className="flex-grow text-sm">{modelAutoSwitchNotice}</span>
-                </div>
-            )}
-            <WorkspaceSidebar
+        <AppShell
+            themeBackground={themePalette.appBackground}
+            onDragOver={activeView === 'canvas' ? handleDragOver : undefined}
+            onDrop={activeView === 'canvas' ? handleDrop : undefined}
+            topBar={
+                <TopWorkspaceBar
+                    activeView={activeView}
+                    onChangeView={setActiveView}
+                    theme={resolvedTheme}
+                    onOpenSettings={() => setIsSettingsPanelOpen(true)}
+                    appVersionLabel={appVersionLabel}
+                />
+            }
+            leftSidebar={activeView === 'canvas' ? (
+                <WorkspaceSidebar
                 isOpen={!isLayerMinimized}
                 onToggle={() => setIsLayerMinimized(prev => !prev)}
                 outerGap={chromeMetrics.outerGap}
@@ -2153,9 +2155,10 @@ const App: React.FC = () => {
                     });
                 }}
             />
-            {/* New Right Panel (multi-function: generate + inspiration) */}
-            <Suspense fallback={null}>
-            <RightPanel
+            ) : null}
+            rightSidebar={activeView === 'canvas' ? (
+                <Suspense fallback={null}>
+                <RightPanel
                 theme={resolvedTheme}
                 isMinimized={isInspirationMinimized}
                 onToggleMinimize={() => setIsInspirationMinimized(prev => !prev)}
@@ -2186,6 +2189,26 @@ const App: React.FC = () => {
                 onOpenSettings={() => setIsSettingsPanelOpen(true)}
             />
             </Suspense>
+            ) : null}
+            overlays={<>
+                {isLoading && <Loader progressMessage={progressMessage} />}
+                <ToastStack toasts={toast.toasts} onDismiss={toast.dismiss} />
+                {error && (
+                    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 p-3 bg-red-100 border border-red-400 text-red-700 rounded-md shadow-lg flex items-center max-w-lg">
+                        <span className="flex-grow">{error}</span>
+                        <button onClick={() => setError(null)} className="ml-4 p-1 rounded-full hover:bg-red-200" title={t('common.close')} aria-label={t('common.close')}>
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"></path></svg>
+                        </button>
+                    </div>
+                )}
+                {modelAutoSwitchNotice && (
+                    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 p-3 bg-blue-100 border border-blue-400 text-blue-700 rounded-md shadow-lg flex items-center max-w-lg animate-fade-in">
+                        <span className="mr-2">🔄</span>
+                        <span className="flex-grow text-sm">{modelAutoSwitchNotice}</span>
+                    </div>
+                )}
+            </>}
+            main={<>
             <Suspense fallback={null}>
             <CanvasSettings 
                 isOpen={isSettingsPanelOpen} 
@@ -2323,6 +2346,7 @@ const App: React.FC = () => {
                 />
                 </Suspense>
             )}
+            {activeView === 'canvas' && (<>
             <Toolbar
                 t={t}
                 theme={resolvedTheme}
@@ -2957,6 +2981,41 @@ const App: React.FC = () => {
                     </div>
                 </div>
             )}
+            </>)}
+            {activeView === 'workflow' && (
+                <WorkflowWorkspace workflowPanel={
+                    <Suspense fallback={<div className="w-full h-full flex items-center justify-center opacity-50 text-sm">Loading Workflow…</div>}>
+                    <NodeWorkflowPanel
+                        prompt={prompt}
+                        setPrompt={setPrompt}
+                        generationMode={generationMode}
+                        setGenerationMode={setGenerationMode}
+                        selectedImageModel={modelPreference.imageModel}
+                        selectedVideoModel={modelPreference.videoModel}
+                        imageModelOptions={dynamicModelOptions.image}
+                        videoModelOptions={dynamicModelOptions.video}
+                        onImageModelChange={(model) => setModelPreference(prev => ({ ...prev, imageModel: model }))}
+                        onVideoModelChange={(model) => setModelPreference(prev => ({ ...prev, videoModel: model }))}
+                        attachments={promptAttachments}
+                        canvasImages={elements
+                            .filter((el): el is Extract<typeof el, { type: 'image' }> => el.type === 'image')
+                            .map((el) => ({ id: el.id, name: el.name, href: el.href, mimeType: el.mimeType }))}
+                        onRemoveAttachment={handleRemovePromptAttachment}
+                        onUploadFiles={handleAddPromptAttachmentFiles}
+                        onDropCanvasImage={handleAddAttachmentFromCanvas}
+                        isRunning={isLoading}
+                        onRunWorkflow={async ({ autoEnhance, enhanceMode, stylePreset }) => {
+                            if (autoEnhance) {
+                                await handleEnhancePrompt({ prompt, mode: enhanceMode, stylePreset });
+                            }
+                            await handleGenerate(undefined, 'prompt');
+                        }}
+                    />
+                    </Suspense>
+                } />
+            )}
+            {activeView === 'storyboard' && <StoryboardWorkspace />}
+            {activeView === 'assets' && <AssetsWorkspace />}
 
             {/* 法律文档弹窗 */}
             {legalModal && (
@@ -2976,7 +3035,8 @@ const App: React.FC = () => {
                     </div>
                 </div>
             )}
-        </div>
+        </>}
+        />
     );
 };
 

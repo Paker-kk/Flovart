@@ -14,6 +14,18 @@ import {
 import { addGenerationHistoryItem, createThumbnailDataUrl } from '../utils/generationHistory';
 import { recordApiUsage } from '../utils/usageMonitor';
 
+/**
+ * Compute the max canvas display dimension based on the user's screen.
+ * Caps between 1080 (low-end) and 2160 (4K) to avoid wasting memory on
+ * resolutions the viewport can't benefit from.
+ */
+function getResponsiveMaxDim(): number {
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+    const logical = Math.round(vw * dpr);
+    return Math.max(1080, Math.min(logical, 2160));
+}
+
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
@@ -649,7 +661,7 @@ export function useGeneration(params: UseGenerationParams) {
 
                     let newWidth = video.videoWidth;
                     let newHeight = video.videoHeight;
-                    const MAX_DIM = 1440;
+                    const MAX_DIM = getResponsiveMaxDim();
                     if (newWidth > MAX_DIM || newHeight > MAX_DIM) {
                         const ratio = newWidth / newHeight;
                         if (ratio > 1) { newWidth = MAX_DIM; newHeight = MAX_DIM / ratio; }
@@ -746,7 +758,7 @@ export function useGeneration(params: UseGenerationParams) {
 
                     let newWidth = video.videoWidth;
                     let newHeight = video.videoHeight;
-                    const MAX_DIM = 1440;
+                    const MAX_DIM = getResponsiveMaxDim();
                     if (newWidth > MAX_DIM || newHeight > MAX_DIM) {
                         const ratio = newWidth / newHeight;
                         if (ratio > 1) { newWidth = MAX_DIM; newHeight = MAX_DIM / ratio; }

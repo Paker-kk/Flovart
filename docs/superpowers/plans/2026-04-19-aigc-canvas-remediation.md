@@ -72,10 +72,19 @@
 > ### 图片/视频尺寸审计 (2026-04-19)
 >
 > **问题及修复**：
-> 1. ~~🔴 视频画布展示上限 `MAX_DIM = 800px`~~ → ✅ 已提升至 1440px（对齐 Lovart 竞品展示尺寸）
+> 1. ~~🔴 视频画布展示上限 `MAX_DIM = 800px`~~ → ✅ 已提升至 1440px → ✅ 已升级为 `getResponsiveMaxDim()` 动态计算（1080–2160，基于 DPR × viewport）
 > 2. ~~🔴 扩展导入图片上限 `800×600`~~ → ✅ 已提升至 1440×1080
 > 3. 🟡 DALL-E 3 硬编码 1024×1024——不跟随用户 aspect ratio 选择（待 Provider 支持后修复）
 > 4. ~~🟡 视频仅支持 16:9 / 9:16~~ → ✅ 已扩展至 6 种比例：16:9 / 9:16 / 1:1 / 4:3 / 3:4 / 21:9（对齐 Midjourney 常用比例）
+>
+> ### UX 增强 (2026-04-20)
+>
+> | 增强项 | 状态 | 文件 |
+> |--------|------|------|
+> | Toast 通知系统 | ✅ Done | `hooks/useToast.ts`, `components/Toast.tsx` — info/success/warning/error 四级，z-9998，自动消失 + 手动关闭 |
+> | 社交平台比例预设 | ✅ Done | `utils/socialPresets.ts` — YouTube/IG/TikTok/小红书/B站/微信/LinkedIn/X/电影宽银幕，映射到现有6种比例 |
+> | Provider→比例门控 | ✅ Done | `services/aiGateway.ts` — `PROVIDER_VIDEO_RATIOS` / `getSupportedRatios()`，PromptBar 中不支持的比例自动 disabled |
+> | 动态 MAX_DIM | ✅ Done | `hooks/useGeneration.ts` — `getResponsiveMaxDim()` 替代硬编码 1440，范围 1080–2160 |
 
 **Goal:** Stabilize the AIGC canvas for large image/video workloads, make provider/key behavior truthful, and remove the highest-friction extension/web sync bugs without rewriting the app architecture.
 

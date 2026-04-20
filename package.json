@@ -26,7 +26,8 @@
     "@tiptap/suggestion": "^3.20.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "tippy.js": "^6.3.7"
+    "tippy.js": "^6.3.7",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",

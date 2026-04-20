@@ -12,7 +12,8 @@ import type {
 import RichPromptEditor, { type RichPromptEditorHandle } from './RichPromptEditor';
 import type { MentionItem } from './MentionList';
 import { extractMentions } from './CanvasMentionExtension';
-import { inferProviderFromModel, PROVIDER_LABELS, getModelCapabilityTags } from '../services/aiGateway';
+import { inferProviderFromModel, PROVIDER_LABELS, getModelCapabilityTags, getSupportedRatios } from '../services/aiGateway';
+import { SOCIAL_PRESETS } from '../utils/socialPresets';
 
 interface PromptBarProps {
     t: (key: string, ...args: any[]) => string;
@@ -206,6 +207,12 @@ export const PromptBar: React.FC<PromptBarProps> = ({
             })),
         [canvasElements]
     );
+
+    /** 当前视频模型支持的比例列表 */
+    const supportedRatios = useMemo(() => {
+        if (!selectedVideoModel) return ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] as const;
+        return getSupportedRatios(selectedVideoModel);
+    }, [selectedVideoModel]);
 
     const currentModelOptions = generationMode === 'video' ? videoModelOptions : imageModelOptions;
     const placeholder = useMemo(() => {
@@ -463,18 +470,56 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                             })()}
 
                                             {generationMode === 'video' && (
+                                                <>
                                                 <div className="grid grid-cols-3 gap-2 px-1 pt-3">
-                                                    {(['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] as const).map(ratio => (
+                                                    {(['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] as const).map(ratio => {
+                                                        const supported = (supportedRatios as readonly string[]).includes(ratio);
+                                                        return (
                                                         <button
                                                             key={ratio}
                                                             type="button"
+                                                            disabled={!supported}
                                                             onClick={() => setVideoAspectRatio(ratio)}
-                                                            className={`rounded-2xl border px-3 py-2 text-sm font-medium transition ${videoAspectRatio === ratio ? 'border-[#B2CCFF] bg-[#EEF4FF] text-[#175CD3]' : isDark ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E5E7EB] bg-[#F9FAFB] text-[#344054] hover:bg-white'}`}
+                                                            title={supported ? undefined : '当前视频模型不支持此比例'}
+                                                            className={`rounded-2xl border px-3 py-2 text-sm font-medium transition ${!supported ? 'opacity-35 cursor-not-allowed' : ''} ${videoAspectRatio === ratio ? 'border-[#B2CCFF] bg-[#EEF4FF] text-[#175CD3]' : isDark ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E5E7EB] bg-[#F9FAFB] text-[#344054] hover:bg-white'}`}
                                                         >
                                                             {ratio}
                                                         </button>
-                                                    ))}
+                                                        );
+                                                    })}
                                                 </div>
+                                                <div className="px-1 pt-2">
+                                                    <p className={`text-xs mb-1.5 ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>平台预设</p>
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                        {Object.entries(SOCIAL_PRESETS).map(([key, preset]) => (
+                                                            <div key={key} className="relative group">
+                                                                <button
+                                                                    type="button"
+                                                                    className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${isDark ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E5E7EB] bg-[#F9FAFB] text-[#344054] hover:bg-white'}`}
+                                                                    onClick={() => setVideoAspectRatio(preset.ratios[0].ratio)}
+                                                                    title={preset.ratios.map(r => `${r.desc}: ${r.ratio}`).join(', ')}
+                                                                >
+                                                                    {preset.label}
+                                                                </button>
+                                                                {preset.ratios.length > 1 && (
+                                                                    <div className={`absolute bottom-full left-0 mb-1 hidden group-hover:flex flex-col rounded-lg border shadow-lg p-1 min-w-[140px] ${isDark ? 'bg-[#1B2029] border-[#2A3140]' : 'bg-white border-[#E5E7EB]'}`} style={{ zIndex: 1 }}>
+                                                                        {preset.ratios.map(r => (
+                                                                            <button
+                                                                                key={r.desc}
+                                                                                type="button"
+                                                                                className={`text-left rounded-md px-2 py-1 text-xs transition ${videoAspectRatio === r.ratio ? 'text-[#175CD3] font-semibold' : isDark ? 'text-[#D0D5DD] hover:bg-[#252C39]' : 'text-[#344054] hover:bg-[#F5F7FA]'}`}
+                                                                                onClick={() => setVideoAspectRatio(r.ratio)}
+                                                                            >
+                                                                                {r.desc} ({r.ratio})
+                                                                            </button>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                </>
                                             )}
                                         </div>
                                     </div>

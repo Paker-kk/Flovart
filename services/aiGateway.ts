@@ -89,6 +89,32 @@ export interface ApiKeyValidationResult {
     effectiveBaseUrl?: string;
 }
 
+type VideoAspectRatio = '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';
+
+/**
+ * Provider → supported video aspect ratios.
+ * If a provider is not listed, all 6 ratios are assumed to pass through as-is (custom/openrouter).
+ */
+export const PROVIDER_VIDEO_RATIOS: Partial<Record<AIProvider, VideoAspectRatio[]>> = {
+    google:  ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'], // Veo accepts all 6
+    minimax: ['16:9', '9:16', '1:1'],                        // MiniMax only supports 16:9/9:16/1:1
+    keling:  ['16:9', '9:16', '1:1'],                        // Kling AI: 16:9/9:16/1:1
+};
+
+/** Check whether a given ratio is supported by the inferred video provider. */
+export function isRatioSupportedByProvider(ratio: VideoAspectRatio, model: string, key?: UserApiKey): boolean {
+    const provider = resolveGenerationProvider(model, key);
+    const allowed = PROVIDER_VIDEO_RATIOS[provider];
+    if (!allowed) return true; // unknown / custom provider → allow all
+    return allowed.includes(ratio);
+}
+
+/** Return the list of supported ratios for a given video model. */
+export function getSupportedRatios(model: string, key?: UserApiKey): VideoAspectRatio[] {
+    const provider = resolveGenerationProvider(model, key);
+    return PROVIDER_VIDEO_RATIOS[provider] ?? ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'];
+}
+
 /**
  * 通用 API Key 验证 — 根据 provider 调用对应的验证逻辑
  */
