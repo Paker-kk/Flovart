@@ -638,7 +638,220 @@ P2 最容易犯的错误是：
 
 ---
 
-## 17. 推荐下一个规划主题
+## 17. P2-B 执行引擎升级：条件分支 + 自动后处理管线
+
+> 用户选定方向：在 P2 UI 产品化的同时，优先增强执行引擎能力。
+> 对标：ComfyUI (条件/循环/批量) + n8n (IF/Switch/Loop/Retry)
+
+### 17.1 竞品调研摘要 (2026-04-21)
+
+| 引擎 | ⭐ | 版本 | 条件 | 循环 | 批量 | 后处理 | 重试 |
+|---|---|---|---|---|---|---|---|
+| ComfyUI | 109k | v0.19.3 | ✅ Control Flow | ✅ repeat/latent batch | ✅ batch size | ✅ 内置 upscale/face | ❌ 手动 |
+| Dify | 138k | v1.13.3 | ✅ IF/ELSE multi-branch | ✅ iteration node | ✅ array input | ❌ | ✅ retry |
+| n8n | 185k | v2.17 | ✅ IF/Switch/Filter | ✅ Loop Over Items | ✅ 分批 SplitInBatches | ❌ | ✅ 内置 |
+| Flowise | 52k | v3.1.2 | ✅ Condition Agent | ❌ | ❌ | ❌ | ❌ |
+| **Flovart (现状)** | — | — | ✅ 简单 (contains/empty/length>) | ❌ | ❌ | ❌ | ❌ |
+
+### 17.2 新增节点类型
+
+#### A. 高级条件分支 (condition 升级)
+```ts
+// 现有: 只支持 contains/empty/length>
+// 升级为: 正则、数值比较、JSON path、多条件 AND/OR
+export interface ConditionRule {
+  field: 'input' | 'text' | 'image' | string; // port key
+  operator: 'contains' | 'not_contains' | 'equals' | 'not_equals' 
+           | 'regex' | 'gt' | 'lt' | 'gte' | 'lte' | 'empty' | 'not_empty'
+           | 'json_path_truthy';
+  value: string;
+  logicGroup?: 'and' | 'or'; // multi-condition
+}
+```
+
+#### B. Switch 节点 (n8n 启发)
+```ts
+switch: {
+  title: '多路分支 Switch',
+  inputs: [{ key: 'input', type: 'any', label: 'INPUT' }],
+  outputs: [
+    { key: 'case1', type: 'any', label: 'Case 1' },
+    { key: 'case2', type: 'any', label: 'Case 2' },
+    { key: 'case3', type: 'any', label: 'Case 3' },
+    { key: 'default', type: 'any', label: 'Default' },
+  ],
+}
+```
+
+#### C. 循环/迭代节点 (Dify iteration 启发)
+```ts
+iteration: {
+  title: '迭代循环',
+  inputs: [
+    { key: 'array', type: 'any', label: 'ARRAY (JSON)' },
+    { key: 'template', type: 'text', label: 'ITEM TEMPLATE' },
+  ],
+  outputs: [
+    { key: 'item', type: 'any', label: 'CURRENT ITEM' },
+    { key: 'results', type: 'any', label: 'ALL RESULTS' },
+  ],
+}
+```
+
+执行语义：
+- 输入: JSON array
+- 对每个 item，展开执行下游子图
+- 汇总所有 item 的输出到 `results` port
+- 支持 `maxIterations` 和 `concurrency` 配置
+
+#### D. 后处理管线节点
+
+```ts
+upscale: {
+  title: '超分辨率 Upscale',
+  inputs: [{ key: 'image', type: 'image', label: 'IMAGE' }],
+  outputs: [{ key: 'image', type: 'image', label: 'UPSCALED' }],
+  // config: provider (RunningHub/local ESRGAN), scaleFactor (2x/4x)
+}
+
+faceRestore: {
+  title: '人脸修复',
+  inputs: [{ key: 'image', type: 'image', label: 'IMAGE' }],
+  outputs: [{ key: 'image', type: 'image', label: 'RESTORED' }],
+  // config: provider (RunningHub/CodeFormer/GFPGAN)
+}
+
+bgRemove: {
+  title: '背景移除',
+  inputs: [{ key: 'image', type: 'image', label: 'IMAGE' }],
+  outputs: [
+    { key: 'image', type: 'image', label: 'CUTOUT' },
+    { key: 'mask', type: 'image', label: 'MASK' },
+  ],
+  // config: provider (RunningHub/rembg)
+}
+
+styleTransfer: {
+  title: '风格迁移',
+  inputs: [
+    { key: 'image', type: 'image', label: 'CONTENT' },
+    { key: 'style', type: 'image', label: 'STYLE REF' },
+  ],
+  outputs: [{ key: 'image', type: 'image', label: 'STYLED' }],
+  // config: provider, strength (0-1)
+}
+```
+
+#### E. 批量输入节点
+
+```ts
+batchInput: {
+  title: '批量输入',
+  inputs: [],
+  outputs: [{ key: 'array', type: 'any', label: 'ITEMS' }],
+  // config: source ('prompts_list' | 'images_folder' | 'csv')
+}
+```
+
+### 17.3 执行引擎升级
+
+#### 重试机制
+```ts
+// 在 ExecutionContext 中新增:
+retryPolicy?: {
+  maxRetries: number;      // default 2
+  backoffMs: number;       // default 2000
+  backoffMultiplier: number; // default 2 (exponential)
+};
+```
+
+当节点执行失败时:
+1. 检查 node.config.retryCount ?? ctx.retryPolicy.maxRetries
+2. 等待 backoffMs * backoffMultiplier^attempt
+3. 重新执行该节点
+4. 超过重试次数才标记为 error
+
+#### 条件分支选择执行
+现在执行引擎是**顺序执行全部排序后的节点**。条件分支的 `null` 输出传递到下游，但下游仍然被执行（只是拿到空输入）。
+
+升级为**跳过不可达路径**：
+```ts
+// 在 executeWorkflow 中:
+// 如果上游是 condition/switch 节点，且该路径的输出为 null，
+// 则标记该路径下游所有节点为 'skipped'，不执行
+```
+
+#### 并行执行独立分支
+当拓扑排序后发现多个节点的入度同时为 0（无依赖关系），使用 Promise.allSettled 并行执行：
+```ts
+// 分层执行: 同一层级（无互相依赖）的节点并行运行
+const layers = topologicalLayers(nodes, edges); // 分层拓扑
+for (const layer of layers) {
+  await Promise.allSettled(layer.map(node => executeNode(node, inputs, ctx)));
+}
+```
+
+### 17.4 预设模板管线
+
+用户选择"条件分支+自动后处理管线"的典型场景：
+
+#### 模板 1: 生图 + 自动增强
+```
+[Prompt] → [Enhancer] → [ImageGen] → [Upscale] → [SaveToCanvas]
+```
+
+#### 模板 2: 条件后处理
+```
+[ImageGen] → [Condition: hasHumanFace?]
+                ├── TRUE → [FaceRestore] → [Upscale] → [SaveToCanvas]
+                └── FALSE → [Upscale] → [SaveToCanvas]
+```
+
+#### 模板 3: 批量生图管线
+```
+[BatchInput: prompts.csv] → [Iteration] → [ImageGen] → [Upscale] → [SaveToAssets]
+```
+
+#### 模板 4: 多风格变体
+```
+[Prompt] → [Switch: stylePreset]
+              ├── anime → [ImageGen model=niji]
+              ├── photo → [ImageGen model=flux]
+              ├── art → [ImageGen model=midjourney]
+              └── default → [ImageGen model=gemini]
+           → [Upscale] → [SaveToCanvas]
+```
+
+### 17.5 实施优先级
+
+| 优先级 | 任务 | 依赖 |
+|---|---|---|
+| P0 | 条件表达式升级 (17.2-A) | 无 |
+| P0 | 重试机制 (17.3) | 无 |
+| P1 | Switch 节点 (17.2-B) | 条件分支跳过执行 |
+| P1 | 条件分支跳过不可达路径 (17.3) | Switch |
+| P1 | Upscale 节点 (17.2-D) | RunningHub endpoint |
+| P2 | Iteration 循环 (17.2-C) | 子图执行 |
+| P2 | FaceRestore / BgRemove (17.2-D) | RunningHub |
+| P2 | 并行执行 (17.3) | 分层拓扑 |
+| P3 | BatchInput (17.2-E) | Iteration |
+| P3 | StyleTransfer (17.2-D) | 待定 provider |
+| P3 | 预设模板 (17.4) | Node Library UI |
+
+### 17.6 验证标准
+
+P2-B 完成后需通过：
+1. ✅ 条件节点支持 regex / numeric / JSON path / multi-condition
+2. ✅ Switch 节点能路由到 4 个分支
+3. ✅ 条件为 false 的路径不执行（跳过，不是传 null）
+4. ✅ 节点失败后自动重试 2 次（指数退避）
+5. ✅ Upscale 节点能通过 RunningHub 或内置算法执行
+6. ✅ 模板 2（条件后处理管线）可端到端运行
+7. ✅ 现有 83 个测试不回归
+
+---
+
+## 18. 推荐下一个规划主题
 
 P2 完成后，最自然的下一份规划应该是：
 
