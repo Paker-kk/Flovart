@@ -12,6 +12,7 @@ import {
   upsertEdgeToInput,
 } from './graph';
 import type {
+  NodeConfig,
   NodeKind,
   PendingConnection,
   SelectionBox,
@@ -605,6 +606,25 @@ export function useNodeWorkflowStore() {
     clearSelection();
   };
 
+  const updateNodeConfig = (nodeId: string, updates: Partial<NodeConfig>, recordHistory = false) => {
+    commitGraph(
+      (prev) => ({
+        ...prev,
+        nodes: prev.nodes.map((node) => {
+          if (node.id !== nodeId) return node;
+          return {
+            ...node,
+            config: {
+              ...node.config,
+              ...updates,
+            },
+          };
+        }),
+      }),
+      recordHistory,
+    );
+  };
+
   /** Replace the entire graph from a template or imported workflow */
   const loadTemplate = (template: { nodes: WorkflowNode[]; edges: WorkflowEdge[]; groups?: WorkflowGroup[] }) => {
     const newGraph: GraphState = {
@@ -670,6 +690,7 @@ export function useNodeWorkflowStore() {
     distributeSelectedNodes,
     undo,
     redo,
+    updateNodeConfig,
     loadTemplate,
   };
 }

@@ -2,7 +2,7 @@
 
 > 目标：在 Phase 1 顶栏 + App Shell + 页内切换完成后，把现有节点流从“可运行原型”升级为“正式产品工作区”，重点解决节点配置、执行状态、结果预览、参数传递与产品信息架构问题。
 >
-> 本阶段只做规划，不写代码。
+> 本阶段先锁定产品边界，再按最小可运行切片推进实现；2026-04-21 起已进入 Slice 1 落地。
 
 ---
 
@@ -26,6 +26,34 @@
 所以 P2 的正确目标不是“继续加几个节点”，而是：
 
 > 把 Workflow 从“一个节点画布组件”升级成“正式的多 provider AI 工作流工作区”。
+
+---
+
+## 0.1 2026-04-21 实施状态（Slice 1 / Slice 2）
+
+P2 已经从纯规划态进入实现态，但当前仍处于“底座 + 调试能力”阶段，不代表阶段验收结束。
+
+### 已落地
+
+- `WorkflowValue` / `NodeIOMap` / `WorkflowNodeRunState` 已引入，输出统一为 `text / image / video / json / empty`
+- `NodeWorkflowPanel` 已接入 `executeWorkflow()`，不再停留在 fake run / demo stage
+- 节点卡片与右侧 Inspector 已能显示最小运行态：`queued / running / success / error / pinned`
+- `preview` / `saveToCanvas` 已能消费结构化结果，Workflow 输出可直接回填白板
+- `Execute Node` / `Execute From Here` 已落地，且只执行目标子图与所需依赖闭包
+- `Pin Output` 最小闭环已落地：允许固定节点最近一次输出，并在后续执行中直接复用
+- 已补上 workflow engine 的文本链路、图片链路、子图执行计划与 pinned output 测试
+
+### 当前仍未完成
+
+- schema-driven Inspector
+- Starter Flow / Template
+- 资产区持久化、发布态执行、完整调试面板
+- pinned output 的资产级稳定化（尤其视频 / blob URL）
+- API Key 优先级规则与节点级 keyRef 语义
+
+### 结论
+
+当前 Slice 1 + Slice 2 的性质是“把真实运行链路与最小调试能力打通”，不是“把 Workflow 产品化全部做完”。
 
 ---
 
@@ -56,6 +84,234 @@
 - 完整视频时间线编辑器
 - 节点动画系统的最终精修
 - 多人协作
+
+---
+
+## 1.1 2026-04-21 研究补充：P2 默认策略与禁止项
+
+这一轮对照了 2026 年仍在快速迭代的三类产品：
+
+- **n8n**：强项是数据映射、局部执行、固定测试数据（pinning）、执行调试
+- **Dify**：强项是把“Agent 能力”压进受控工作流，而不是放任模型自由发挥
+- **Tapnow / 模型模板体系**：强项是 provider/template/async polling/本地缓存这类“供应商接入基础设施”
+
+结论不是“照着抄”，而是明确 Flovart 在 P2 应该采取哪一档复杂度。
+
+### 1.1.1 P2 推荐默认档位
+
+#### A. 参数绑定：采用 **Hybrid-Lite**，不要直接上全表达式系统
+
+P2 默认只支持三种绑定方式：
+
+1. **固定值**
+2. **绑定上游节点某个结构化输出字段**
+3. **模板字符串插值**，例如 `{{prompt}}`、`{{imageUrl1}}`
+
+P2 **不做**：
+
+- 任意表达式语言
+- 节点间 item-linking 兼容层
+- 类 n8n 的全量表达式编辑器
+- 用户自写脚本去操作节点值
+
+原因：
+
+- 现有 [services/workflowEngine.ts](services/workflowEngine.ts) 输出还是 `string | null`，类型系统还不够硬
+- 现有 [components/nodeflow/types.ts](components/nodeflow/types.ts) 的 `NodeConfig` 还不是 schema-driven form
+- 现在如果直接上表达式系统，复杂度会先于产品价值爆炸
+
+#### B. 执行模型：优先手动执行 + 局部执行，不做发布态调度
+
+P2 默认支持：
+
+1. **Run Workflow**
+2. **Execute Node / Execute From Here**
+3. **使用上次输入重新执行当前节点**
+4. **固定测试输出（Pinned / Frozen Output）**
+
+P2 **不做**：
+
+- 定时调度
+- webhook trigger
+- 环境/版本分支
+- 云端生产执行视图
+
+原因：
+
+- Flovart 当前是创作型工作台，不是自动化平台
+- 实现另一位同事如果过早做“发布态工作流”，会把重心从创作体验拖到后端运维
+
+#### C. Agent 设计：受控工作流，不做自由代理
+
+P2 中 Agent 节点只能是：
+
+- Prompt Enhancer
+- Planning / Decomposition
+- Structured Output Extractor
+- Tool-like 调用节点的上游编排器
+
+P2 **不做**：
+
+- 长 loop 自主代理
+- 无限工具调用
+- 隐式自反思链
+- 黑盒自动决定整个工作流图
+
+原因：
+
+- Dify 2026 的经验很明确：生产可控性比“模型自己想办法”更重要
+- 你当前产品目标是创作可视化，而不是 Agent sandbox
+
+### 1.1.2 P2 必须落地的 5 个实现默认值
+
+#### 1. 输出必须结构化
+
+P2 不允许继续把 image / video / text / json 全塞进一个 `string`。
+
+实现默认值：
+
+- `text`
+- `image`
+- `video`
+- `json`
+- `empty`
+
+这是 Node Inspector、Preview、Storyboard 回填、VideoEdit 节点的共同前提。
+
+#### 2. Node Inspector 必须 schema-driven
+
+P2 的 Inspector 不能继续手写 if/else 表单堆叠。
+
+建议默认分为四组：
+
+1. **Identity**：label / description / category
+2. **Runtime**：provider / model / keyRef / timeout / retry
+3. **Inputs**：固定值 / 绑定值 / 模板值
+4. **Outputs & Debug**：预览 / 最后一次执行 / 错误 / pin 状态
+
+这一步为 P5 模板系统做前置，不要等到 P5 才回头重写 Inspector。
+
+#### 3. 节点预览必须双层
+
+P2 默认采用两层预览：
+
+- **节点内轻预览**：状态点 + 结果摘要 + 小缩略图
+- **右侧深预览**：完整文本 / 大图 / 视频 poster / JSON viewer
+
+P2 不建议只做一种。只做节点内预览信息不够；只做右侧预览会让画布失去“活性”。
+
+#### 4. 节点运行状态要有稳定语义
+
+P2 的标准状态建议固定为：
+
+- `idle`
+- `queued`
+- `running`
+- `success`
+- `error`
+- `pinned`
+
+这里要把 `pinned` 当成一种独立可见语义，而不是隐式开发状态。n8n 的经验说明：调试工作流时，固定数据是高频能力，不是边角功能。
+
+#### 5. 大图/视频性能保护必须从 P2 起就约束
+
+如果 Workflow 里开始出现图片/视频节点，P2 就必须提前做这些限制：
+
+- 视口外预览降级
+- 缩略图优先于原始媒体
+- object URL 生命周期统一管理
+- 拖拽/缩放/框选走节流或 RAF 批处理
+- Inspector 中的视频只展示 poster 或 poster + metadata，默认不同时自动播放多路视频
+
+否则 Workflow 一接入视频节点，另一位实现者很容易把 P0 已经处理过的问题重新引回来。
+
+### 1.1.3 P2 的禁止项
+
+以下内容在 P2 一律视为 **超范围**：
+
+1. 全表达式编辑器
+2. 工作流发布/部署系统
+3. 多人协作
+4. 完整时间线/轨道编辑器
+5. 供应商请求模板可视化设计器
+6. 完整 Agent loop orchestration
+
+这些内容不是不做，而是分别属于：
+
+- P3：Storyboard / VideoEdit MVP
+- P5：Provider + Model Template System
+- P6：Observability
+- P7：Claude / Agent / Skill Native Integration
+- P8：Collaboration + Publishing
+
+### 1.1.4 给实现方的推荐默认实现顺序
+
+P2 内部应按下面顺序做，而不是并行乱铺：
+
+1. **结构化 WorkflowValue 类型**
+2. **Node Inspector schema 化**
+3. **节点运行状态系统**
+4. **节点内轻预览 + 右侧深预览**
+5. **局部执行 + pinned output**
+6. **节点模板与 provider/model 入口收口**
+
+如果顺序反了，例如先做模板库、后做类型系统，后续返工概率会很高。
+
+### 1.1.5 Dario 视角下的阶段验收标准
+
+P2 完成时，用户第一次进入 Workflow，必须一眼明白三件事：
+
+1. **这个节点在干什么**
+2. **这个节点用哪个 provider / model 在跑**
+3. **这个节点当前产出了什么，以及为什么失败**
+
+如果用户还需要打开源码或猜测节点输入输出，P2 就没有达标。
+
+### 1.1.6 2026-04-21 用户确认决策
+
+本轮讨论后，P2 先按以下已确认决策推进：
+
+1. **参数绑定复杂度**：采用 `Hybrid-Lite`
+  - 固定值
+  - 绑定上游字段
+  - 模板插值
+  - 暂不做全表达式系统
+2. **调试能力**：P2 必做
+  - `Execute Node`
+  - `Pin Output`
+3. **首批产品级节点范围**：
+  - `Prompt / Template`
+  - `LLM`
+  - `ImageGen`
+  - `VideoGen`
+  - `HTTP / RunningHub`
+  - `Preview / SaveToCanvas`
+4. **P2 验收标准**：四项同时成立
+  - 新用户 3 分钟内能搭好首个工作流
+  - 节点失败原因一眼可见
+  - 多 provider 可自由切换
+  - 视频链路首批可跑通
+
+这意味着 P2 不是“先做纯图片工作流”，而是从第一批就要把视频节点纳入正式产品边界；只是仍然不做时间线编辑器。
+
+### 1.1.7 2026-04-21 当前未锁定决策位（Slice 3 前）
+
+Slice 2 已经可以继续推进，不再等待所有问题全部拍板；但以下决策会直接影响下一轮交互层与模板层实现，必须在 Slice 3 前锁定：
+
+1. **VideoGen 首批范围**
+  - Slice 1 先按 `文生视频 / 图生视频 → 异步轮询 → 结果预览 → 回填画布` 落地
+  - 是否第一批就纳入 `参考视频编辑 / 首尾帧驱动 / extend / variation` 仍未锁定
+2. **API Key 优先级语义**
+  - 是否固定为 `node.keyRef > provider default key > workspace active key`
+  - 还是允许不同节点类型采用不同兜底策略
+3. **参数绑定交互形态**
+  - P2 只做 Inspector 下拉绑定
+  - 还是首批就加入从节点输出拖拽到参数字段的轻量映射
+4. **3 分钟首个工作流目标的达成方式**
+  - 是否必须提供官方 Starter Flow / Template
+  - 还是允许只靠空白画布 + 节点库完成
+
+在这 4 项没拍板前，P2 仍然不是“范围最终锁死”；但基础运行层、结构化输出层、最小 Inspector 层可以继续先做。
 
 ---
 
@@ -99,7 +355,7 @@ Store 层不需要重写，只需要继续产品化抽象。
 
 ---
 
-## 2.3 执行引擎已经具备核心路由能力
+## 2.3 执行引擎已经进入真实接线阶段
 [services/workflowEngine.ts](services/workflowEngine.ts) 已经支持：
 - topo sort
 - 顺序执行
@@ -107,18 +363,20 @@ Store 层不需要重写，只需要继续产品化抽象。
 - LLM/image/video/runningHub/http 节点
 
 关键点：
-- `topologicalSort()` 已经有了，见 [services/workflowEngine.ts:47-87](services/workflowEngine.ts#L47-L87)
-- `executeLLM()`、`executeImageGen()`、`executeVideoGen()`、`executeRunningHub()`、`executeHttpRequest()` 都已经有实现
-- `ExecutionContext` 已经支持进度回调、错误回调、完成回调，见 [services/workflowEngine.ts:18-35](services/workflowEngine.ts#L18-L35)
+- `topologicalSort()`、`executeLLM()`、`executeImageGen()`、`executeVideoGen()`、`executeRunningHub()`、`executeHttpRequest()` 都已经在运行时使用
+- `ExecutionContext` 已支持进度、完成、错误与白板回填回调
+- 2026-04-21 Slice 1 已把 [components/NodeWorkflowPanel.tsx](components/NodeWorkflowPanel.tsx) 接到 [services/workflowEngine.ts](services/workflowEngine.ts)
 
-### 真正问题
-不是“不能跑”，而是：
-- 输出类型太松：`PortValue = string | null`，见 [services/workflowEngine.ts:12](services/workflowEngine.ts#L12)
-- 这会导致 image / video / text / json 混在一起，不利于后续 inspector 和 preview 产品化
+### 当前问题
+现在已经不是“能不能跑”，而是：
+- `Execute Node / Execute From Here` 已有最小产品入口，但还没有更细粒度的执行轨迹呈现
+- `Pin Output` 已有最小闭环，但还没有 pinned data 浏览与更强的媒体稳定化
+- API Key 优先级与更多运行元数据还没锁死
+- Inspector 仍是最小版，不是 schema-driven
 
 ---
 
-## 2.4 NodeWorkflowPanel 现在太大、职责太杂
+## 2.4 NodeWorkflowPanel 仍然太大、职责太杂
 [components/NodeWorkflowPanel.tsx](components/NodeWorkflowPanel.tsx) 现在同时负责：
 - toolbar
 - context menu
@@ -126,15 +384,14 @@ Store 层不需要重写，只需要继续产品化抽象。
 - minimap
 - keyboard shortcuts
 - run 流程
-- status 文本
+- status 文本 / runtime 状态
 - attachment drop
+- inspector 基础配置
 
-尤其是：
-- `runGraph()` 里还有应用级流程判断，见 [components/NodeWorkflowPanel.tsx:137-191](components/NodeWorkflowPanel.tsx#L137-L191)
-- 顶部 toolbar 直接硬编码在组件里，见 [components/NodeWorkflowPanel.tsx:414-479](components/NodeWorkflowPanel.tsx#L414-L479)
+尤其是运行调度、节点卡片状态、Inspector 表单、context menu 仍堆在一个组件内。
 
 ### 结论
-P2 必须把它拆成多个职责组件，否则很快继续长成第二个 App.tsx。
+Slice 1 先把真实运行链路打通是合理的；但 Slice 2 仍必须继续拆成 Header / Canvas / Sidebar / Inspector，否则它会继续长成第二个 App.tsx。
 
 ---
 
@@ -219,42 +476,37 @@ App.tsx
 
 这是 P2 最关键的一步。
 
-## 5.1 当前问题
-现在 [services/workflowEngine.ts:12](services/workflowEngine.ts#L12) 用的是：
+## 5.1 已完成的第一步
+2026-04-21 Slice 1 已经把 `PortValue` 从 `string | null` 升级为 `WorkflowValue | null`。
 
-```ts
-export type PortValue = string | null;
-```
-
-这会让：
+当前结构已覆盖：
 - text
-- image dataUrl
-- video object URL
-- json string
-全部都塞成一个 string
+- image
+- video
+- json
+- empty
 
-### 后果
-- Inspector 很难知道自己现在拿到的是啥
-- Preview 只能靠猜
-- saveToCanvas / saveToAssets 很难做干净
-- videoEdit / storyboard 后续会很痛苦
+### 现在剩下的问题
+- 绑定 schema 还不统一
+- image / video 的持久化元数据还不完整
+- Inspector 还没做到按 schema 自动渲染
 
 ---
 
-## 5.2 建议改成结构化输出
-建议新增统一类型：
+## 5.2 当前结构化输出基线
+当前统一类型基线应保持为：
 
 ```ts
 export type WorkflowValue =
-  | { kind: 'text'; value: string }
-  | { kind: 'image'; value: string; mimeType?: string }
-  | { kind: 'video'; value: string; mimeType?: string; storageKey?: string }
+  | { kind: 'text'; text: string }
+  | { kind: 'image'; href: string; mimeType: string; width?: number; height?: number }
+  | { kind: 'video'; href: string; mimeType: string; width?: number; height?: number; posterHref?: string }
   | { kind: 'json'; value: unknown }
   | { kind: 'empty' };
 
-export interface NodeIOMap {
-  [portKey: string]: WorkflowValue;
-}
+export type PortValue = WorkflowValue | null;
+
+export interface NodeIOMap { [portKey: string]: PortValue }
 ```
 
 ### 为什么必须做
@@ -364,7 +616,7 @@ config?: NodeRuntimeConfig;
 - 当前选中 provider summary
 
 ### 为什么要独立
-现在 toolbar 直接写在 [NodeWorkflowPanel.tsx:414-479](components/NodeWorkflowPanel.tsx#L414-L479)，后续扩展会越来越乱。
+现在 toolbar 仍直接写在 [components/NodeWorkflowPanel.tsx](components/NodeWorkflowPanel.tsx) 内，后续扩展会越来越乱。
 
 ---
 
@@ -415,25 +667,16 @@ config?: NodeRuntimeConfig;
 ## 9. 执行状态产品化方案
 
 ## 9.1 每个节点增加运行状态
-建议新增：
+P2 Slice 1 已先落地下列状态语义：
 
 ```ts
-export type NodeRunStatus = 'idle' | 'queued' | 'running' | 'success' | 'error';
+export type WorkflowRunStatus = 'idle' | 'queued' | 'running' | 'success' | 'error' | 'skipped' | 'pinned';
 ```
 
-然后 store 中维护：
+当前实现先由 Workflow 视图层维护节点运行态；后续如果 Header / Canvas / Inspector 正式拆分，再决定是否上收到共享 store。
 
-```ts
-nodeRuntimeState: Record<string, {
-  status: NodeRunStatus;
-  startedAt?: number;
-  finishedAt?: number;
-  error?: string;
-}>;
-```
-
-### 为什么放 store
-因为 NodeCanvas、Inspector、Header 都要读它。
+### 为什么先这样做
+因为当前最重要的是先让 NodeCanvas、节点卡片、Inspector 对同一套运行语义说同一种语言，而不是过早为了架构整洁再做一层状态搬运。
 
 ---
 
@@ -443,12 +686,10 @@ nodeRuntimeState: Record<string, {
 - `onNodeComplete`
 - `onError`
 
-见 [services/workflowEngine.ts:27-32](services/workflowEngine.ts#L27-L32)
-
 所以不用重写执行模型，只需要：
 - workflowEngine 调回调
-- store 吃回调
-- UI 订阅 store
+- Workflow 视图层吃回调并维护运行态
+- 节点卡片与 Inspector 消费同一份状态
 
 ---
 

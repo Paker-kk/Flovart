@@ -2,18 +2,28 @@
  * Workflow Execution Engine
  * Topological sort → sequential node execution → data propagation
  */
-import type { WorkflowNode, WorkflowEdge, NodeKind } from '../components/nodeflow/types';
+import {
+  EMPTY_WORKFLOW_VALUE,
+  getPrimaryWorkflowValue,
+  getWorkflowImageValue,
+  getWorkflowTextContent,
+  isWorkflowValueEmpty,
+  summarizeWorkflowValue,
+} from '../components/nodeflow/types';
+import type {
+  NodeIOMap,
+  NodeKind,
+  PortValue,
+  WorkflowEdge,
+  WorkflowImageValue,
+  WorkflowNode,
+  WorkflowValue,
+} from '../components/nodeflow/types';
 import { NODE_DEFS } from '../components/nodeflow/defs';
 import type { AIProvider, UserApiKey } from '../types';
 import { normalizeProviderBaseUrl } from './baseUrl';
 
 // ──── Data Types ────
-
-export type PortValue = string | null; // text, image dataURL, video URL, etc.
-
-export interface NodeIOMap {
-  [portKey: string]: PortValue;
-}
 
 export interface ExecutionContext {
   /** User's API keys (for LLM / ImageGen / Video / RunningHub calls) */
@@ -22,8 +32,8 @@ export interface ExecutionContext {
   inputPrompt?: string;
   /** Input images (dataURL) */
   inputImages?: string[];
-  /** Callback: place an image on the canvas */
-  onPlaceOnCanvas?: (dataUrl: string, width: number, height: number) => void;
+  /** Callback: place a workflow result on the canvas */
+  onPlaceOnCanvas?: (value: WorkflowValue) => void | Promise<void>;
   /** Callback: progress updates */
   onProgress?: (nodeId: string, status: string) => void;
   /** Callback: node completed */
@@ -32,6 +42,12 @@ export interface ExecutionContext {
   onError?: (nodeId: string, error: string) => void;
   /** AbortController signal for cancellation */
   signal?: AbortSignal;
+  /** Retry policy for failed nodes */
+  retryPolicy?: {
+    maxRetries: number;
+    backoffMs: number;
+    backoffMultiplier: number;
+  };
 }
 
 export interface ExecutionResult {
@@ -40,6 +56,70 @@ export interface ExecutionResult {
   errors: { nodeId: string; error: string }[];
   /** Total cost estimate in cents (if traceable) */
   estimatedCost?: number;
+}
+
+export type WorkflowExecutionScope = 'workflow' | 'node' | 'from-here';
+
+export interface WorkflowExecutionPlan {
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  includedNodeIds: Set<string>;
+}
+
+function textValue(text: string | null | undefined): WorkflowValue {
+  return { kind: 'text', text: text ?? '' };
+}
+
+function imageValue(
+  href: string,
+  mimeType = 'image/png',
+  width?: number,
+  height?: number,
+): WorkflowImageValue {
+  return { kind: 'image', href, mimeType, width, height };
+}
+
+function videoValue(
+  href: string,
+  mimeType = 'video/mp4',
+  width?: number,
+  height?: number,
+  posterHref?: string,
+): WorkflowValue {
+  return { kind: 'video', href, mimeType, width, height, posterHref };
+}
+
+function jsonValue(value: unknown): WorkflowValue {
+  return { kind: 'json', value };
+}
+
+function detectMimeTypeFromHref(href: string, fallback: string): string {
+  const dataUrlMatch = href.match(/^data:([^;]+);/);
+  if (dataUrlMatch) return dataUrlMatch[1];
+  return fallback;
+}
+
+function getTextInput(inputs: NodeIOMap, ...keys: string[]): string {
+  for (const key of keys) {
+    const text = getWorkflowTextContent(inputs[key]);
+    if (text) return text;
+  }
+  return '';
+}
+
+function getImageInput(inputs: NodeIOMap, ...keys: string[]): WorkflowImageValue | null {
+  for (const key of keys) {
+    const value = getWorkflowImageValue(inputs[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function pickFirstValue(...values: PortValue[]): PortValue {
+  for (const value of values) {
+    if (!isWorkflowValueEmpty(value)) return value ?? null;
+  }
+  return null;
 }
 
 // ──── Topological Sort ────
@@ -86,6 +166,67 @@ export function topologicalSort(
   return sorted;
 }
 
+export function createExecutionPlan(
+  nodes: WorkflowNode[],
+  edges: WorkflowEdge[],
+  scope: WorkflowExecutionScope,
+  focusNodeId?: string,
+): WorkflowExecutionPlan {
+  const allNodeIds = new Set(nodes.map((node) => node.id));
+  if (scope === 'workflow' || !focusNodeId || !allNodeIds.has(focusNodeId)) {
+    return {
+      nodes: [...nodes],
+      edges: [...edges],
+      includedNodeIds: allNodeIds,
+    };
+  }
+
+  const incomingByNode = new Map<string, string[]>();
+  const outgoingByNode = new Map<string, string[]>();
+  for (const edge of edges) {
+    const incoming = incomingByNode.get(edge.toNode) ?? [];
+    incoming.push(edge.fromNode);
+    incomingByNode.set(edge.toNode, incoming);
+
+    const outgoing = outgoingByNode.get(edge.fromNode) ?? [];
+    outgoing.push(edge.toNode);
+    outgoingByNode.set(edge.fromNode, outgoing);
+  }
+
+  const targetNodeIds = new Set<string>();
+  const forwardQueue = [focusNodeId];
+  while (forwardQueue.length > 0) {
+    const current = forwardQueue.shift()!;
+    if (targetNodeIds.has(current)) continue;
+    targetNodeIds.add(current);
+    if (scope !== 'from-here') continue;
+    for (const nextNodeId of outgoingByNode.get(current) ?? []) {
+      if (!targetNodeIds.has(nextNodeId)) {
+        forwardQueue.push(nextNodeId);
+      }
+    }
+  }
+
+  const includedNodeIds = new Set<string>();
+  const reverseQueue = [...targetNodeIds];
+  while (reverseQueue.length > 0) {
+    const current = reverseQueue.shift()!;
+    if (includedNodeIds.has(current)) continue;
+    includedNodeIds.add(current);
+    for (const previousNodeId of incomingByNode.get(current) ?? []) {
+      if (!includedNodeIds.has(previousNodeId)) {
+        reverseQueue.push(previousNodeId);
+      }
+    }
+  }
+
+  return {
+    nodes: nodes.filter((node) => includedNodeIds.has(node.id)),
+    edges: edges.filter((edge) => includedNodeIds.has(edge.fromNode) && includedNodeIds.has(edge.toNode)),
+    includedNodeIds,
+  };
+}
+
 // ──── Node Executors ────
 
 function getApiKeyForProvider(ctx: ExecutionContext, provider: string): string {
@@ -113,20 +254,17 @@ async function executeLLM(
   if (!key) throw new Error('未找到可用的 LLM API Key');
 
   const systemPrompt = node.config?.systemPrompt || 'You are a helpful assistant.';
-  const inputText = inputs.text || inputs.input || '';
+  const inputText = getTextInput(inputs, 'text', 'input');
   const model = node.config?.model || 'gemini-3-flash-preview';
   const temperature = node.config?.temperature ?? 0.7;
   const maxTokens = node.config?.maxTokens ?? 4096;
-
-  // Use OpenAI-compatible API format (works for most providers)
-  const { PROVIDER_LABELS } = await import('../services/aiGateway');
 
   if (key.provider === 'google') {
     // Use Gemini native format
     const { enhancePromptWithGemini, setGeminiRuntimeConfig } = await import('../services/geminiService');
     setGeminiRuntimeConfig({ textApiKey: key.key, imageApiKey: key.key, videoApiKey: key.key });
     const result = await enhancePromptWithGemini(inputText, systemPrompt, key.key);
-    return { text: result || inputText };
+    return { text: textValue(result || inputText) };
   }
 
   // OpenAI-compatible
@@ -162,7 +300,7 @@ async function executeLLM(
     json.choices?.[0]?.message?.content ||
     json.content?.[0]?.text ||
     '';
-  return { text };
+  return { text: textValue(text) };
 }
 
 async function executeImageGen(
@@ -170,8 +308,8 @@ async function executeImageGen(
   inputs: NodeIOMap,
   ctx: ExecutionContext,
 ): Promise<NodeIOMap> {
-  const prompt = inputs.text || '';
-  const refImage = inputs.image || null;
+  const prompt = getTextInput(inputs, 'text', 'input');
+  const refImage = getImageInput(inputs, 'image', 'input');
   const provider = (node.config?.provider as AIProvider) || 'google';
   const model = node.config?.model || (provider === 'openrouter' ? 'google/gemini-3.1-flash-image-preview' : provider === 'openai' ? 'gpt-image-1' : 'gemini-3.1-flash-image-preview');
   const key = getDefaultApiKey(ctx, provider);
@@ -181,7 +319,7 @@ async function executeImageGen(
     const { editImageWithProvider, generateImageWithProvider } = await import('../services/aiGateway');
     const result = refImage
       ? await editImageWithProvider(
-          [{ href: refImage, mimeType: 'image/png' }],
+          [{ href: refImage.href, mimeType: refImage.mimeType }],
           prompt,
           model,
           key,
@@ -189,10 +327,18 @@ async function executeImageGen(
       : await generateImageWithProvider(prompt, model, key);
 
     if (result?.newImageBase64 && result?.newImageMimeType) {
-      return { image: `data:${result.newImageMimeType};base64,${result.newImageBase64}` };
+      return {
+        image: imageValue(
+          `data:${result.newImageMimeType};base64,${result.newImageBase64}`,
+          result.newImageMimeType,
+        ),
+      };
     }
 
-    return { image: null, text: result?.textResponse || '' };
+    return {
+      image: null,
+      text: textValue(result?.textResponse || ''),
+    };
   }
 
   // RunningHub-based image gen
@@ -204,7 +350,7 @@ async function executeImageGen(
     };
     if (node.config?.rhAspectRatio) payload.aspectRatio = node.config.rhAspectRatio;
     if (refImage) {
-      const uploadedUrl = await rhUploadDataUrl(key.key, refImage);
+      const uploadedUrl = await rhUploadDataUrl(key.key, refImage.href);
       payload.imageUrls = [uploadedUrl];
     }
     const endpoint = node.config?.rhEndpoint || 'rhart-image-n-pro-official/edit';
@@ -221,7 +367,7 @@ async function executeImageGen(
         reader.onloadend = () => resolve(reader.result as string);
         reader.readAsDataURL(blob);
       });
-      return { image: dataUrl };
+      return { image: imageValue(dataUrl, blob.type || 'image/png') };
     }
     return { image: null };
   }
@@ -234,8 +380,8 @@ async function executeVideoGen(
   inputs: NodeIOMap,
   ctx: ExecutionContext,
 ): Promise<NodeIOMap> {
-  const prompt = inputs.text || '';
-  const firstFrame = inputs.image || null;
+  const prompt = getTextInput(inputs, 'text', 'input');
+  const firstFrame = getImageInput(inputs, 'image', 'input');
   const provider = (node.config?.provider as AIProvider) || 'google';
   const model = node.config?.model || (provider === 'minimax' ? 'video-01' : 'veo-3.1-generate-preview');
   const key = getDefaultApiKey(ctx, provider, 'google', 'minimax', 'keling');
@@ -248,12 +394,12 @@ async function executeVideoGen(
     key,
     {
       onProgress: (status) => ctx.onProgress?.(node.id, status),
-      image: firstFrame ? { href: firstFrame, mimeType: 'image/png' } : undefined,
+      image: firstFrame ? { href: firstFrame.href, mimeType: firstFrame.mimeType } : undefined,
     },
   );
   if (result?.videoBlob) {
     const videoUrl = URL.createObjectURL(result.videoBlob);
-    return { video: videoUrl };
+    return { video: videoValue(videoUrl, result.videoBlob.type || 'video/mp4') };
   }
   return { video: null };
 }
@@ -270,12 +416,13 @@ async function executeRunningHub(
   const endpoint = node.config?.rhEndpoint || 'rhart-image-n-pro-official/edit';
 
   const payload: Record<string, unknown> = {
-    prompt: inputs.text || '',
+    prompt: getTextInput(inputs, 'text', 'input'),
     resolution: node.config?.rhResolution || '2k',
   };
   if (node.config?.rhAspectRatio) payload.aspectRatio = node.config.rhAspectRatio;
-  if (inputs.image) {
-    const url = await rhUploadDataUrl(key.key, inputs.image);
+  const inputImage = getImageInput(inputs, 'image', 'input');
+  if (inputImage) {
+    const url = await rhUploadDataUrl(key.key, inputImage.href);
     payload.imageUrls = [url];
   }
 
@@ -296,13 +443,16 @@ async function executeRunningHub(
       reader.onloadend = () => resolve(reader.result as string);
       reader.readAsDataURL(blob);
     });
-    return { result: dataUrl, image: dataUrl };
+    const image = imageValue(dataUrl, blob.type || 'image/png');
+    return { result: image, image };
   }
   if (videoResult) {
-    return { result: videoResult.url, video: videoResult.url };
+    const video = videoValue(videoResult.url, 'video/mp4');
+    return { result: video, video };
   }
   if (textResult) {
-    return { result: textResult.text, output: textResult.text };
+    const text = textValue(textResult.text);
+    return { result: text, output: text };
   }
 
   return { result: null };
@@ -328,8 +478,8 @@ async function executeHttpRequest(
 
   // Interpolate body template with input values
   let body = node.config?.httpBodyTemplate || '';
-  body = body.replace(/\{\{input\}\}/g, inputs.input || inputs.text || '');
-  body = body.replace(/\{\{image\}\}/g, inputs.image || '');
+  body = body.replace(/\{\{input\}\}/g, getTextInput(inputs, 'input', 'text'));
+  body = body.replace(/\{\{image\}\}/g, getImageInput(inputs, 'image', 'input')?.href || '');
 
   const res = await fetch(url, {
     method,
@@ -356,13 +506,22 @@ async function executeHttpRequest(
           value = (value as Record<string, unknown>)[key];
         }
       }
-      return { output: String(value ?? ''), result: String(value ?? '') };
+      const normalized = typeof value === 'string' ? textValue(value) : jsonValue(value);
+      return { output: normalized, result: normalized };
     } catch {
-      return { output: responseText, result: responseText };
+      const text = textValue(responseText);
+      return { output: text, result: text };
     }
   }
 
-  return { output: responseText, result: responseText };
+  try {
+    const json = JSON.parse(responseText);
+    const normalized = jsonValue(json);
+    return { output: normalized, result: normalized };
+  } catch {
+    const text = textValue(responseText);
+    return { output: text, result: text };
+  }
 }
 
 function executeTemplate(
@@ -370,45 +529,243 @@ function executeTemplate(
   inputs: NodeIOMap,
 ): NodeIOMap {
   let text = node.config?.templateText || '';
-  text = text.replace(/\{\{var1\}\}/g, inputs.var1 || '');
-  text = text.replace(/\{\{var2\}\}/g, inputs.var2 || '');
-  text = text.replace(/\{\{input\}\}/g, inputs.input || inputs.text || '');
-  return { text };
+  text = text.replace(/\{\{var1\}\}/g, getTextInput(inputs, 'var1'));
+  text = text.replace(/\{\{var2\}\}/g, getTextInput(inputs, 'var2'));
+  text = text.replace(/\{\{input\}\}/g, getTextInput(inputs, 'input', 'text'));
+  return { text: textValue(text) };
 }
 
 function executeCondition(
   node: WorkflowNode,
   inputs: NodeIOMap,
 ): NodeIOMap {
-  const expr = node.config?.conditionExpr || '';
-  const input = inputs.input || inputs.text || '';
-  let result = false;
+  const inputValue = pickFirstValue(inputs.input, inputs.text, inputs.result);
+  const input = getWorkflowTextContent(inputValue);
+  const rules: ConditionRule[] = node.config?.conditionRules as ConditionRule[] | undefined || [];
 
-  if (expr.includes('contains')) {
-    const match = expr.match(/contains\s+['"](.+?)['"]/);
-    if (match) result = input.includes(match[1]);
-  } else if (expr.includes('empty')) {
-    result = !input.trim();
-  } else if (expr.includes('length>')) {
-    const match = expr.match(/length>\s*(\d+)/);
-    if (match) result = input.length > parseInt(match[1]);
+  let result: boolean;
+
+  if (rules.length > 0) {
+    // Advanced multi-rule evaluation
+    result = evaluateConditionRules(rules, input, inputs);
   } else {
-    result = !!input.trim();
+    // Legacy single-expression mode (backward compat)
+    const expr = node.config?.conditionExpr || '';
+    result = evaluateLegacyCondition(expr, input);
   }
 
   return {
-    true: result ? input : null,
-    false: result ? null : input,
+    true: result ? inputValue : null,
+    false: result ? null : inputValue,
   };
+}
+
+// ──── Condition Rule Types & Evaluator ─────
+
+export interface ConditionRule {
+  field: string; // port key or 'input'
+  operator: 'contains' | 'not_contains' | 'equals' | 'not_equals'
+           | 'regex' | 'gt' | 'lt' | 'gte' | 'lte'
+           | 'empty' | 'not_empty' | 'json_path_truthy';
+  value: string;
+  logicGroup?: 'and' | 'or';
+}
+
+function evaluateConditionRules(rules: ConditionRule[], input: string, allInputs: NodeIOMap): boolean {
+  if (rules.length === 0) return true;
+
+  let groupResult = evaluateSingleRule(rules[0], input, allInputs);
+
+  for (let i = 1; i < rules.length; i++) {
+    const rule = rules[i];
+    const ruleResult = evaluateSingleRule(rule, input, allInputs);
+    const logic = rule.logicGroup || 'and';
+    groupResult = logic === 'or' ? (groupResult || ruleResult) : (groupResult && ruleResult);
+  }
+
+  return groupResult;
+}
+
+function evaluateSingleRule(rule: ConditionRule, input: string, allInputs: NodeIOMap): boolean {
+  const fieldValue = rule.field === 'input'
+    ? input
+    : getWorkflowTextContent(allInputs[rule.field]) || input;
+  const v = rule.value || '';
+
+  switch (rule.operator) {
+    case 'contains': return fieldValue.includes(v);
+    case 'not_contains': return !fieldValue.includes(v);
+    case 'equals': return fieldValue === v;
+    case 'not_equals': return fieldValue !== v;
+    case 'regex': {
+      try { return new RegExp(v).test(fieldValue); }
+      catch { return false; }
+    }
+    case 'gt': return parseFloat(fieldValue) > parseFloat(v);
+    case 'lt': return parseFloat(fieldValue) < parseFloat(v);
+    case 'gte': return parseFloat(fieldValue) >= parseFloat(v);
+    case 'lte': return parseFloat(fieldValue) <= parseFloat(v);
+    case 'empty': return !fieldValue.trim();
+    case 'not_empty': return !!fieldValue.trim();
+    case 'json_path_truthy': {
+      try {
+        const json = JSON.parse(fieldValue);
+        const path = v.split('.');
+        let val: unknown = json;
+        for (const key of path) {
+          if (val && typeof val === 'object') val = (val as Record<string, unknown>)[key];
+          else { val = undefined; break; }
+        }
+        return !!val;
+      } catch { return false; }
+    }
+    default: return !!fieldValue.trim();
+  }
+}
+
+function evaluateLegacyCondition(expr: string, input: string): boolean {
+  if (expr.includes('contains')) {
+    const match = expr.match(/contains\s+['"](.+?)['"]/);
+    if (match) return input.includes(match[1]);
+  } else if (expr.includes('empty')) {
+    return !input.trim();
+  } else if (expr.includes('length>')) {
+    const match = expr.match(/length>\s*(\d+)/);
+    if (match) return input.length > parseInt(match[1]);
+  }
+  return !!input.trim();
+}
+
+// ──── Switch Node ─────
+
+interface SwitchCase {
+  label: string;
+  rules: ConditionRule[];
+}
+
+function executeSwitch(
+  node: WorkflowNode,
+  inputs: NodeIOMap,
+): NodeIOMap {
+  const inputValue = pickFirstValue(inputs.input, inputs.text, inputs.result);
+  const input = getWorkflowTextContent(inputValue);
+  const cases: SwitchCase[] = (node.config?.cases as SwitchCase[]) || [];
+  const outputs: NodeIOMap = {};
+
+  // Initialize all outputs to null
+  for (let i = 0; i < Math.max(cases.length, 4); i++) {
+    outputs[`out_${i}`] = null;
+  }
+  outputs['default'] = null;
+
+  // Find first matching case
+  let matched = false;
+  for (let i = 0; i < cases.length; i++) {
+    const c = cases[i];
+    if (c.rules.length === 0 || evaluateConditionRules(c.rules, input, inputs)) {
+      outputs[`out_${i}`] = inputValue;
+      matched = true;
+      break;
+    }
+  }
+
+  if (!matched) {
+    outputs['default'] = inputValue;
+  }
+
+  return outputs;
+}
+
+// ──── Upscale / Post-Processing Nodes ─────
+
+async function executeUpscale(
+  node: WorkflowNode,
+  inputs: NodeIOMap,
+  ctx: ExecutionContext,
+): Promise<NodeIOMap> {
+  const image = getImageInput(inputs, 'image', 'input');
+  if (!image) return { image: null };
+
+  const scale = (node.config?.scale as number) || 2;
+  const model = (node.config?.model as string) || 'RealESRGAN_x4plus';
+
+  // Use RunningHub workflow for upscaling if API key available
+  const rhKey = ctx.apiKeys.find(k => k.provider === 'runningHub' as AIProvider);
+  if (rhKey) {
+    const workflowId = (node.config?.workflowId as string) || '';
+    if (workflowId) {
+      // Delegate to RunningHub upscale workflow
+      const rhNode: WorkflowNode = {
+        ...node,
+        kind: 'runningHub' as NodeKind,
+        config: { ...node.config, workflowId, nodeConfigs: { image: image.href, scale: String(scale), model } },
+      };
+      return executeRunningHub(rhNode, inputs, ctx);
+    }
+  }
+
+  // Fallback: pass through with metadata annotation
+  return { image, scale: textValue(String(scale)), model: textValue(model) };
+}
+
+async function executeFaceRestore(
+  node: WorkflowNode,
+  inputs: NodeIOMap,
+  ctx: ExecutionContext,
+): Promise<NodeIOMap> {
+  const image = getImageInput(inputs, 'image', 'input');
+  if (!image) return { image: null };
+
+  const model = (node.config?.model as string) || 'CodeFormer';
+  const fidelity = (node.config?.fidelity as number) || 0.5;
+
+  const rhKey = ctx.apiKeys.find(k => k.provider === 'runningHub' as AIProvider);
+  if (rhKey) {
+    const workflowId = (node.config?.workflowId as string) || '';
+    if (workflowId) {
+      const rhNode: WorkflowNode = {
+        ...node,
+        kind: 'runningHub' as NodeKind,
+        config: { ...node.config, workflowId, nodeConfigs: { image: image.href, model, fidelity: String(fidelity) } },
+      };
+      return executeRunningHub(rhNode, inputs, ctx);
+    }
+  }
+
+  return { image, model: textValue(model), fidelity: textValue(String(fidelity)) };
+}
+
+async function executeBgRemove(
+  node: WorkflowNode,
+  inputs: NodeIOMap,
+  ctx: ExecutionContext,
+): Promise<NodeIOMap> {
+  const image = getImageInput(inputs, 'image', 'input');
+  if (!image) return { image: null };
+
+  const rhKey = ctx.apiKeys.find(k => k.provider === 'runningHub' as AIProvider);
+  if (rhKey) {
+    const workflowId = (node.config?.workflowId as string) || '';
+    if (workflowId) {
+      const rhNode: WorkflowNode = {
+        ...node,
+        kind: 'runningHub' as NodeKind,
+        config: { ...node.config, workflowId, nodeConfigs: { image: image.href } },
+      };
+      return executeRunningHub(rhNode, inputs, ctx);
+    }
+  }
+
+  return { image };
 }
 
 function executeMerge(
   _node: WorkflowNode,
   inputs: NodeIOMap,
 ): NodeIOMap {
-  const a = inputs.a || '';
-  const b = inputs.b || '';
-  return { output: [a, b].filter(Boolean).join('\n---\n') };
+  const a = getTextInput(inputs, 'a');
+  const b = getTextInput(inputs, 'b');
+  return { output: textValue([a, b].filter(Boolean).join('\n---\n')) };
 }
 
 // ──── Main Executor ────
@@ -420,13 +777,21 @@ async function executeNode(
 ): Promise<NodeIOMap> {
   switch (node.kind) {
     case 'prompt':
-      return { text: ctx.inputPrompt || inputs.text || '' };
+      return { text: textValue(ctx.inputPrompt || getTextInput(inputs, 'text', 'input')) };
     case 'loadImage':
-      return { image: ctx.inputImages?.[0] || inputs.image || null };
+      return {
+        image: ctx.inputImages?.[0]
+          ? imageValue(ctx.inputImages[0], detectMimeTypeFromHref(ctx.inputImages[0], 'image/png'))
+          : pickFirstValue(inputs.image, inputs.input),
+      };
     case 'enhancer':
     case 'llm':
       return executeLLM(node, inputs, ctx);
     case 'generator':
+      if (node.config?.generationMode === 'video') {
+        return executeVideoGen(node, inputs, ctx);
+      }
+      return executeImageGen(node, inputs, ctx);
     case 'imageGen':
       return executeImageGen(node, inputs, ctx);
     case 'videoGen':
@@ -439,12 +804,20 @@ async function executeNode(
       return executeTemplate(node, inputs);
     case 'condition':
       return executeCondition(node, inputs);
+    case 'switch':
+      return executeSwitch(node, inputs);
+    case 'upscale':
+      return executeUpscale(node, inputs, ctx);
+    case 'faceRestore':
+      return executeFaceRestore(node, inputs, ctx);
+    case 'bgRemove':
+      return executeBgRemove(node, inputs, ctx);
     case 'merge':
       return executeMerge(node, inputs);
     case 'preview':
     case 'saveToCanvas':
       // Pass-through; side effects handled after execution
-      return { result: inputs.result || inputs.image || inputs.video || inputs.input || null };
+      return { result: pickFirstValue(inputs.result, inputs.image, inputs.video, inputs.text, inputs.input) };
     default:
       return {};
   }
@@ -452,6 +825,7 @@ async function executeNode(
 
 /**
  * Execute an entire workflow graph.
+ * Supports: conditional path skipping, retry with exponential backoff.
  */
 export async function executeWorkflow(
   nodes: WorkflowNode[],
@@ -461,11 +835,62 @@ export async function executeWorkflow(
   const sorted = topologicalSort(nodes, edges);
   const nodeOutputs = new Map<string, NodeIOMap>();
   const errors: { nodeId: string; error: string }[] = [];
+  const skippedNodes = new Set<string>();
+
+  // Build reverse mapping: nodeId → upstream condition/switch ports that feed it
+  const conditionalParents = new Map<string, { fromNode: string; fromPort: string }[]>();
+  for (const edge of edges) {
+    const sourceNode = nodes.find(n => n.id === edge.fromNode);
+    if (sourceNode && (sourceNode.kind === 'condition' || sourceNode.kind === 'switch')) {
+      const arr = conditionalParents.get(edge.toNode) || [];
+      arr.push({ fromNode: edge.fromNode, fromPort: edge.fromPort });
+      conditionalParents.set(edge.toNode, arr);
+    }
+  }
 
   for (const node of sorted) {
     if (ctx.signal?.aborted) {
       errors.push({ nodeId: node.id, error: '已取消' });
       break;
+    }
+
+    // Skip nodes on unreachable conditional paths
+    if (skippedNodes.has(node.id)) {
+      nodeOutputs.set(node.id, {});
+      ctx.onProgress?.(node.id, 'skipped');
+      continue;
+    }
+
+    // Check if all incoming conditional edges are null → skip this node
+    const condParents = conditionalParents.get(node.id);
+    if (condParents && condParents.length > 0) {
+      const allNull = condParents.every(({ fromNode, fromPort }) => {
+        const outputs = nodeOutputs.get(fromNode);
+        return !outputs || isWorkflowValueEmpty(outputs[fromPort]);
+      });
+      if (allNull) {
+        skippedNodes.add(node.id);
+        // Propagate: mark all downstream nodes fed only by this node as skipped
+        propagateSkip(node.id, nodes, edges, skippedNodes, conditionalParents);
+        nodeOutputs.set(node.id, {});
+        ctx.onProgress?.(node.id, 'skipped');
+        continue;
+      }
+    }
+
+    const pinnedOutputs = node.config?.pinnedOutputs;
+    if (pinnedOutputs && Object.keys(pinnedOutputs).length > 0) {
+      nodeOutputs.set(node.id, pinnedOutputs);
+      ctx.onProgress?.(node.id, 'pinned');
+      ctx.onNodeComplete?.(node.id, pinnedOutputs);
+
+      if ((node.kind === 'saveToCanvas' || node.kind === 'preview') && ctx.onPlaceOnCanvas) {
+        const primary = getPrimaryWorkflowValue(pinnedOutputs);
+        if (primary) {
+          await ctx.onPlaceOnCanvas(primary);
+        }
+      }
+      continue;
     }
 
     ctx.onProgress?.(node.id, 'running');
@@ -483,31 +908,45 @@ export async function executeWorkflow(
       }
     }
 
-    try {
-      const outputs = await executeNode(node, inputs, ctx);
+    // Execute with retry
+    const maxRetries = node.config?.retryCount ?? ctx.retryPolicy?.maxRetries ?? 0;
+    const baseBackoff = ctx.retryPolicy?.backoffMs ?? 2000;
+    const multiplier = ctx.retryPolicy?.backoffMultiplier ?? 2;
+    let lastError: string | undefined;
+    let outputs: NodeIOMap | undefined;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      if (attempt > 0) {
+        const delay = baseBackoff * Math.pow(multiplier, attempt - 1);
+        ctx.onProgress?.(node.id, `retry ${attempt}/${maxRetries} (${delay}ms)`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+      try {
+        outputs = await executeNode(node, inputs, ctx);
+        lastError = undefined;
+        break;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+        if (attempt === maxRetries) break;
+      }
+    }
+
+    if (lastError || !outputs) {
+      const errMsg = lastError || 'Unknown error';
+      errors.push({ nodeId: node.id, error: errMsg });
+      ctx.onError?.(node.id, errMsg);
+      nodeOutputs.set(node.id, {});
+    } else {
       nodeOutputs.set(node.id, outputs);
       ctx.onNodeComplete?.(node.id, outputs);
 
       // Handle saveToCanvas / preview side effects
       if ((node.kind === 'saveToCanvas' || node.kind === 'preview') && ctx.onPlaceOnCanvas) {
-        const result = outputs.result || outputs.image;
-        if (result && typeof result === 'string' && result.startsWith('data:')) {
-          // Get image dimensions
-          const img = new Image();
-          await new Promise<void>((resolve) => {
-            img.onload = () => resolve();
-            img.onerror = () => resolve();
-            img.src = result;
-          });
-          ctx.onPlaceOnCanvas(result, img.naturalWidth || 512, img.naturalHeight || 512);
+        const result = getPrimaryWorkflowValue(outputs);
+        if (!isWorkflowValueEmpty(result)) {
+          await ctx.onPlaceOnCanvas(result as WorkflowValue);
         }
       }
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      errors.push({ nodeId: node.id, error: errMsg });
-      ctx.onError?.(node.id, errMsg);
-      // Set empty outputs so downstream nodes can still try
-      nodeOutputs.set(node.id, {});
     }
   }
 
@@ -516,4 +955,26 @@ export async function executeWorkflow(
     nodeOutputs,
     errors,
   };
+}
+
+/** Propagate skip status downstream from a skipped node */
+function propagateSkip(
+  nodeId: string,
+  nodes: WorkflowNode[],
+  edges: WorkflowEdge[],
+  skippedNodes: Set<string>,
+  conditionalParents: Map<string, { fromNode: string; fromPort: string }[]>,
+): void {
+  const downstream = edges.filter(e => e.fromNode === nodeId).map(e => e.toNode);
+  for (const downId of downstream) {
+    if (skippedNodes.has(downId)) continue;
+    // Only skip if ALL incoming edges come from skipped nodes
+    const allInputsSkipped = edges
+      .filter(e => e.toNode === downId)
+      .every(e => skippedNodes.has(e.fromNode));
+    if (allInputsSkipped) {
+      skippedNodes.add(downId);
+      propagateSkip(downId, nodes, edges, skippedNodes, conditionalParents);
+    }
+  }
 }

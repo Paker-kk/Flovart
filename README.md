@@ -65,7 +65,7 @@ npm install
 npm run dev
 ```
 
-打开 http://localhost:3000，在设置中填入你的服务凭据即可。
+打开 http://localhost:3217，在设置中填入你的服务凭据即可。
 
 > 推荐 [Google AI Studio](https://aistudio.google.com/apikey) 免费获取 Gemini 凭据。
 
@@ -94,7 +94,7 @@ cd Flovart
 docker-compose up -d
 ```
 
-访问 http://localhost:3000。
+访问 http://localhost:3217。
 
 ### 方式五：浏览器扩展
 

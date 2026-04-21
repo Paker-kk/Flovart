@@ -11,7 +11,7 @@
 |-------|------|------|----------|
 | **P0** | AIGC Canvas 稳定性 & Provider 修复 | ✅ 完成 | [2026-04-19-aigc-canvas-remediation.md](2026-04-19-aigc-canvas-remediation.md) |
 | **P1** | Tapnow-Style App Shell + 顶栏导航 | ✅ 完成 | [2026-04-20-tapnow-app-shell-phase1.md](2026-04-20-tapnow-app-shell-phase1.md) |
-| **P2** | Workflow 产品化 | 📋 规划完成 | [2026-04-20-workflow-productization-phase2.md](2026-04-20-workflow-productization-phase2.md) |
+| **P2** | Workflow 产品化 | 🟡 实施中（Slice 2） | [2026-04-20-workflow-productization-phase2.md](2026-04-20-workflow-productization-phase2.md) |
 | **P3** | Storyboard + VideoEdit MVP | 📋 规划完成 | [2026-04-20-storyboard-videoedit-phase3.md](2026-04-20-storyboard-videoedit-phase3.md) |
 | **P4** | Motion + Interaction Polish | 📋 规划完成 | [2026-04-20-motion-interaction-phase4.md](2026-04-20-motion-interaction-phase4.md) |
 | **P5** | Provider + Model Template System | 📋 规划完成 | [2026-04-20-provider-model-template-phase5.md](2026-04-20-provider-model-template-phase5.md) |
@@ -71,6 +71,13 @@
 - 每节点可配置 provider / model / params / timeout / retry / key
 - 节点执行状态可视化（idle → queued → running → success/error）
 - 数据传递规则统一
+
+**当前状态**：
+- Slice 1 已落地结构化 `WorkflowValue` 输出与真实运行接线
+- Slice 2 已落地 `Execute Node` / `Execute From Here` 与最小 `Pin Output`
+- Workflow 节点已具备最小运行态和最小 Inspector 调参与调试能力
+- 输出已可通过 `preview` / `saveToCanvas` 回填白板
+- 下一轮待锁定：API Key 优先级、Starter Flow、schema-driven Inspector
 
 **前置**：P1
 
@@ -217,4 +224,4 @@ Eco (浏览器/桌面生态) ── 贯穿所有阶段
 
 ---
 
-*最后更新：2026-04-20 — P0 全部完成（8 tasks + 4 UX 增强），P1–P8 + Eco 规划完成。*
+*最后更新：2026-04-21 — P0、P1 已完成；P2 已进入 Slice 2 实施，当前已落地结构化输出、真实执行接线、局部执行、最小 Pin Output、最小 Inspector 与白板回填；下一轮聚焦 Starter Flow、API Key 优先级与 schema-driven Inspector。*

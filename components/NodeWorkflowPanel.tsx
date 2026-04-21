@@ -1,8 +1,22 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatAttachment, GenerationMode, PromptEnhanceMode } from '../types';
+import { inferProviderFromModel } from '../services/aiGateway';
+import { createExecutionPlan, executeWorkflow } from '../services/workflowEngine';
+import type { WorkflowExecutionScope } from '../services/workflowEngine';
+import type { ChatAttachment, GenerationMode, PromptEnhanceMode, UserApiKey } from '../types';
 import { NODE_DEFS } from './nodeflow/defs';
 import { getBezierPath, getPortLabelY, getPortPosition, selectionBoxRect } from './nodeflow/graph';
-import type { NodeKind, WorkflowStage } from './nodeflow/types';
+import {
+  getPrimaryWorkflowValue,
+  summarizeWorkflowValue,
+} from './nodeflow/types';
+import type {
+  NodeIOMap,
+  NodeConfig,
+  NodeKind,
+  WorkflowNodeRunState,
+  WorkflowRunStatus,
+  WorkflowValue,
+} from './nodeflow/types';
 import { useNodeWorkflowStore } from './nodeflow/useNodeWorkflowStore';
 
 interface NodeWorkflowPanelProps {
@@ -21,15 +35,9 @@ interface NodeWorkflowPanelProps {
   onRemoveAttachment: (id: string) => void;
   onUploadFiles: (files: FileList | File[]) => void;
   onDropCanvasImage: (payload: { id: string; name?: string; href: string; mimeType: string }) => void;
-  isRunning: boolean;
-  onRunWorkflow: (opts: {
-    autoEnhance: boolean;
-    enhanceMode: PromptEnhanceMode;
-    stylePreset?: string;
-  }) => Promise<void>;
+  userApiKeys: UserApiKey[];
+  onPlaceWorkflowValue: (value: WorkflowValue) => Promise<void> | void;
 }
-
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type ContextMenuState = {
   x: number;
@@ -40,6 +48,47 @@ type ContextMenuState = {
   nodeId?: string;
   groupId?: string;
 };
+
+const NODE_LIBRARY_KINDS: NodeKind[] = [
+  'prompt',
+  'loadImage',
+  'enhancer',
+  'llm',
+  'template',
+  'generator',
+  'imageGen',
+  'videoGen',
+  'runningHub',
+  'preview',
+  'saveToCanvas',
+];
+
+const RUN_STATUS_STYLES: Record<WorkflowRunStatus, string> = {
+  idle: 'bg-white/25',
+  queued: 'bg-sky-300/80',
+  running: 'bg-amber-300',
+  success: 'bg-emerald-300',
+  error: 'bg-rose-300',
+  skipped: 'bg-white/20',
+  pinned: 'bg-fuchsia-300',
+};
+
+function buildEnhancerSystemPrompt(mode: PromptEnhanceMode, stylePreset: string): string {
+  if (mode === 'style') {
+    return `Rewrite the user's creative prompt into a production-ready ${stylePreset} visual prompt. Keep subject intent unchanged, but improve scene specificity, composition, lighting, texture, and shot readability.`;
+  }
+  if (mode === 'precise') {
+    return 'Rewrite the prompt into a precise production prompt. Remove ambiguity, keep structure tight, and make every visual instruction concrete.';
+  }
+  if (mode === 'translate') {
+    return 'Translate the prompt into concise, production-ready English for image or video generation. Preserve all named entities and creative intent.';
+  }
+  return 'Rewrite the prompt into a stronger production-ready visual prompt with clearer subject, environment, composition, lighting, and style guidance.';
+}
+
+function getNodeTitle(kind: NodeKind, label?: string): string {
+  return label?.trim() || NODE_DEFS[kind].title;
+}
 
 export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
   prompt,
@@ -57,8 +106,8 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
   onRemoveAttachment,
   onUploadFiles,
   onDropCanvasImage,
-  isRunning,
-  onRunWorkflow,
+  userApiKeys,
+  onPlaceWorkflowValue,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -66,8 +115,10 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const store = useNodeWorkflowStore();
 
-  const [stage, setStage] = useState<WorkflowStage>('idle');
+  const [isExecuting, setIsExecuting] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
+  const [runMessage, setRunMessage] = useState('Ready');
+  const [nodeRunState, setNodeRunState] = useState<Record<string, WorkflowNodeRunState>>({});
   const [enhanceMode, setEnhanceMode] = useState<PromptEnhanceMode>('smart');
   const [stylePreset, setStylePreset] = useState('cinematic');
   const [isPromptDropOver, setIsPromptDropOver] = useState(false);
@@ -79,6 +130,46 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
   const selectedGroup = store.selectedGroupId
     ? store.groups.find((group) => group.id === store.selectedGroupId) ?? null
     : null;
+
+  const getEffectiveNodeRuntime = (nodeId: string, config?: NodeConfig): WorkflowNodeRunState | null => {
+    const runtime = nodeRunState[nodeId];
+    if (runtime) return runtime;
+    if (config?.pinnedOutputs) {
+      return {
+        status: 'pinned',
+        outputs: config.pinnedOutputs,
+        message: 'Pinned output',
+        updatedAt: 0,
+      };
+    }
+    return null;
+  };
+
+  const selectedNodeRuntime = selectedNode ? getEffectiveNodeRuntime(selectedNode.id, selectedNode.config) : null;
+
+  const preparedNodes = useMemo(() => {
+    return store.nodes.map((node) => {
+      const nextConfig = { ...node.config };
+      if (node.kind === 'enhancer' && !nextConfig.systemPrompt) {
+        nextConfig.systemPrompt = buildEnhancerSystemPrompt(enhanceMode, stylePreset);
+      }
+      if (node.kind === 'generator') {
+        nextConfig.generationMode = generationMode === 'video' ? 'video' : 'image';
+        const fallbackModel = generationMode === 'video' ? selectedVideoModel : selectedImageModel;
+        if (!nextConfig.model && fallbackModel) nextConfig.model = fallbackModel;
+        if (!nextConfig.provider && nextConfig.model) nextConfig.provider = inferProviderFromModel(nextConfig.model);
+      }
+      if (node.kind === 'imageGen') {
+        if (!nextConfig.model && selectedImageModel) nextConfig.model = selectedImageModel;
+        if (!nextConfig.provider && nextConfig.model) nextConfig.provider = inferProviderFromModel(nextConfig.model);
+      }
+      if (node.kind === 'videoGen') {
+        if (!nextConfig.model && selectedVideoModel) nextConfig.model = selectedVideoModel;
+        if (!nextConfig.provider && nextConfig.model) nextConfig.provider = inferProviderFromModel(nextConfig.model);
+      }
+      return { ...node, config: nextConfig };
+    });
+  }, [enhanceMode, generationMode, selectedImageModel, selectedVideoModel, store.nodes, stylePreset]);
 
   const toWorld = (clientX: number, clientY: number) => {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -116,78 +207,161 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
     return getBezierPath(p1, p2);
   }, [store.pendingConnection, store.nodeMap]);
 
-  const stageText = useMemo(() => {
-    if (runError) return runError;
-    if (stage === 'idle') return 'Ready';
-    if (stage === 'input') return 'Reading inputs...';
-    if (stage === 'agent') return 'Running prompt enhancer...';
-    if (stage === 'generate') return generationMode === 'video' ? 'Generating video...' : 'Generating image...';
-    if (stage === 'output') return 'Output complete';
-    return 'Workflow error';
-  }, [generationMode, runError, stage]);
+  const runGraph = async (scope: WorkflowExecutionScope = 'workflow', focusNodeId?: string) => {
+    if (isExecuting || !prompt.trim()) return;
+    const executionPlan = createExecutionPlan(preparedNodes, store.edges, scope, focusNodeId);
+    if (executionPlan.nodes.length === 0) return;
 
-  const hasEnhancerConnection = (generatorNodeId: string) => {
-    return store.edges.some((edge) => {
-      if (edge.toNode !== generatorNodeId || edge.toPort !== 'text') return false;
-      const from = store.nodeMap.get(edge.fromNode);
-      return from?.kind === 'enhancer';
+    const runLabel = scope === 'node'
+      ? 'Node execution'
+      : scope === 'from-here'
+        ? 'Execute from here'
+        : 'Workflow';
+    const initialTimestamp = Date.now();
+    setIsExecuting(true);
+    setRunError(null);
+    setRunMessage(`Queueing ${runLabel.toLowerCase()}...`);
+    setNodeRunState((prev) => {
+      const next = scope === 'workflow' ? {} : { ...prev };
+      for (const node of executionPlan.nodes) {
+        next[node.id] = {
+          status: 'queued',
+          updatedAt: initialTimestamp,
+          message: 'Queued',
+        };
+      }
+      return next;
+    });
+
+    try {
+      const result = await executeWorkflow(executionPlan.nodes, executionPlan.edges, {
+        apiKeys: userApiKeys,
+        inputPrompt: prompt,
+        inputImages: attachments
+          .filter((attachment) => attachment.mimeType.startsWith('image/'))
+          .map((attachment) => attachment.href),
+        onProgress: (nodeId, status) => {
+          const runtimeStatus: WorkflowRunStatus = status === 'skipped' ? 'skipped' : 'running';
+          const node = preparedNodes.find((item) => item.id === nodeId);
+          store.setActiveNodeId(runtimeStatus === 'running' ? nodeId : null);
+          setRunMessage(node ? `${getNodeTitle(node.kind, node.config?.label)} · ${status}` : status);
+          setNodeRunState((prev) => ({
+            ...prev,
+            [nodeId]: {
+              ...(prev[nodeId] ?? { updatedAt: Date.now() }),
+              status: runtimeStatus,
+              message: status,
+              updatedAt: Date.now(),
+            },
+          }));
+        },
+        onNodeComplete: (nodeId, outputs) => {
+          const primaryValue = getPrimaryWorkflowValue(outputs);
+          setNodeRunState((prev) => ({
+            ...prev,
+            [nodeId]: {
+              status: 'success',
+              outputs,
+              message: summarizeWorkflowValue(primaryValue),
+              updatedAt: Date.now(),
+            },
+          }));
+        },
+        onError: (nodeId, error) => {
+          setRunError(error);
+          setNodeRunState((prev) => ({
+            ...prev,
+            [nodeId]: {
+              ...(prev[nodeId] ?? { updatedAt: Date.now() }),
+              status: 'error',
+              error,
+              message: error,
+              updatedAt: Date.now(),
+            },
+          }));
+        },
+        onPlaceOnCanvas: onPlaceWorkflowValue,
+        retryPolicy: {
+          maxRetries: 0,
+          backoffMs: 1200,
+          backoffMultiplier: 2,
+        },
+      });
+      store.setActiveNodeId(null);
+      if (result.success) {
+        setRunMessage(`${runLabel} completed`);
+      } else {
+        setRunError(result.errors[0]?.error || 'Execution failed. Check links and node parameters.');
+        setRunMessage(result.errors[0]?.error || `${runLabel} failed`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Execution failed. Check links and node parameters.';
+      setRunError(message);
+      setRunMessage(message);
+      store.setActiveNodeId(null);
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
+  const updateNodeConfig = <K extends keyof NodeConfig>(nodeId: string, key: K, value: NodeConfig[K]) => {
+    store.updateNodeConfig(nodeId, { [key]: value } as Partial<NodeConfig>);
+  };
+
+  const pinNodeOutput = (nodeId: string) => {
+    const runtime = nodeRunState[nodeId];
+    if (!runtime?.outputs) return;
+    store.updateNodeConfig(nodeId, { pinnedOutputs: runtime.outputs });
+    setNodeRunState((prev) => ({
+      ...prev,
+      [nodeId]: {
+        ...runtime,
+        status: 'pinned',
+        message: 'Pinned output',
+        updatedAt: Date.now(),
+      },
+    }));
+  };
+
+  const unpinNodeOutput = (nodeId: string) => {
+    store.updateNodeConfig(nodeId, { pinnedOutputs: undefined });
+    setNodeRunState((prev) => {
+      const runtime = prev[nodeId];
+      if (!runtime) return prev;
+      return {
+        ...prev,
+        [nodeId]: {
+          ...runtime,
+          status: 'idle',
+          message: 'Pin cleared',
+          updatedAt: Date.now(),
+        },
+      };
     });
   };
 
-  const runGraph = async () => {
-    if (isRunning || !prompt.trim()) return;
-    setRunError(null);
-    setStage('input');
-
-    const previewNode = store.nodes.find((node) => node.kind === 'preview');
-    if (!previewNode) {
-      setRunError('Missing Preview node');
-      setStage('error');
-      return;
+  const renderValuePreview = (value: WorkflowValue | null | undefined) => {
+    if (!value || value.kind === 'empty') {
+      return <div className="rounded border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/45">No output yet</div>;
     }
-    const previewIn = store.edges.find((edge) => edge.toNode === previewNode.id && edge.toPort === 'result');
-    if (!previewIn) {
-      setRunError('Preview node is not connected');
-      setStage('error');
-      return;
+    if (value.kind === 'image') {
+      return <img src={value.href} alt="Workflow output" className="max-h-48 w-full rounded border border-white/10 object-cover" />;
     }
-    const generatorNode = store.nodeMap.get(previewIn.fromNode);
-    if (!generatorNode || generatorNode.kind !== 'generator') {
-      setRunError('Preview must connect from Generator');
-      setStage('error');
-      return;
+    if (value.kind === 'video') {
+      return <video src={value.href} controls className="max-h-48 w-full rounded border border-white/10 bg-black/40" />;
     }
-
-    const promptNode = store.nodes.find((node) => node.kind === 'prompt');
-    store.setActiveNodeId(promptNode?.id ?? null);
-    await wait(180);
-
-    const shouldEnhance = hasEnhancerConnection(generatorNode.id);
-    if (shouldEnhance) {
-      const enhancer = store.nodes.find((node) => node.kind === 'enhancer');
-      store.setActiveNodeId(enhancer?.id ?? null);
-      setStage('agent');
-      await wait(240);
+    if (value.kind === 'json') {
+      return (
+        <pre className="max-h-48 overflow-auto rounded border border-white/10 bg-black/20 p-3 text-[11px] text-white/70 whitespace-pre-wrap break-all">
+          {JSON.stringify(value.value, null, 2)}
+        </pre>
+      );
     }
-
-    try {
-      setStage('generate');
-      store.setActiveNodeId(generatorNode.id);
-      await onRunWorkflow({
-        autoEnhance: shouldEnhance,
-        enhanceMode,
-        stylePreset: enhanceMode === 'style' ? stylePreset : undefined,
-      });
-      setStage('output');
-      store.setActiveNodeId(previewNode.id);
-      await wait(900);
-      store.setActiveNodeId(null);
-      setStage('idle');
-    } catch {
-      setRunError('Execution failed. Check links and node parameters.');
-      setStage('error');
-      store.setActiveNodeId(null);
-    }
+    return (
+      <pre className="max-h-48 overflow-auto rounded border border-white/10 bg-black/20 p-3 text-[11px] text-white/80 whitespace-pre-wrap break-all">
+        {value.text}
+      </pre>
+    );
   };
 
   const handleDropPayload = (e: React.DragEvent) => {
@@ -261,10 +435,22 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
       store.addNode('loadImage', at);
     } else if (action === 'add-enhancer') {
       store.addNode('enhancer', at);
+    } else if (action === 'add-llm') {
+      store.addNode('llm', at);
+    } else if (action === 'add-template') {
+      store.addNode('template', at);
     } else if (action === 'add-generator') {
       store.addNode('generator', at);
+    } else if (action === 'add-image-gen') {
+      store.addNode('imageGen', at);
+    } else if (action === 'add-video-gen') {
+      store.addNode('videoGen', at);
+    } else if (action === 'add-runninghub') {
+      store.addNode('runningHub', at);
     } else if (action === 'add-preview') {
       store.addNode('preview', at);
+    } else if (action === 'add-save-to-canvas') {
+      store.addNode('saveToCanvas', at);
     } else if (action === 'group-selected') {
       store.createGroupFromSelection();
     } else if (action === 'cut') {
@@ -356,14 +542,14 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
       } else if (meta && key === 'g') {
         event.preventDefault();
         store.createGroupFromSelection();
-      } else if ((event.key === 'Delete' || event.key === 'Backspace') && !isRunning) {
+      } else if ((event.key === 'Delete' || event.key === 'Backspace') && !isExecuting) {
         event.preventDefault();
         store.removeSelected();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isRunning, store]);
+  }, [isExecuting, store]);
 
   const minimap = useMemo(() => {
     const allXs: number[] = [];
@@ -414,12 +600,28 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
       <div className="absolute inset-x-0 top-0 z-50 h-12 border-b border-white/10 bg-[#0d1321]/95 backdrop-blur-xl flex items-center gap-2 px-4">
         <span className="text-sm text-white/85">Workflow Editor</span>
         <button
-          onClick={runGraph}
-          disabled={isRunning || !prompt.trim()}
+          onClick={() => runGraph('workflow')}
+          disabled={isExecuting || !prompt.trim()}
           className="ml-2 rounded-md border border-emerald-300/40 bg-emerald-500/25 px-3 py-1.5 text-xs hover:bg-emerald-500/35 disabled:opacity-45"
-          title="Queue Prompt"
+          title="Run the entire workflow"
         >
-          {isRunning ? 'Running...' : 'Queue Prompt'}
+          {isExecuting ? 'Running...' : 'Run Workflow'}
+        </button>
+        <button
+          onClick={() => selectedNode && runGraph('node', selectedNode.id)}
+          disabled={isExecuting || !prompt.trim() || !selectedNode}
+          className="rounded-md border border-sky-300/35 bg-sky-500/15 px-3 py-1.5 text-xs hover:bg-sky-500/25 disabled:opacity-45"
+          title="Run only the selected node and required upstream nodes"
+        >
+          Execute Node
+        </button>
+        <button
+          onClick={() => selectedNode && runGraph('from-here', selectedNode.id)}
+          disabled={isExecuting || !prompt.trim() || !selectedNode}
+          className="rounded-md border border-cyan-300/35 bg-cyan-500/15 px-3 py-1.5 text-xs hover:bg-cyan-500/25 disabled:opacity-45"
+          title="Run the selected node, downstream nodes, and required dependencies"
+        >
+          From Here
         </button>
         <button
           onClick={() => store.createGroupFromSelection()}
@@ -510,14 +712,14 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
         >
           Dist V
         </button>
-        <span className="ml-2 text-[11px] text-emerald-300">{stageText}</span>
+        <span className={`ml-2 text-[11px] ${runError ? 'text-rose-300' : 'text-emerald-300'}`}>{runError || runMessage}</span>
         <span className="ml-auto text-[11px] text-white/45">n8n-style canvas architecture</span>
       </div>
 
       <aside className="absolute left-0 top-12 bottom-0 z-40 w-64 border-r border-white/10 bg-[#0b101d]/95 p-3 overflow-y-auto">
         <div className="mb-2 text-xs text-white/60">Node Library</div>
         <div className="space-y-2">
-          {(['prompt', 'loadImage', 'enhancer', 'generator', 'preview'] as NodeKind[]).map((kind) => (
+          {NODE_LIBRARY_KINDS.map((kind) => (
             <button
               key={kind}
               onClick={() => store.addNode(kind, centerWorldPosition())}
@@ -651,6 +853,10 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
             const def = NODE_DEFS[node.kind];
             const selected = store.selectedNodeIds.includes(node.id);
             const active = store.activeNodeId === node.id;
+            const runtime = getEffectiveNodeRuntime(node.id, node.config);
+            const primaryValue = getPrimaryWorkflowValue(runtime?.outputs);
+            const runtimeSummary = runtime?.error || runtime?.message || summarizeWorkflowValue(primaryValue);
+            const displayTitle = getNodeTitle(node.kind, node.config?.label);
             return (
               <div
                 key={node.id}
@@ -676,7 +882,10 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                     store.startNodeDrag(node.id, world, e.metaKey || e.ctrlKey);
                   }}
                 >
-                  <span>{def.title}</span>
+                  <span className="flex items-center gap-2">
+                    <span className={`h-2 w-2 rounded-full ${RUN_STATUS_STYLES[runtime?.status || 'idle']}`} />
+                    <span>{displayTitle}</span>
+                  </span>
                   <button
                     className="rounded bg-black/35 px-1.5 py-0.5 text-[10px] hover:bg-black/55"
                     onClick={(e) => {
@@ -839,6 +1048,39 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
 
                   {node.kind === 'preview' && <div className="text-xs text-white/70">Output is rendered back to whiteboard canvas.</div>}
 
+                  {node.kind === 'saveToCanvas' && <div className="text-xs text-white/70">Place the upstream image or video directly onto the canvas board.</div>}
+
+                  {node.kind === 'llm' && (
+                    <div className="rounded-lg border border-white/10 bg-black/25 p-2 text-[11px] text-white/70">
+                      {node.config?.model || 'Uses selected text model'}
+                    </div>
+                  )}
+
+                  {node.kind === 'template' && (
+                    <div className="rounded-lg border border-white/10 bg-black/25 p-2 text-[11px] text-white/70">
+                      {(node.config?.templateText || 'Template text with {{input}} / {{var1}} / {{var2}}').slice(0, 96)}
+                    </div>
+                  )}
+
+                  {node.kind === 'runningHub' && (
+                    <div className="rounded-lg border border-white/10 bg-black/25 p-2 text-[11px] text-white/70">
+                      {node.config?.rhEndpoint || 'RunningHub endpoint pending'}
+                    </div>
+                  )}
+
+                  {(node.kind === 'imageGen' || node.kind === 'videoGen') && (
+                    <div className="rounded-lg border border-white/10 bg-black/25 p-2 text-[11px] text-white/70">
+                      {(node.config?.model || (node.kind === 'videoGen' ? selectedVideoModel : selectedImageModel) || 'Model pending').slice(0, 64)}
+                    </div>
+                  )}
+
+                  {runtime && (
+                    <div className="mt-3 rounded-lg border border-white/10 bg-black/25 px-2 py-2 text-[10px] text-white/65">
+                      <div className="uppercase tracking-[0.16em] text-white/45">{runtime.status}</div>
+                      <div className="mt-1 line-clamp-2 break-all">{runtimeSummary}</div>
+                    </div>
+                  )}
+
                   {def.inputs.map((port, idx) => (
                     <button
                       key={`in-${port.key}`}
@@ -979,23 +1221,208 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
         )}
         {selectedNode && (
           <div className="space-y-3">
-            <div className="text-sm text-white/90">{NODE_DEFS[selectedNode.kind].title}</div>
+            <div className="flex items-center gap-2 text-sm text-white/90">
+              <span className={`h-2.5 w-2.5 rounded-full ${RUN_STATUS_STYLES[selectedNodeRuntime?.status || 'idle']}`} />
+              <span>{getNodeTitle(selectedNode.kind, selectedNode.config?.label)}</span>
+            </div>
             <div className="text-xs text-white/65">Node ID: {selectedNode.id}</div>
             <div className="text-xs text-white/65">
               Inputs: {NODE_DEFS[selectedNode.kind].inputs.length} / Outputs: {NODE_DEFS[selectedNode.kind].outputs.length}
             </div>
+
+            <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+              <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-white/45">Debug</div>
+              <div className="text-xs text-white/75">Status: {selectedNodeRuntime?.status || 'idle'}</div>
+              <div className="mt-1 text-xs text-white/60">
+                {selectedNodeRuntime?.error || selectedNodeRuntime?.message || 'This node has not executed yet.'}
+              </div>
+              <div className="mt-3">
+                {renderValuePreview(getPrimaryWorkflowValue(selectedNodeRuntime?.outputs))}
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => pinNodeOutput(selectedNode.id)}
+                  disabled={!selectedNodeRuntime?.outputs || isExecuting}
+                  className="rounded-md border border-fuchsia-300/35 bg-fuchsia-500/15 px-3 py-1.5 text-xs hover:bg-fuchsia-500/25 disabled:opacity-45"
+                >
+                  Pin Output
+                </button>
+                <button
+                  onClick={() => unpinNodeOutput(selectedNode.id)}
+                  disabled={!selectedNode.config?.pinnedOutputs || isExecuting}
+                  className="rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10 disabled:opacity-45"
+                >
+                  Clear Pin
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-2">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-white/45">Identity</div>
+              <label className="block text-[11px] text-white/60">Label</label>
+              <input
+                value={selectedNode.config?.label || ''}
+                onChange={(e) => updateNodeConfig(selectedNode.id, 'label', e.target.value)}
+                className="w-full rounded border border-white/15 bg-black/20 px-2 py-1.5 text-xs outline-none"
+                placeholder={NODE_DEFS[selectedNode.kind].title}
+                title="Node label"
+              />
+            </div>
+
+            {['enhancer', 'llm', 'generator', 'imageGen', 'videoGen', 'runningHub'].includes(selectedNode.kind) && (
+              <div className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-2">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-white/45">Runtime</div>
+                <label className="block text-[11px] text-white/60">Provider</label>
+                <select
+                  value={selectedNode.config?.provider || ''}
+                  onChange={(e) => updateNodeConfig(selectedNode.id, 'provider', e.target.value || undefined)}
+                  className="w-full rounded border border-white/15 bg-black/20 px-2 py-1.5 text-xs outline-none"
+                  title="Provider"
+                >
+                  <option value="">Auto</option>
+                  <option value="google">Google</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="runningHub">RunningHub</option>
+                  <option value="minimax">MiniMax</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <label className="block text-[11px] text-white/60">Model</label>
+                <input
+                  value={selectedNode.config?.model || ''}
+                  onChange={(e) => updateNodeConfig(selectedNode.id, 'model', e.target.value)}
+                  className="w-full rounded border border-white/15 bg-black/20 px-2 py-1.5 text-xs outline-none"
+                  placeholder="Leave blank to use workspace default"
+                  title="Model"
+                />
+                <label className="block text-[11px] text-white/60">Retry Count</label>
+                <input
+                  value={selectedNode.config?.retryCount ?? 0}
+                  onChange={(e) => updateNodeConfig(selectedNode.id, 'retryCount', Number(e.target.value) || 0)}
+                  type="number"
+                  min={0}
+                  max={5}
+                  className="w-full rounded border border-white/15 bg-black/20 px-2 py-1.5 text-xs outline-none"
+                  title="Retry count"
+                />
+              </div>
+            )}
+
+            {(selectedNode.kind === 'enhancer' || selectedNode.kind === 'llm') && (
+              <div className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-2">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-white/45">Inputs</div>
+                <label className="block text-[11px] text-white/60">System Prompt</label>
+                <textarea
+                  value={selectedNode.config?.systemPrompt || ''}
+                  onChange={(e) => updateNodeConfig(selectedNode.id, 'systemPrompt', e.target.value)}
+                  className="h-28 w-full resize-none rounded border border-white/15 bg-black/20 px-2 py-2 text-xs outline-none"
+                  placeholder="Control how this node rewrites or reasons over incoming text"
+                  title="System prompt"
+                />
+              </div>
+            )}
+
+            {selectedNode.kind === 'template' && (
+              <div className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-2">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-white/45">Inputs</div>
+                <label className="block text-[11px] text-white/60">Template</label>
+                <textarea
+                  value={selectedNode.config?.templateText || ''}
+                  onChange={(e) => updateNodeConfig(selectedNode.id, 'templateText', e.target.value)}
+                  className="h-28 w-full resize-none rounded border border-white/15 bg-black/20 px-2 py-2 text-xs outline-none"
+                  placeholder="Use {{input}}, {{var1}}, {{var2}}"
+                  title="Template text"
+                />
+              </div>
+            )}
+
+            {selectedNode.kind === 'runningHub' && (
+              <div className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-2">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-white/45">Inputs</div>
+                <label className="block text-[11px] text-white/60">Endpoint</label>
+                <input
+                  value={selectedNode.config?.rhEndpoint || ''}
+                  onChange={(e) => updateNodeConfig(selectedNode.id, 'rhEndpoint', e.target.value)}
+                  className="w-full rounded border border-white/15 bg-black/20 px-2 py-1.5 text-xs outline-none"
+                  placeholder="rhart-image-n-pro-official/edit"
+                  title="RunningHub endpoint"
+                />
+                <label className="block text-[11px] text-white/60">Resolution</label>
+                <select
+                  value={selectedNode.config?.rhResolution || '2k'}
+                  onChange={(e) => updateNodeConfig(selectedNode.id, 'rhResolution', e.target.value)}
+                  className="w-full rounded border border-white/15 bg-black/20 px-2 py-1.5 text-xs outline-none"
+                  title="RunningHub resolution"
+                >
+                  <option value="1k">1k</option>
+                  <option value="2k">2k</option>
+                  <option value="4k">4k</option>
+                </select>
+                <label className="block text-[11px] text-white/60">Aspect Ratio</label>
+                <input
+                  value={selectedNode.config?.rhAspectRatio || ''}
+                  onChange={(e) => updateNodeConfig(selectedNode.id, 'rhAspectRatio', e.target.value)}
+                  className="w-full rounded border border-white/15 bg-black/20 px-2 py-1.5 text-xs outline-none"
+                  placeholder="16:9"
+                  title="RunningHub aspect ratio"
+                />
+              </div>
+            )}
+
+            {selectedNode.kind === 'httpRequest' && (
+              <div className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-2">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-white/45">Inputs</div>
+                <label className="block text-[11px] text-white/60">Method</label>
+                <select
+                  value={selectedNode.config?.httpMethod || 'POST'}
+                  onChange={(e) => updateNodeConfig(selectedNode.id, 'httpMethod', e.target.value)}
+                  className="w-full rounded border border-white/15 bg-black/20 px-2 py-1.5 text-xs outline-none"
+                  title="HTTP method"
+                >
+                  <option value="GET">GET</option>
+                  <option value="POST">POST</option>
+                  <option value="PUT">PUT</option>
+                  <option value="DELETE">DELETE</option>
+                </select>
+                <label className="block text-[11px] text-white/60">URL</label>
+                <input
+                  value={selectedNode.config?.httpUrl || ''}
+                  onChange={(e) => updateNodeConfig(selectedNode.id, 'httpUrl', e.target.value)}
+                  className="w-full rounded border border-white/15 bg-black/20 px-2 py-1.5 text-xs outline-none"
+                  placeholder="https://api.example.com/endpoint"
+                  title="HTTP URL"
+                />
+              </div>
+            )}
+
             <div className="border-t border-white/10 pt-2 text-xs text-white/55">
               Tips: double-click edge to remove; Shift + drag background to pan.
             </div>
-            {selectedNode.kind === 'generator' && (
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <button
-                onClick={runGraph}
-                disabled={isRunning || !prompt.trim()}
+                onClick={() => runGraph('workflow')}
+                disabled={isExecuting || !prompt.trim()}
                 className="rounded-md border border-emerald-300/40 bg-emerald-500/25 px-3 py-1.5 text-xs hover:bg-emerald-500/35 disabled:opacity-45"
               >
-                Run from Generator
+                Run Workflow
               </button>
-            )}
+              <button
+                onClick={() => runGraph('node', selectedNode.id)}
+                disabled={isExecuting || !prompt.trim()}
+                className="rounded-md border border-sky-300/35 bg-sky-500/15 px-3 py-1.5 text-xs hover:bg-sky-500/25 disabled:opacity-45"
+              >
+                Execute Node
+              </button>
+              <button
+                onClick={() => runGraph('from-here', selectedNode.id)}
+                disabled={isExecuting || !prompt.trim()}
+                className="rounded-md border border-cyan-300/35 bg-cyan-500/15 px-3 py-1.5 text-xs hover:bg-cyan-500/25 disabled:opacity-45"
+              >
+                Execute From Here
+              </button>
+            </div>
           </div>
         )}
       </aside>
@@ -1011,8 +1438,14 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
               <button className="w-full rounded px-3 py-1.5 text-left text-xs hover:bg-white/10" onClick={() => runContextAction('add-prompt')}>+ Add Prompt Node</button>
               <button className="w-full rounded px-3 py-1.5 text-left text-xs hover:bg-white/10" onClick={() => runContextAction('add-load-image')}>+ Add Load Image Node</button>
               <button className="w-full rounded px-3 py-1.5 text-left text-xs hover:bg-white/10" onClick={() => runContextAction('add-enhancer')}>+ Add Enhancer Node</button>
+              <button className="w-full rounded px-3 py-1.5 text-left text-xs hover:bg-white/10" onClick={() => runContextAction('add-llm')}>+ Add LLM Node</button>
+              <button className="w-full rounded px-3 py-1.5 text-left text-xs hover:bg-white/10" onClick={() => runContextAction('add-template')}>+ Add Template Node</button>
               <button className="w-full rounded px-3 py-1.5 text-left text-xs hover:bg-white/10" onClick={() => runContextAction('add-generator')}>+ Add Generator Node</button>
+              <button className="w-full rounded px-3 py-1.5 text-left text-xs hover:bg-white/10" onClick={() => runContextAction('add-image-gen')}>+ Add ImageGen Node</button>
+              <button className="w-full rounded px-3 py-1.5 text-left text-xs hover:bg-white/10" onClick={() => runContextAction('add-video-gen')}>+ Add VideoGen Node</button>
+              <button className="w-full rounded px-3 py-1.5 text-left text-xs hover:bg-white/10" onClick={() => runContextAction('add-runninghub')}>+ Add RunningHub Node</button>
               <button className="w-full rounded px-3 py-1.5 text-left text-xs hover:bg-white/10" onClick={() => runContextAction('add-preview')}>+ Add Preview Node</button>
+              <button className="w-full rounded px-3 py-1.5 text-left text-xs hover:bg-white/10" onClick={() => runContextAction('add-save-to-canvas')}>+ Add SaveToCanvas Node</button>
               <div className="my-1 h-px bg-white/10" />
               <button className="w-full rounded px-3 py-1.5 text-left text-xs hover:bg-white/10 disabled:opacity-45" disabled={!store.canPaste} onClick={() => runContextAction('paste')}>Paste</button>
               <button className="w-full rounded px-3 py-1.5 text-left text-xs hover:bg-white/10 disabled:opacity-45" disabled={store.selectedNodeIds.length === 0} onClick={() => runContextAction('cut')}>Cut Selection</button>

@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
       // 打包后使用相对路径，确保 Tauri 本地文件协议正常加载
       base: './',
       server: {
-        port: 3000,
+        port: 3217,
         host: host || '0.0.0.0',
         strictPort: true,
       },

@@ -49,6 +49,7 @@ import { CanvasWorkspace } from './components/workspaces/CanvasWorkspace';
 import { WorkflowWorkspace } from './components/workspaces/WorkflowWorkspace';
 import { StoryboardWorkspace } from './components/workspaces/StoryboardWorkspace';
 import { AssetsWorkspace } from './components/workspaces/AssetsWorkspace';
+import type { WorkflowValue } from './components/nodeflow/types';
 import { useWorkspaceStore } from './stores/useWorkspaceStore';
 import type { WorkspaceView } from './types';
 
@@ -736,6 +737,85 @@ const App: React.FC = () => {
         commitAction, getPreferredApiKey,
     });
 
+    const handlePlaceWorkflowValue = useCallback(async (value: WorkflowValue) => {
+        const visibleWidth = svgRef.current?.clientWidth || Math.max(960, viewportWidth - 360);
+        const visibleHeight = svgRef.current?.clientHeight || Math.max(640, window.innerHeight - 260);
+        const centerPoint = svgRef.current
+            ? (() => {
+                const rect = svgRef.current!.getBoundingClientRect();
+                return getCanvasPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+            })()
+            : {
+                x: (visibleWidth * 0.5 - panOffset.x) / zoom,
+                y: (visibleHeight * 0.5 - panOffset.y) / zoom,
+            };
+
+        if (value.kind === 'image') {
+            const size = await new Promise<{ width: number; height: number }>((resolve) => {
+                const img = new Image();
+                img.onload = () => resolve({ width: img.naturalWidth || value.width || 1024, height: img.naturalHeight || value.height || 1024 });
+                img.onerror = () => resolve({ width: value.width || 1024, height: value.height || 1024 });
+                img.src = value.href;
+            });
+            const nextImage: ImageElement = {
+                id: generateId(),
+                type: 'image',
+                name: 'Workflow Output',
+                x: centerPoint.x - size.width / 2,
+                y: centerPoint.y - size.height / 2,
+                width: size.width,
+                height: size.height,
+                href: value.href,
+                mimeType: value.mimeType,
+            };
+            commitAction(prev => [...prev, nextImage]);
+            setSelectedElementIds([nextImage.id]);
+            return;
+        }
+
+        if (value.kind === 'video') {
+            const size = await new Promise<{ width: number; height: number }>((resolve) => {
+                const video = document.createElement('video');
+                video.preload = 'metadata';
+                video.onloadedmetadata = () => resolve({ width: video.videoWidth || value.width || 960, height: video.videoHeight || value.height || 540 });
+                video.onerror = () => resolve({ width: value.width || 960, height: value.height || 540 });
+                video.src = value.href;
+            });
+            const nextVideo: VideoElement = {
+                id: generateId(),
+                type: 'video',
+                name: 'Workflow Video',
+                x: centerPoint.x - size.width / 2,
+                y: centerPoint.y - size.height / 2,
+                width: size.width,
+                height: size.height,
+                href: value.href,
+                mimeType: value.mimeType,
+            };
+            commitAction(prev => [...prev, nextVideo]);
+            setSelectedElementIds([nextVideo.id]);
+            return;
+        }
+
+        if (value.kind === 'text' || value.kind === 'json') {
+            const text = value.kind === 'text' ? value.text : JSON.stringify(value.value, null, 2);
+            const nextText: TextElement = {
+                id: generateId(),
+                type: 'text',
+                name: 'Workflow Text',
+                x: centerPoint.x - 180,
+                y: centerPoint.y - 80,
+                width: 360,
+                height: 160,
+                text,
+                fontSize: 18,
+                fontColor: resolvedTheme === 'dark' ? '#f9fafb' : '#111827',
+            };
+            commitAction(prev => [...prev, nextText]);
+            setSelectedElementIds([nextText.id]);
+        }
+    }, [commitAction, getCanvasPoint, panOffset.x, panOffset.y, resolvedTheme, viewportWidth, zoom]);
+
     useEffect(() => {
         setSelectedElementIds([]);
         setEditingElement(null);
@@ -769,6 +849,15 @@ const App: React.FC = () => {
             source: 'canvas',
         });
     }, [addChatAttachment]);
+
+    const handleAddPromptAttachmentFromCanvas = useCallback((payload: { id: string; name?: string; href: string; mimeType: string }) => {
+        addPromptAttachment({
+            name: payload.name || `Canvas ${payload.id.slice(-4)}`,
+            href: payload.href,
+            mimeType: payload.mimeType,
+            source: 'canvas',
+        });
+    }, [addPromptAttachment]);
 
     const handleAddAttachmentFiles = useCallback(async (files: FileList | File[]) => {
         const list = Array.from(files).filter(file => file.type.startsWith('image/'));
@@ -3002,14 +3091,9 @@ const App: React.FC = () => {
                             .map((el) => ({ id: el.id, name: el.name, href: el.href, mimeType: el.mimeType }))}
                         onRemoveAttachment={handleRemovePromptAttachment}
                         onUploadFiles={handleAddPromptAttachmentFiles}
-                        onDropCanvasImage={handleAddAttachmentFromCanvas}
-                        isRunning={isLoading}
-                        onRunWorkflow={async ({ autoEnhance, enhanceMode, stylePreset }) => {
-                            if (autoEnhance) {
-                                await handleEnhancePrompt({ prompt, mode: enhanceMode, stylePreset });
-                            }
-                            await handleGenerate(undefined, 'prompt');
-                        }}
+                        onDropCanvasImage={handleAddPromptAttachmentFromCanvas}
+                        userApiKeys={userApiKeys}
+                        onPlaceWorkflowValue={handlePlaceWorkflowValue}
                     />
                     </Suspense>
                 } />

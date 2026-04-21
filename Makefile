@@ -28,7 +28,7 @@ build:
 up:
 	@echo "正在启动容器..."
 	docker-compose up -d
-	@echo "容器已启动！访问 http://localhost:3000"
+	@echo "容器已启动！访问 http://localhost:3217"
 
 # 停止容器
 down:
@@ -62,7 +62,7 @@ rebuild:
 	@echo "正在重新构建（无缓存）..."
 	docker-compose build --no-cache
 	docker-compose up -d
-	@echo "重新构建完成！访问 http://localhost:3000"
+	@echo "重新构建完成！访问 http://localhost:3217"
 
 # 查看状态
 status:
