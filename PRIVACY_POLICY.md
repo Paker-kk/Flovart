@@ -1,103 +1,147 @@
-# Flovart 隐私政策
+Flovart Privacy Policy
 
-**最后更新日期：2026 年 4 月 3 日**
+Last updated: 2026-04-25
 
-本隐私政策说明 Flovart（以下简称"本产品"）如何处理您的数据。**简短版：我们不收集任何数据。**
+This Privacy Policy explains how Flovart handles data when you use the local web app, desktop builds, browser extension bridge, source code, and related project features.
 
----
+Flovart is designed as a local-first creative workspace. By default, the project does not operate a hosted backend for your canvas, workflows, prompts, generated files, API keys, or account profile.
 
-## 1. 核心原则
+This Policy does not cover third-party AI providers, custom endpoints, browser vendors, operating systems, cloud backup providers, extension stores, payment processors, or websites you connect to through a bridge. Those services have their own policies.
 
-Flovart 是一个完全在客户端运行的开源工具。我们的隐私保护基于以下原则：
 
-- **零数据收集**：本产品不收集、传输或存储任何用户数据到外部服务器
-- **零遥测**：不包含任何分析、追踪或遥测代码
-- **零账户**：不要求注册或登录任何账户
-- **完全本地**：所有数据存储在您的设备上
+1. What Flovart stores locally
 
-## 2. 数据存储
+Depending on the features you use, Flovart may store data locally on your device, browser, or app profile.
 
-### 2.1 我们存储什么
+Local data may include:
 
-本产品仅在您的本地设备上存储以下数据：
+API keys and provider settings.
+Canvas projects and visual elements.
+Prompts and workflow node configuration.
+Generated images, videos, references, previews, and metadata.
+Model preferences and custom endpoints.
+Theme, language, layout, and workspace settings.
+Asset library entries, history, pinned outputs, and trace information.
+Browser extension bridge settings if you enable them.
 
-| 数据类型 | 存储位置 | 用途 |
-|----------|---------|------|
-| API Key | 本地 localStorage（AES-GCM 加密） | 调用您配置的第三方 AI 服务 |
-| 画布内容 | 本地 localStorage / IndexedDB | 保存您的设计作品 |
-| 生成历史 | 本地 localStorage | 记录 AI 生成结果以便回溯 |
-| 用户设定 | 本地 localStorage | 保存您的偏好设置（语言、主题等） |
-| 素材库 | 本地 IndexedDB | 存储您保存的角色/场景/道具素材 |
+Storage locations may include browser localStorage, IndexedDB, extension storage, desktop app storage, local files, operating-system caches, browser profiles, and backup systems you configure.
 
-### 2.2 我们不存储什么
 
-- 不在任何服务器上存储您的数据
-- 不保留您数据的任何副本
-- 不缓存您的 API Key 到除本地设备以外的任何地方
+2. What Flovart does not operate by default
 
-## 3. 数据传输
+By default, Flovart does not operate a central account system for your local project data.
 
-### 3.1 与我们的通信
+By default, Flovart does not run a project-owned cloud database for your prompts, canvas files, generated media, or API keys.
 
-**没有任何通信。** 本产品不向我们运营的任何服务器发送任何数据。
+By default, Flovart does not sell personal information.
 
-### 3.2 与第三方 AI 服务的通信
+By default, Flovart does not include product analytics, advertising tracking, or behavioral profiling operated by the project maintainers.
 
-当您使用 AI 功能时，本产品会直接从您的浏览器/设备向您配置的第三方 AI 服务提供商（如 Google、OpenAI、DeepSeek 等）发送请求。这些请求包含：
+These statements apply to the open-source project as provided. Modified builds, hosted forks, plugins, browser extensions, custom endpoints, or third-party distributions may behave differently.
 
-- 您的 API Key（用于身份验证）
-- 您输入的提示词
-- 您提供的参考图片（如有）
 
-这些数据直接从您的设备发送到第三方 API 端点，**不经过我们的任何中间服务器**。这些第三方服务如何处理您的数据，受其各自的隐私政策约束：
+3. Third-party AI providers and custom endpoints
 
-- [Google Privacy Policy](https://policies.google.com/privacy)
-- [OpenAI Privacy Policy](https://openai.com/privacy/)
-- [DeepSeek Privacy Policy](https://www.deepseek.com/privacy)
+When you use AI features, Flovart sends requests from your device or app environment to the provider or endpoint you configure.
 
-## 4. Cookie 与跟踪
+Those requests may include:
 
-本产品不使用：
+Your API key or authentication token.
+Text prompts and instructions.
+Uploaded images, videos, files, masks, references, or attachments.
+Canvas context, workflow node inputs, generated outputs, and metadata.
+Model names, endpoint URLs, request settings, and run information.
 
-- Cookie（用于追踪目的的）
-- 网页信标
-- 像素追踪
-- 第三方分析服务（如 Google Analytics）
-- 任何形式的用户行为追踪
+Third-party providers may collect, process, retain, moderate, train on, or disclose data according to their own terms and privacy policies.
 
-本产品使用浏览器 localStorage 存储功能性数据（您的设定和作品），这不属于追踪行为。
+You are responsible for reviewing the provider's policy before sending data to it.
 
-## 5. 数据安全
+Use custom endpoints only if you trust the endpoint operator and understand where your data goes.
 
-### 5.1 加密
 
-API Key 使用 AES-GCM 加密算法存储在本地，密钥派生自设备特征。即使本地存储被直接读取，也无法获得明文 API Key。
+4. Browser extension and bridge data
 
-### 5.2 数据删除
+If you enable a browser extension, browser bridge, automation bridge, or similar integration, data may move between your browser and Flovart.
 
-您可以随时通过以下方式完全删除本产品存储的所有数据：
+Bridge data may include page context, selected text, URLs, tab information, files, screenshots, clipboard-derived content, or action metadata depending on the feature and permission granted.
 
-- **浏览器版本**：清除浏览器的网站数据（设置 → 隐私与安全 → 清除浏览数据）
-- **桌面版本**：卸载应用
-- **浏览器扩展**：移除扩展
+Do not enable bridge features on sensitive websites or confidential materials unless you have permission and understand the risk.
 
-删除后，所有数据将被永久清除，我们无法也不会恢复。
+Browser vendors, extension stores, installed extensions, and websites may apply their own privacy and security rules.
 
-## 6. 儿童隐私
 
-本产品不面向 13 岁以下儿童，也不会有意收集任何年龄段的个人信息。由于本产品不收集任何数据，因此不存在收集儿童信息的可能。
+5. Data security
 
-## 7. 开源透明
+Flovart aims to keep user-controlled data local where possible, but no local system is completely secure.
 
-本产品的完整源代码在 [GitHub](https://github.com/Paker-kk/Flovart) 上公开。任何人都可以审查代码以验证本隐私政策中的声明。我们鼓励安全研究人员和关注隐私的用户审查我们的代码。
+Risks include device compromise, malware, browser profile access, browser sync, cloud backup, shared computers, untrusted extensions, untrusted plugins, local file exposure, and misconfigured custom endpoints.
 
-## 8. 政策变更
+You are responsible for securing your device, browser, operating system, backups, exported files, and API keys.
 
-如本隐私政策发生变更，我们将在本页面公布更新并修改"最后更新日期"。由于本产品不收集联系方式，我们无法直接通知您政策变更，请定期查看本页面。
+If you believe an API key has leaked, revoke it with the provider immediately and create a new key.
 
-## 9. 联系方式
 
-如果您对本隐私政策有任何疑问，请通过以下方式联系我们：
+6. Data deletion and retention
 
-- GitHub: [https://github.com/Paker-kk/Flovart](https://github.com/Paker-kk/Flovart)
-- Issue: [https://github.com/Paker-kk/Flovart/issues](https://github.com/Paker-kk/Flovart/issues)
+Because Flovart stores data locally by default, deletion usually depends on your device and browser settings.
+
+You can delete local web app data by clearing site data for the Flovart origin in your browser.
+
+You can delete browser extension data by removing the extension or clearing extension storage.
+
+You can delete desktop app data by removing the app data directory used by your operating system.
+
+You can delete exported files, downloaded media, and backups from wherever you saved or synced them.
+
+Flovart maintainers generally cannot recover local data you delete and generally cannot delete copies held by third-party AI providers, custom endpoints, browser sync, cloud backups, or services outside the project.
+
+
+7. Your choices and rights
+
+You control which providers, endpoints, files, prompts, references, and bridge features you use.
+
+You can choose not to add API keys.
+
+You can choose not to upload files or references to a provider.
+
+You can choose not to enable browser extension or bridge permissions.
+
+You can clear local storage and remove exported files.
+
+Depending on your jurisdiction, you may have rights to access, correct, delete, restrict, export, or object to processing of personal data held by a third-party provider. Exercise those rights with the provider that actually holds the data.
+
+
+8. Children and minors
+
+Flovart is not intended for children under 13 or the minimum age required in your jurisdiction.
+
+If you are under the age of majority in your jurisdiction, use Flovart only with permission and supervision from a parent or legal guardian.
+
+Do not upload children's personal information, images, school records, health information, or other sensitive material to third-party AI providers unless you have a lawful basis and proper authorization.
+
+
+9. International data transfers
+
+Flovart's local-first design does not itself choose a cloud storage country for your local project data.
+
+However, third-party AI providers, custom endpoints, browser vendors, cloud backups, and extension services may process data in other countries.
+
+Review each provider's privacy policy to understand international transfer and storage practices.
+
+
+10. Changes to this Policy
+
+We may update this Policy from time to time to reflect product changes, security concerns, legal requirements, or changed data flows.
+
+The Last updated date indicates when the current version took effect.
+
+Your continued use of Flovart after an update means you acknowledge the updated Policy.
+
+
+11. Contact
+
+Project repository:
+https://github.com/Paker-kk/Flovart
+
+Issues:
+https://github.com/Paker-kk/Flovart/issues

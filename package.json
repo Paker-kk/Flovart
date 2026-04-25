@@ -2,6 +2,7 @@
   "name": "flovart",
   "private": true,
   "version": "0.2.0",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "vite",

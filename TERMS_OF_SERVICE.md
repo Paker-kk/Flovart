@@ -1,125 +1,163 @@
-# Flovart 使用条款
+Flovart Terms of Service
 
-**最后更新日期：2026 年 4 月 3 日**
+Last updated: 2026-04-25
 
-欢迎使用 Flovart（以下简称"本产品"）。本产品是一个开源的 AI 设计工具，以 Apache License 2.0 协议开源，由 Flovart 开发团队（以下简称"我们"）维护。
+Welcome to Flovart. These Terms govern your access to and use of Flovart, including the local web app, desktop builds, browser extension bridge, source code, documentation, and related project materials.
 
-请在使用本产品前仔细阅读以下条款。使用本产品即表示您同意受本条款约束。如果您不同意本条款的任何部分，请停止使用本产品。
+By accessing or using Flovart, you agree to these Terms and to the Privacy Policy. If you do not agree, do not use Flovart.
 
----
+This document is written as plain text for clarity. It is not legal advice.
 
-## 1. 产品概述
 
-Flovart 是一个客户端运行的 AI 设计工具。本产品：
+1. Service description
 
-- **不提供**任何 AI 模型或 API 服务
-- **不运营**任何服务器来处理或中转您的数据
-- **不收集**任何用户数据、使用信息或遥测数据
-- **不要求**注册账户
+Flovart is a local-first AI creative workspace. It provides an infinite canvas, AI-assisted creation tools, node-based workflows, browser bridge features, and project utilities.
 
-本产品仅作为用户界面，帮助您通过您自己的 API Key 调用第三方 AI 服务提供商的接口。
+Flovart does not provide AI model service, hosted inference, API credits, payment accounts, account registration, cloud storage, or guaranteed access to any third-party provider by default.
 
-## 2. API Key 与第三方服务
+You choose the providers, models, API keys, custom endpoints, local files, prompts, references, and workflows you use.
 
-### 2.1 您自己的密钥
+We may update, change, hide, rename, remove, or discontinue features over time.
 
-使用本产品的 AI 功能需要您自行在第三方服务提供商处获取 API Key（如 Google AI Studio、OpenAI、DeepSeek 等）。您需要：
 
-- 自行注册这些第三方平台的账户
-- 遵守各第三方平台的使用条款、计费政策和可接受使用政策
-- 承担使用这些第三方服务产生的全部费用
+2. Eligibility and responsibility
 
-### 2.2 密钥安全
+You must be old enough and legally permitted to use Flovart in your jurisdiction.
 
-您的 API Key 仅存储在您的本地设备上（浏览器 localStorage 或本地文件系统），使用 AES-GCM 加密保护。**我们无法访问、读取或恢复您的 API Key。** 请妥善保管您的密钥，如有泄露风险请及时在对应平台撤销并重新生成。
+If you use Flovart for a business, organization, client, employer, or other entity, you represent that you have authority to do so.
 
-### 2.3 第三方服务责任
+You are responsible for your device, browser profile, API keys, project files, local storage, exports, extensions, workflows, generated content, and any activity that happens through your setup.
 
-您通过本产品调用第三方 API 产生的任何问题（包括但不限于：费用争议、服务中断、数据处理、内容合规性），均由您与该第三方服务提供商之间解决。我们不是这些服务的提供方，不对其可用性、定价、数据处理方式或输出质量承担任何责任。
 
-## 3. 数据存储与隐私
+3. Source license
 
-### 3.1 本地存储
+Flovart is licensed under AGPL-3.0-only.
 
-本产品的所有数据（包括但不限于画布内容、生成历史、API Key、用户设定）均存储在您的本地设备上。具体包括：
+AGPL-3.0 is a strong copyleft license. If you copy, modify, distribute, host, or provide network access to Flovart or a modified version, you may need to preserve notices, provide corresponding source code, and comply with other AGPL-3.0 obligations.
 
-- **浏览器版本**：数据存储在浏览器的 localStorage 和 IndexedDB 中
-- **桌面版本**：数据存储在应用的本地数据目录中
-- **浏览器扩展**：数据存储在 chrome.storage.local 中
+You are responsible for understanding whether your use, deployment, distribution, hosted service, private fork, commercial build, plugin, extension, or integration triggers license obligations.
 
-### 3.2 零服务器通信
+The official license text is in the LICENSE file.
 
-本产品不向我们或任何第三方（除您主动配置的 AI API 提供商外）发送任何数据。您的设计作品、提示词、对话记录不会离开您的设备，除非您主动将其发送给第三方 AI API。
 
-### 3.3 数据清除
+4. API keys and third-party services
 
-您可以随时清除浏览器数据或卸载应用来删除本产品存储的所有信息。我们不保留任何数据副本。
+Flovart uses a bring-your-own-key model.
 
-## 4. AI 生成内容
+You are responsible for obtaining, securing, rotating, revoking, and paying for your own API keys and provider accounts.
 
-### 4.1 内容所有权
+When you call a third-party AI provider or custom endpoint, you may transmit prompts, uploaded files, images, videos, references, generated outputs, request metadata, account identifiers, and other content to that provider.
 
-通过本产品调用第三方 AI 服务生成的内容（图片、视频、文字等），其所有权和使用权受您与所使用的第三方 AI 服务提供商之间的协议约束。请查阅对应提供商的条款了解详情。
+Third-party providers are governed by their own terms, privacy policies, billing rules, data practices, retention rules, safety policies, and acceptable-use policies.
 
-### 4.2 内容免责
+Flovart is not responsible for third-party pricing, outages, moderation, data retention, training practices, policy enforcement, account suspension, endpoint behavior, or output quality.
 
-AI 生成的内容可能存在不准确、不完整或不符合预期的情况。您需要：
+You are responsible for all fees, quota usage, losses, and disputes caused by your provider keys, endpoints, or workflows.
 
-- 对 AI 生成的内容进行独立审查和验证
-- 确保您使用 AI 生成内容的方式符合法律法规
-- 不将 AI 生成的内容用于需要高度准确性的关键决策
 
-### 4.3 合规使用
+5. Local data and security risk
 
-您同意不使用本产品：
+Flovart is designed to keep project data local where possible, but local-first does not mean risk-free.
 
-- 生成违反法律法规的内容
-- 生成侵犯他人知识产权、肖像权或隐私权的内容
-- 生成涉及未成年人的不当内容
-- 生成虚假信息以误导或欺骗他人
-- 规避任何第三方 AI 服务提供商的使用限制或安全措施
+Depending on your environment, data may be stored in browser localStorage, IndexedDB, extension storage, desktop app storage, local files, operating-system caches, browser profiles, synced browser accounts, cloud backups, or other local mechanisms.
 
-## 5. 知识产权
+You are responsible for securing your device, browser, operating system, API keys, backups, exports, and local or synced storage.
 
-### 5.1 开源协议
+If you use a shared computer, browser sync, remote desktop, malware-infected device, untrusted extension, untrusted plugin, or untrusted custom endpoint, your data and keys may be exposed.
 
-本产品的源代码基于 Apache License 2.0 开源。您可以在遵守该协议的前提下自由使用、修改和分发本产品的代码。
+If an API key may have leaked, revoke it at the provider immediately and create a new key.
 
-### 5.2 商标
 
-"Flovart" 名称和标识是本项目的非注册商标。在使用本产品的修改版本时，请遵守 Apache License 2.0 中关于商标使用的相关条款。
+6. Browser extension and bridge features
 
-## 6. 免责声明
+If you enable a browser extension, browser bridge, automation bridge, or similar integration, additional context may move between the browser and Flovart.
 
-**本产品按"现状"和"可用"基础提供，不附带任何明示或暗示的保证**，包括但不限于：
+Only enable browser access, page context capture, clipboard access, file access, or automation features when you understand what data may be read, stored, or sent.
 
-- 不保证产品不会中断或无错误运行
-- 不保证产品满足您的特定需求
-- 不保证第三方 AI 服务的可用性或输出质量
-- 不保证 AI 生成内容的准确性、合法性或适用性
+Do not use bridge features on sensitive websites, private documents, financial accounts, medical portals, legal portals, work systems, or confidential pages unless you have permission and understand the risk.
 
-由于本产品不运营任何服务器，也不处理或传输您的数据，因此在最大法律允许范围内，我们不对以下情况承担责任：
 
-- 您的 API Key 因您自身原因导致的泄露或被盗用
-- 第三方 AI 服务产生的费用
-- AI 生成内容引发的任何争议或损失
-- 因浏览器或设备故障导致的本地数据丢失
+7. User content and generated output
 
-## 7. 责任限制
+You retain responsibility for the prompts, files, images, videos, references, text, project data, workflows, and other materials you provide to Flovart.
 
-**在法律允许的最大范围内，我们在任何情况下均不对因使用或无法使用本产品而导致的任何间接、附带、特殊、后果性或惩罚性损害承担责任**，包括但不限于利润损失、数据丢失、商誉损失，无论是否已被告知此类损害的可能性。
+As between you and Flovart maintainers, you are responsible for reviewing the ownership, license, legality, reliability, accuracy, and appropriateness of your inputs and outputs.
 
-## 8. 修改条款
+AI-generated output can be wrong, incomplete, outdated, misleading, biased, unsafe, offensive, infringing, or unsuitable for your intended use.
 
-我们可能不时更新本使用条款。更新后的条款将在本页面公布并更新"最后更新日期"。您在更新后继续使用本产品即表示接受修改后的条款。
+Flovart does not guarantee that AI output is accurate, original, lawful, non-infringing, commercially usable, or fit for a particular purpose.
 
-## 9. 适用法律
+You should independently evaluate output before publishing, selling, relying on, or distributing it.
 
-本条款受中华人民共和国法律管辖（如适用）。对于国际用户，本条款受用户所在司法管辖区的法律管辖。
+You must not use output relating to identifiable individuals in a way that could create legal, financial, reputational, safety, or material impact on those individuals without lawful basis and qualified human review.
 
-## 10. 联系方式
 
-如果您对本条款有任何疑问，请通过以下方式联系我们：
+8. Acceptable use
 
-- GitHub: [https://github.com/Paker-kk/Flovart](https://github.com/Paker-kk/Flovart)
-- Issue: [https://github.com/Paker-kk/Flovart/issues](https://github.com/Paker-kk/Flovart/issues)
+You agree to use Flovart only for lawful purposes and in accordance with these Terms.
+
+You agree not to use Flovart to create, edit, automate, distribute, or facilitate unlawful, abusive, exploitative, deceptive, privacy-invasive, infringing, or harmful content.
+
+You agree not to violate third-party rights, including copyright, trademark, privacy, publicity, confidentiality, contractual, or data-protection rights.
+
+You agree not to bypass provider safety systems, rate limits, authentication systems, payment systems, browser protections, website protections, access controls, or legal restrictions.
+
+You agree not to upload secrets, passwords, API keys, private personal data, regulated data, confidential business data, client files, or third-party copyrighted material unless you have authorization and understand the receiving party's terms.
+
+
+9. No high-stakes reliance
+
+Flovart and its AI outputs are not designed for legal, medical, financial, safety-critical, employment, credit, housing, insurance, education, or other high-impact decisions.
+
+Do not rely on Flovart output as a substitute for professional judgment.
+
+Where an output may affect real-world decisions or rights, qualified human review and compliance review are required.
+
+
+10. Privacy
+
+Your use of Flovart is also governed by the Privacy Policy.
+
+Flovart itself is intended to operate locally, but your actions may still transmit data to third parties when you call providers, use custom endpoints, load remote media, use browser extensions, export files, publish work, sync browser data, use cloud backup, or enable integrations.
+
+You are responsible for deciding what data may be transmitted and whether you have the right to transmit it.
+
+
+11. No warranties
+
+Flovart is provided as is and as available.
+
+To the maximum extent permitted by law, Flovart is provided without warranties of any kind, whether express, implied, statutory, or otherwise.
+
+No warranty is made that Flovart will be secure, uninterrupted, error-free, accurate, compatible, lawful for your use case, or fit for a particular purpose.
+
+No warranty is made that third-party providers, browser APIs, local storage, extensions, custom endpoints, generated output, exported files, or workflows will behave as expected.
+
+
+12. Limitation of liability
+
+To the maximum extent permitted by law, maintainers, contributors, and project operators are not liable for indirect, incidental, special, consequential, exemplary, or punitive damages.
+
+This includes lost profits, lost revenue, lost data, lost API keys, leaked content, provider charges, account suspension, business interruption, reputational harm, infringement claims, compliance failures, or losses caused by AI output, third-party providers, local storage, browser extensions, or custom endpoints.
+
+Some jurisdictions do not allow certain limitations of liability, so some limitations may not apply to you.
+
+
+13. Changes to these Terms
+
+We may update these Terms from time to time to reflect product changes, legal requirements, security concerns, or business needs.
+
+The Last updated date indicates when the current version took effect.
+
+Your continued use of Flovart after an update means you accept the updated Terms.
+
+If you do not agree to updated Terms, stop using Flovart.
+
+
+14. Contact
+
+Project repository:
+https://github.com/Paker-kk/Flovart
+
+Issues:
+https://github.com/Paker-kk/Flovart/issues

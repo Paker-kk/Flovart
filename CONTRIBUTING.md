@@ -158,7 +158,7 @@ GEMINI_API_KEY=你的API密钥
 
 ### 📜 许可证
 
-提交贡献即表示你同意你的代码将以 [MIT License](LICENSE) 发布。
+提交贡献即表示你同意你的代码将以 [AGPL-3.0-only](LICENSE) 发布。
 
 ### 💬 需要帮助？
 
@@ -323,7 +323,7 @@ Please read our [Code of Conduct](CODE_OF_CONDUCT.md) to ensure a friendly, resp
 
 ### 📜 License
 
-By submitting contributions, you agree your code will be released under the [MIT License](LICENSE).
+By submitting contributions, you agree your code will be released under the [AGPL-3.0-only](LICENSE).
 
 ### 💬 Need Help?
 
