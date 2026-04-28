@@ -2,30 +2,37 @@ import type { NodeDefinition, NodeKind, WorkflowEdge, WorkflowGroup, WorkflowNod
 
 export const NODE_DEFS: Record<NodeKind, NodeDefinition> = {
   prompt: {
-    title: 'CLIP Text Encode (Prompt)',
-    width: 360,
-    height: 240,
+    title: 'Prompt',
+    width: 300,
+    height: 190,
     inputs: [],
     outputs: [{ key: 'text', type: 'text', label: 'TEXT' }],
   },
   loadImage: {
-    title: 'Load Image',
-    width: 300,
-    height: 160,
+    title: 'Image Input',
+    width: 260,
+    height: 130,
     inputs: [],
     outputs: [{ key: 'image', type: 'image', label: 'IMAGE' }],
   },
+  loadVideo: {
+    title: 'Video Input',
+    width: 260,
+    height: 130,
+    inputs: [],
+    outputs: [{ key: 'video', type: 'video', label: 'VIDEO' }],
+  },
   enhancer: {
-    title: 'Prompt Enhancer Agent',
-    width: 320,
-    height: 170,
+    title: 'Prompt Enhance',
+    width: 300,
+    height: 150,
     inputs: [{ key: 'text', type: 'text', label: 'TEXT IN' }],
     outputs: [{ key: 'text', type: 'text', label: 'TEXT OUT' }],
   },
   generator: {
-    title: 'KSampler / Generator',
-    width: 360,
-    height: 190,
+    title: 'Generate',
+    width: 310,
+    height: 170,
     inputs: [
       { key: 'text', type: 'text', label: 'PROMPT' },
       { key: 'image', type: 'image', label: 'IMAGE' },
@@ -33,24 +40,23 @@ export const NODE_DEFS: Record<NodeKind, NodeDefinition> = {
     outputs: [{ key: 'result', type: 'result', label: 'RESULT' }],
   },
   preview: {
-    title: 'Preview / Save Output',
-    width: 280,
-    height: 130,
+    title: 'Preview',
+    width: 240,
+    height: 112,
     inputs: [{ key: 'result', type: 'result', label: 'RESULT IN' }],
     outputs: [],
   },
-  // ──── New Agent / Workflow Nodes ────
   llm: {
-    title: 'LLM 大语言模型',
+    title: 'LLM',
     width: 380,
     height: 220,
     inputs: [{ key: 'text', type: 'text', label: 'INPUT' }],
     outputs: [{ key: 'text', type: 'text', label: 'OUTPUT' }],
   },
   imageGen: {
-    title: '图片生成 (AIGC)',
-    width: 360,
-    height: 200,
+    title: 'Image Generate',
+    width: 310,
+    height: 170,
     inputs: [
       { key: 'text', type: 'text', label: 'PROMPT' },
       { key: 'image', type: 'image', label: 'REF IMAGE' },
@@ -58,12 +64,23 @@ export const NODE_DEFS: Record<NodeKind, NodeDefinition> = {
     outputs: [{ key: 'image', type: 'image', label: 'IMAGE' }],
   },
   videoGen: {
-    title: '视频生成',
-    width: 360,
-    height: 200,
+    title: 'Video Generate',
+    width: 310,
+    height: 170,
     inputs: [
       { key: 'text', type: 'text', label: 'PROMPT' },
       { key: 'image', type: 'image', label: 'FIRST FRAME' },
+    ],
+    outputs: [{ key: 'video', type: 'video', label: 'VIDEO' }],
+  },
+  videoEdit: {
+    title: 'Video Edit',
+    width: 310,
+    height: 180,
+    inputs: [
+      { key: 'video', type: 'video', label: 'VIDEO' },
+      { key: 'image', type: 'image', label: 'POSTER' },
+      { key: 'text', type: 'text', label: 'PROMPT' },
     ],
     outputs: [{ key: 'video', type: 'video', label: 'VIDEO' }],
   },
@@ -78,14 +95,14 @@ export const NODE_DEFS: Record<NodeKind, NodeDefinition> = {
     outputs: [{ key: 'result', type: 'result', label: 'RESULT' }],
   },
   httpRequest: {
-    title: 'HTTP / MCP 请求',
+    title: 'HTTP / MCP Request',
     width: 380,
     height: 220,
     inputs: [{ key: 'input', type: 'any', label: 'INPUT' }],
     outputs: [{ key: 'output', type: 'any', label: 'OUTPUT' }],
   },
   condition: {
-    title: '条件分支',
+    title: 'Condition',
     width: 300,
     height: 160,
     inputs: [{ key: 'input', type: 'any', label: 'INPUT' }],
@@ -95,7 +112,7 @@ export const NODE_DEFS: Record<NodeKind, NodeDefinition> = {
     ],
   },
   merge: {
-    title: '合并',
+    title: 'Merge',
     width: 280,
     height: 140,
     inputs: [
@@ -105,7 +122,7 @@ export const NODE_DEFS: Record<NodeKind, NodeDefinition> = {
     outputs: [{ key: 'output', type: 'any', label: 'OUTPUT' }],
   },
   template: {
-    title: '文本模板',
+    title: 'Text Template',
     width: 340,
     height: 180,
     inputs: [
@@ -115,7 +132,7 @@ export const NODE_DEFS: Record<NodeKind, NodeDefinition> = {
     outputs: [{ key: 'text', type: 'text', label: 'TEXT' }],
   },
   switch: {
-    title: '多路分支 (Switch)',
+    title: 'Switch',
     width: 340,
     height: 200,
     inputs: [{ key: 'input', type: 'any', label: 'INPUT' }],
@@ -128,30 +145,37 @@ export const NODE_DEFS: Record<NodeKind, NodeDefinition> = {
     ],
   },
   upscale: {
-    title: '超分辨率 (Upscale)',
+    title: 'Upscale',
     width: 320,
     height: 160,
     inputs: [{ key: 'image', type: 'image', label: 'IMAGE' }],
     outputs: [{ key: 'image', type: 'image', label: 'IMAGE' }],
   },
   faceRestore: {
-    title: '人脸修复',
+    title: 'Face Restore',
     width: 320,
     height: 160,
     inputs: [{ key: 'image', type: 'image', label: 'IMAGE' }],
     outputs: [{ key: 'image', type: 'image', label: 'IMAGE' }],
   },
   bgRemove: {
-    title: '背景移除',
+    title: 'Background Remove',
     width: 320,
     height: 160,
     inputs: [{ key: 'image', type: 'image', label: 'IMAGE' }],
     outputs: [{ key: 'image', type: 'image', label: 'IMAGE' }],
   },
   saveToCanvas: {
-    title: '保存到画布',
-    width: 280,
-    height: 130,
+    title: 'Save',
+    width: 240,
+    height: 112,
+    inputs: [{ key: 'result', type: 'any', label: 'RESULT IN' }],
+    outputs: [],
+  },
+  saveToAssets: {
+    title: 'Save To Assets',
+    width: 300,
+    height: 140,
     inputs: [{ key: 'result', type: 'any', label: 'RESULT IN' }],
     outputs: [],
   },
@@ -173,4 +197,3 @@ export const INITIAL_EDGES: WorkflowEdge[] = [
 ];
 
 export const INITIAL_GROUPS: WorkflowGroup[] = [];
-

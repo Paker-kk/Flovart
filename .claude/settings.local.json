@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh repo *)"
+      "Bash(gh repo *)",
+      "Bash(echo \"exit: $?\")"
     ]
   }
 }

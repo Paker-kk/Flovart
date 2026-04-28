@@ -6,6 +6,7 @@ import {
   EMPTY_WORKFLOW_VALUE,
   getPrimaryWorkflowValue,
   getWorkflowImageValue,
+  getWorkflowVideoValue,
   getWorkflowTextContent,
   isWorkflowValueEmpty,
   summarizeWorkflowValue,
@@ -17,11 +18,13 @@ import type {
   WorkflowEdge,
   WorkflowImageValue,
   WorkflowNode,
+  WorkflowVideoValue,
   WorkflowValue,
 } from '../components/nodeflow/types';
 import { NODE_DEFS } from '../components/nodeflow/defs';
 import type { AIProvider, UserApiKey } from '../types';
 import { normalizeProviderBaseUrl } from './baseUrl';
+import { normalizeVideoTrim } from '../utils/videoEdit';
 
 // ──── Data Types ────
 
@@ -32,8 +35,12 @@ export interface ExecutionContext {
   inputPrompt?: string;
   /** Input images (dataURL) */
   inputImages?: string[];
+  /** Input videos from canvas/storyboard */
+  inputVideos?: Array<WorkflowVideoValue & { id?: string }>;
   /** Callback: place a workflow result on the canvas */
   onPlaceOnCanvas?: (value: WorkflowValue) => void | Promise<void>;
+  /** Callback: save a workflow result into the asset library */
+  onSaveToAssets?: (value: WorkflowValue, node: WorkflowNode) => void | Promise<void>;
   /** Callback: progress updates */
   onProgress?: (nodeId: string, status: string) => void;
   /** Callback: node completed */
@@ -65,6 +72,8 @@ export interface WorkflowExecutionPlan {
   edges: WorkflowEdge[];
   includedNodeIds: Set<string>;
 }
+
+type SupportedVideoAspectRatio = '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';
 
 function textValue(text: string | null | undefined): WorkflowValue {
   return { kind: 'text', text: text ?? '' };
@@ -107,9 +116,27 @@ function getTextInput(inputs: NodeIOMap, ...keys: string[]): string {
   return '';
 }
 
+function getPromptInput(node: WorkflowNode, inputs: NodeIOMap, ctx: ExecutionContext, ...keys: string[]): string {
+  return getTextInput(inputs, ...keys) || node.config?.prompt || ctx.inputPrompt || '';
+}
+
+function getSupportedVideoAspectRatio(value?: string): SupportedVideoAspectRatio | undefined {
+  return ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'].includes(value || '')
+    ? value as SupportedVideoAspectRatio
+    : undefined;
+}
+
 function getImageInput(inputs: NodeIOMap, ...keys: string[]): WorkflowImageValue | null {
   for (const key of keys) {
     const value = getWorkflowImageValue(inputs[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function getVideoInput(inputs: NodeIOMap, ...keys: string[]): WorkflowVideoValue | null {
+  for (const key of keys) {
+    const value = getWorkflowVideoValue(inputs[key]);
     if (value) return value;
   }
   return null;
@@ -231,18 +258,38 @@ export function createExecutionPlan(
 
 function getApiKeyForProvider(ctx: ExecutionContext, provider: string): string {
   const key = ctx.apiKeys.find(
-    (k) => k.provider === provider || k.provider === 'custom',
+    (k) => (k.provider === provider || k.provider === 'custom') && k.key && k.status !== 'error',
   );
   if (!key?.key) throw new Error(`未配置 ${provider} 的 API Key`);
   return key.key;
 }
 
-function getDefaultApiKey(ctx: ExecutionContext, ...providers: AIProvider[]): UserApiKey | undefined {
-  for (const p of providers) {
-    const key = ctx.apiKeys.find((k) => k.provider === p && k.key);
-    if (key) return key;
+function isUsableApiKey(apiKey: UserApiKey): boolean {
+  return !!apiKey.key && apiKey.status !== 'error';
+}
+
+export function resolveNodeApiKey(
+  apiKeys: UserApiKey[],
+  config: { apiKeyRef?: string } | undefined,
+  ...providers: AIProvider[]
+): UserApiKey | undefined {
+  if (config?.apiKeyRef) {
+    return apiKeys.find((apiKey) => apiKey.id === config.apiKeyRef && isUsableApiKey(apiKey));
   }
-  return ctx.apiKeys.find((k) => k.isDefault && k.key);
+
+  for (const provider of providers) {
+    const providerDefaultKey = apiKeys.find(
+      (apiKey) => apiKey.provider === provider && apiKey.isDefault && isUsableApiKey(apiKey),
+    );
+    if (providerDefaultKey) return providerDefaultKey;
+  }
+
+  for (const provider of providers) {
+    const providerKey = apiKeys.find((apiKey) => apiKey.provider === provider && isUsableApiKey(apiKey));
+    if (providerKey) return providerKey;
+  }
+
+  return apiKeys.find((apiKey) => apiKey.isDefault && isUsableApiKey(apiKey));
 }
 
 async function executeLLM(
@@ -250,11 +297,20 @@ async function executeLLM(
   inputs: NodeIOMap,
   ctx: ExecutionContext,
 ): Promise<NodeIOMap> {
-  const key = getDefaultApiKey(ctx, (node.config?.provider as AIProvider) || 'google', 'openai', 'anthropic', 'deepseek');
-  if (!key) throw new Error('未找到可用的 LLM API Key');
+  const key = resolveNodeApiKey(
+    ctx.apiKeys,
+    node.config,
+    (node.config?.provider as AIProvider) || 'google',
+    'openai',
+    'anthropic',
+    'deepseek',
+  );
+  if (!key) {
+    throw new Error(node.config?.apiKeyRef ? '未找到节点绑定的 API Key' : '未找到可用的 LLM API Key');
+  }
 
   const systemPrompt = node.config?.systemPrompt || 'You are a helpful assistant.';
-  const inputText = getTextInput(inputs, 'text', 'input');
+  const inputText = getPromptInput(node, inputs, ctx, 'text', 'input');
   const model = node.config?.model || 'gemini-3-flash-preview';
   const temperature = node.config?.temperature ?? 0.7;
   const maxTokens = node.config?.maxTokens ?? 4096;
@@ -308,12 +364,14 @@ async function executeImageGen(
   inputs: NodeIOMap,
   ctx: ExecutionContext,
 ): Promise<NodeIOMap> {
-  const prompt = getTextInput(inputs, 'text', 'input');
+  const prompt = getPromptInput(node, inputs, ctx, 'text', 'input');
   const refImage = getImageInput(inputs, 'image', 'input');
   const provider = (node.config?.provider as AIProvider) || 'google';
   const model = node.config?.model || (provider === 'openrouter' ? 'google/gemini-3.1-flash-image-preview' : provider === 'openai' ? 'gpt-image-1' : 'gemini-3.1-flash-image-preview');
-  const key = getDefaultApiKey(ctx, provider);
-  if (!key) throw new Error(`未找到 ${provider} 的 API Key`);
+  const key = resolveNodeApiKey(ctx.apiKeys, node.config, provider);
+  if (!key) {
+    throw new Error(node.config?.apiKeyRef ? '未找到节点绑定的 API Key' : `未找到 ${provider} 的 API Key`);
+  }
 
   if (provider === 'google' || provider === 'openai' || provider === 'openrouter' || provider === 'custom' || key.provider === 'google' || key.provider === 'openai' || key.provider === 'openrouter' || key.provider === 'custom') {
     const { editImageWithProvider, generateImageWithProvider } = await import('../services/aiGateway');
@@ -380,12 +438,14 @@ async function executeVideoGen(
   inputs: NodeIOMap,
   ctx: ExecutionContext,
 ): Promise<NodeIOMap> {
-  const prompt = getTextInput(inputs, 'text', 'input');
+  const prompt = getPromptInput(node, inputs, ctx, 'text', 'input');
   const firstFrame = getImageInput(inputs, 'image', 'input');
   const provider = (node.config?.provider as AIProvider) || 'google';
   const model = node.config?.model || (provider === 'minimax' ? 'video-01' : 'veo-3.1-generate-preview');
-  const key = getDefaultApiKey(ctx, provider, 'google', 'minimax', 'keling');
-  if (!key) throw new Error('未找到视频生成的 API Key');
+  const key = resolveNodeApiKey(ctx.apiKeys, node.config, provider, 'google', 'minimax', 'keling');
+  if (!key) {
+    throw new Error(node.config?.apiKeyRef ? '未找到节点绑定的 API Key' : '未找到视频生成的 API Key');
+  }
 
   const { generateVideoWithProvider } = await import('../services/aiGateway');
   const result = await generateVideoWithProvider(
@@ -394,6 +454,7 @@ async function executeVideoGen(
     key,
     {
       onProgress: (status) => ctx.onProgress?.(node.id, status),
+      aspectRatio: getSupportedVideoAspectRatio(node.config?.aspectRatio),
       image: firstFrame ? { href: firstFrame.href, mimeType: firstFrame.mimeType } : undefined,
     },
   );
@@ -404,13 +465,50 @@ async function executeVideoGen(
   return { video: null };
 }
 
+function executeVideoEdit(
+  node: WorkflowNode,
+  inputs: NodeIOMap,
+): NodeIOMap {
+  const sourceVideo = getVideoInput(inputs, 'video', 'input', 'result');
+  if (!sourceVideo) return { video: null };
+
+  const mode = node.config?.videoEditMode || 'trim';
+  if (mode === 'replacePoster') {
+    const posterImage = getImageInput(inputs, 'image');
+    return {
+      video: {
+        ...sourceVideo,
+        posterHref: posterImage?.href || sourceVideo.posterHref,
+        sourceVideoId: sourceVideo.sourceVideoId,
+      },
+    };
+  }
+
+  const normalizedTrim = normalizeVideoTrim({
+    durationSec: sourceVideo.durationSec,
+    trimInSec: node.config?.trimInSec ?? sourceVideo.trimInSec,
+    trimOutSec: node.config?.trimOutSec ?? sourceVideo.trimOutSec,
+  });
+
+  return {
+    video: {
+      ...sourceVideo,
+      trimInSec: normalizedTrim.trimInSec,
+      trimOutSec: normalizedTrim.trimOutSec,
+      sourceVideoId: sourceVideo.sourceVideoId,
+    },
+  };
+}
+
 async function executeRunningHub(
   node: WorkflowNode,
   inputs: NodeIOMap,
   ctx: ExecutionContext,
 ): Promise<NodeIOMap> {
-  const key = getDefaultApiKey(ctx, 'runningHub');
-  if (!key) throw new Error('未配置 RunningHub API Key');
+  const key = resolveNodeApiKey(ctx.apiKeys, node.config, 'runningHub');
+  if (!key) {
+    throw new Error(node.config?.apiKeyRef ? '未找到节点绑定的 API Key' : '未配置 RunningHub API Key');
+  }
 
   const { rhRunTask, rhUploadDataUrl } = await import('../services/runningHubService');
   const endpoint = node.config?.rhEndpoint || 'rhart-image-n-pro-official/edit';
@@ -777,13 +875,34 @@ async function executeNode(
 ): Promise<NodeIOMap> {
   switch (node.kind) {
     case 'prompt':
-      return { text: textValue(ctx.inputPrompt || getTextInput(inputs, 'text', 'input')) };
+      return { text: textValue(node.config?.prompt || ctx.inputPrompt || getTextInput(inputs, 'text', 'input')) };
     case 'loadImage':
       return {
         image: ctx.inputImages?.[0]
           ? imageValue(ctx.inputImages[0], detectMimeTypeFromHref(ctx.inputImages[0], 'image/png'))
           : pickFirstValue(inputs.image, inputs.input),
       };
+    case 'loadVideo': {
+      const selectedVideo = node.config?.videoSourceId
+        ? ctx.inputVideos?.find((video) => video.id === node.config?.videoSourceId)
+        : ctx.inputVideos?.[0];
+      return {
+        video: selectedVideo
+          ? {
+              kind: 'video',
+              href: selectedVideo.href,
+              mimeType: selectedVideo.mimeType,
+              width: selectedVideo.width,
+              height: selectedVideo.height,
+              posterHref: selectedVideo.posterHref,
+              durationSec: selectedVideo.durationSec,
+              trimInSec: selectedVideo.trimInSec,
+              trimOutSec: selectedVideo.trimOutSec,
+              sourceVideoId: selectedVideo.id,
+            }
+          : pickFirstValue(inputs.video, inputs.input),
+      };
+    }
     case 'enhancer':
     case 'llm':
       return executeLLM(node, inputs, ctx);
@@ -796,6 +915,8 @@ async function executeNode(
       return executeImageGen(node, inputs, ctx);
     case 'videoGen':
       return executeVideoGen(node, inputs, ctx);
+    case 'videoEdit':
+      return executeVideoEdit(node, inputs);
     case 'runningHub':
       return executeRunningHub(node, inputs, ctx);
     case 'httpRequest':
@@ -818,6 +939,14 @@ async function executeNode(
     case 'saveToCanvas':
       // Pass-through; side effects handled after execution
       return { result: pickFirstValue(inputs.result, inputs.image, inputs.video, inputs.text, inputs.input) };
+    case 'saveToAssets': {
+      const result = pickFirstValue(inputs.result, inputs.image, inputs.video, inputs.text, inputs.input);
+      if (!result) return { result: null };
+      if (result.kind !== 'image') {
+        throw new Error('Save To Assets 目前仅支持图片输出');
+      }
+      return { result };
+    }
     default:
       return {};
   }
@@ -890,6 +1019,12 @@ export async function executeWorkflow(
           await ctx.onPlaceOnCanvas(primary);
         }
       }
+      if (node.kind === 'saveToAssets' && ctx.onSaveToAssets) {
+        const primary = getPrimaryWorkflowValue(pinnedOutputs);
+        if (primary?.kind === 'image') {
+          await ctx.onSaveToAssets(primary, node);
+        }
+      }
       continue;
     }
 
@@ -945,6 +1080,12 @@ export async function executeWorkflow(
         const result = getPrimaryWorkflowValue(outputs);
         if (!isWorkflowValueEmpty(result)) {
           await ctx.onPlaceOnCanvas(result as WorkflowValue);
+        }
+      }
+      if (node.kind === 'saveToAssets' && ctx.onSaveToAssets) {
+        const result = getPrimaryWorkflowValue(outputs);
+        if (result?.kind === 'image') {
+          await ctx.onSaveToAssets(result, node);
         }
       }
     }

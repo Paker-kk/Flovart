@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./styles/motion.css";
 
 :root {
     color-scheme: light;
@@ -68,8 +69,8 @@ body,
     background: var(--app-bg);
     color: var(--text-primary);
     transition:
-        background-color 0.25s ease,
-        color 0.25s ease;
+        background-color var(--motion-base) var(--ease-standard),
+        color var(--motion-base) var(--ease-standard);
 }
 
 body {
@@ -153,8 +154,8 @@ body {
 
 .compact-canvas-stage {
     transition:
-        padding-right 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-        padding-bottom 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        padding-right var(--motion-slow) var(--ease-standard),
+        padding-bottom var(--motion-slow) var(--ease-standard);
 }
 
 .compact-sidebar-panel,
@@ -169,11 +170,11 @@ body {
 }
 
 .compact-prompt-dock {
-    animation: compactDockFloat 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+    animation: compactDockFloat var(--motion-slow) var(--ease-spring-soft);
 }
 
 .compact-prompt-dock__inner {
-    animation: compactDockLift 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+    animation: compactDockLift var(--motion-slow) var(--ease-spring-soft);
 }
 
 @keyframes compactDockFloat {
@@ -235,7 +236,7 @@ input[type='range'].toolbar-range::-webkit-slider-thumb {
     border: 2px solid var(--panel-bg);
     margin-top: -5px;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-    transition: transform 0.15s ease;
+    transition: transform var(--motion-fast) var(--ease-soft-out);
 }
 
 input[type='range'].toolbar-range::-webkit-slider-thumb:hover {
@@ -255,7 +256,7 @@ input[type='range'].toolbar-range::-moz-range-thumb {
     background: var(--text-primary);
     border: 2px solid var(--panel-bg);
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-    transition: transform 0.15s ease;
+    transition: transform var(--motion-fast) var(--ease-soft-out);
 }
 
 input[type='range'].toolbar-range::-moz-range-thumb:hover {
@@ -369,4 +370,537 @@ input[type='range'].toolbar-range::-moz-range-thumb:hover {
     border-radius: 4px;
     padding: 1px 4px;
     font-weight: 500;
+}
+
+/* ── Workflow surface — Notion minimal ─────────────────────────── */
+
+.workflow-libtv {
+    background: #f7f6f4;
+    color: #37352f;
+    font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+.workflow-libtv-grid {
+    background-image: radial-gradient(rgba(0, 0, 0, 0.06) 1px, transparent 1px);
+    background-size: 20px 20px;
+    background-position: -2px -2px;
+}
+
+.workflow-libtv-top-fade {
+    display: none;
+}
+
+.workflow-libtv button,
+.workflow-libtv textarea,
+.workflow-libtv select,
+.workflow-libtv input {
+    font: inherit;
+}
+
+.workflow-libtv button { cursor: pointer; }
+.workflow-libtv button:disabled { cursor: not-allowed; opacity: 0.4; }
+
+.workflow-libtv button:focus-visible,
+.workflow-libtv textarea:focus-visible,
+.workflow-libtv select:focus-visible,
+.workflow-libtv input:focus-visible {
+    outline: 2px solid #1a1a1a;
+    outline-offset: 2px;
+}
+
+/* ── Topbar ────────────────────────────────────────────────────── */
+
+.workflow-topbar {
+    color: #1a1a1a;
+}
+
+.workflow-title-pill {
+    border: 1px solid #e5e5e5;
+    background: #fff;
+}
+
+.workflow-title-pill input {
+    color: #1a1a1a !important;
+}
+
+.workflow-view-switch,
+.workflow-brand-mark {
+    display: none;
+}
+
+/* ── Buttons & controls ────────────────────────────────────────── */
+
+.workflow-primary-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #d4d4d4;
+    background: #fff;
+    color: #1a1a1a;
+    transition: background-color 150ms ease;
+}
+.workflow-primary-action:hover {
+    background: #f5f5f5;
+}
+
+.workflow-ghost-action,
+.workflow-icon-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #6b6b6b;
+    transition: background-color 150ms ease, color 150ms ease;
+}
+.workflow-ghost-action:hover,
+.workflow-icon-action:hover {
+    background: #f0f0f0;
+    color: #1a1a1a;
+}
+
+.workflow-run-status {
+    color: #6b6b6b;
+    font-size: 12px;
+}
+.workflow-run-status.is-error {
+    color: #e03e2d;
+}
+
+.workflow-credit-pill {
+    display: none;
+}
+
+/* ── Tool rail (left side) ─────────────────────────────────────── */
+
+.workflow-tool-rail {
+    border: 1px solid #e5e5e5;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
+.workflow-rail-button,
+.workflow-rail-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #6b6b6b;
+    transition: background-color 150ms ease, color 150ms ease;
+}
+.workflow-rail-button:hover {
+    background: #f0f0f0;
+    color: #1a1a1a;
+}
+.workflow-rail-primary {
+    background: #1a1a1a;
+    color: #fff;
+}
+.workflow-rail-primary:hover {
+    background: #333;
+}
+.workflow-rail-button.is-active {
+    background: #f0f0f0;
+    color: #1a1a1a;
+}
+
+/* ── Panels ────────────────────────────────────────────────────── */
+
+.workflow-left-panel,
+.workflow-inspector-panel,
+.workflow-minimap {
+    border: 1px solid #e5e5e5;
+    background: #fff;
+    color: #1a1a1a;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+.workflow-left-panel {
+    min-height: 420px;
+}
+
+.workflow-panel-tab {
+    color: #9a9a9a;
+    transition: color 150ms ease;
+}
+.workflow-panel-tab.is-active,
+.workflow-panel-tab:hover {
+    color: #1a1a1a;
+}
+
+/* ── Chip / card / empty state ─────────────────────────────────── */
+
+.workflow-chip {
+    min-height: 34px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: #6b6b6b;
+    padding: 0 10px;
+    font-size: 13px;
+    transition: background-color 150ms ease, border-color 150ms ease;
+}
+.workflow-chip:hover,
+.workflow-chip.is-active {
+    border-color: #e5e5e5;
+    background: #f5f5f5;
+    color: #1a1a1a;
+}
+
+.workflow-empty-state {
+    border-color: #e5e5e5;
+    color: #9a9a9a;
+}
+
+.workflow-asset-card,
+.workflow-template-card,
+.workflow-node-library-card {
+    border-color: #e5e5e5;
+    background: #fff;
+    color: #1a1a1a;
+    transition: border-color 150ms ease;
+}
+.workflow-asset-card:hover,
+.workflow-template-card:hover,
+.workflow-node-library-card:hover {
+    border-color: #d0d0d0;
+}
+
+.workflow-asset-use {
+    background: #1a1a1a;
+    color: #fff;
+}
+
+/* ── Context menu ──────────────────────────────────────────────── */
+
+.workflow-context-menu {
+    border: 1px solid #e5e5e5 !important;
+    background: #fff !important;
+    color: #1a1a1a !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.1) !important;
+}
+.workflow-context-menu button {
+    color: #1a1a1a;
+    border-radius: 6px !important;
+}
+.workflow-context-menu button:hover {
+    background: #f5f5f5 !important;
+}
+
+/* ── Connection menu ───────────────────────────────────────────── */
+
+.workflow-connection-menu {
+    border: 1px solid #e5e5e5;
+    background: #fff;
+    color: #1a1a1a;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+    animation: connectionMenuIn 150ms ease-out;
+}
+.workflow-connection-menu button:hover {
+    background: #f5f5f5;
+}
+.workflow-connection-menu button.is-disabled {
+    opacity: 0.35;
+}
+
+.workflow-chain-option-badge {
+    display: inline-flex;
+    height: 32px;
+    min-width: 32px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    background: #f0f0f0;
+    color: #1a1a1a;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+/* ── Floating composer ─────────────────────────────────────────── */
+
+.workflow-floating-composer {
+    border: 1px solid #e5e5e5;
+    background: #fff;
+    color: #1a1a1a;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+}
+
+.workflow-composer-input {
+    border-color: #e5e5e5;
+    background: #fafafa;
+}
+.workflow-composer-input.is-drop-over {
+    border-color: #1a1a1a;
+    background: #f5f5f5;
+}
+
+.workflow-composer-chip,
+.workflow-composer-select {
+    border: 1px solid #e5e5e5;
+    background: #fff;
+    color: #1a1a1a;
+}
+.workflow-composer-chip:hover,
+.workflow-composer-chip.is-active {
+    background: #f0f0f0;
+}
+.workflow-composer-select {
+    max-width: 190px;
+}
+
+.workflow-composer-run {
+    background: #1a1a1a;
+    color: #fff;
+    font-size: 18px;
+    font-weight: 600;
+}
+.workflow-composer-run:hover {
+    background: #333;
+}
+.workflow-composer-run:disabled {
+    background: #e5e5e5;
+    color: #9a9a9a;
+}
+
+.workflow-composer-suggest {
+    border: 1px solid #e5e5e5;
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+    animation: composerSuggestIn 140ms ease-out;
+}
+.workflow-composer-suggest button:hover {
+    background: #f5f5f5;
+}
+
+/* Panel elastic expand */
+.workflow-left-panel,
+.workflow-inspector-panel {
+    animation: panelExpand 280ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    transform-origin: top left;
+}
+
+@keyframes panelExpand {
+    from {
+        opacity: 0;
+        transform: scale(0.92);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes composerSuggestIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@keyframes connectionMenuIn {
+    from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ── Node cards ────────────────────────────────────────────────── */
+
+.workflow-libtv .workflow-node-card {
+    background: #fff !important;
+    border: 1px solid #e0e0de !important;
+    border-radius: 8px !important;
+    color: #37352f !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.04) !important;
+    transition: box-shadow 150ms ease, border-color 150ms ease;
+}
+
+.workflow-libtv .workflow-node-card:hover {
+    border-color: #c8c8c6 !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.06) !important;
+}
+
+.workflow-libtv .workflow-node-card.is-selected {
+    border-color: #37352f !important;
+    box-shadow: 0 0 0 2px rgba(55,53,47,0.15), 0 2px 8px rgba(0,0,0,0.1) !important;
+}
+
+.workflow-libtv .workflow-node-card.is-running {
+    border-color: #2383e2 !important;
+    box-shadow: 0 0 0 2px rgba(35,131,226,0.15), 0 2px 8px rgba(0,0,0,0.08) !important;
+}
+.workflow-libtv .workflow-node-card.is-success,
+.workflow-libtv .workflow-node-card.is-pinned {
+    border-color: #0f8c3b !important;
+}
+.workflow-libtv .workflow-node-card.is-error {
+    border-color: #e03e2d !important;
+}
+
+.workflow-libtv .workflow-node-header {
+    background: #fbfbfa !important;
+    border-color: #e8e8e6 !important;
+    color: #37352f !important;
+}
+
+/* Undo dark-only color overrides — use neutral Tailwind classes natively */
+.workflow-libtv .workflow-node-header .text-neutral-800,
+.workflow-libtv .workflow-node-card .text-neutral-800,
+.workflow-libtv .workflow-node-card .text-neutral-700 {
+    color: #1a1a1a !important;
+}
+.workflow-libtv .workflow-node-card .text-neutral-500,
+.workflow-libtv .workflow-node-card .text-neutral-400,
+.workflow-libtv .workflow-inspector-panel .text-neutral-400,
+.workflow-libtv .workflow-inspector-panel .text-neutral-500 {
+    color: #6b6b6b !important;
+}
+
+/* Reset dark-only panel overrides */
+.workflow-libtv .workflow-node-card [class*="bg-white"],
+.workflow-libtv .workflow-node-card [class*="bg-neutral-50"],
+.workflow-libtv .workflow-node-card [class*="bg-black/"],
+.workflow-libtv .workflow-inspector-panel [class*="bg-white/5"],
+.workflow-libtv .workflow-inspector-panel [class*="bg-black/"] {
+    background-color: #fafafa !important;
+}
+.workflow-libtv .workflow-node-card [class*="border-white"],
+.workflow-libtv .workflow-node-card [class*="border-neutral"],
+.workflow-libtv .workflow-inspector-panel [class*="border-white"] {
+    border-color: #e5e5e5 !important;
+}
+
+/* ── Ports ─────────────────────────────────────────────────────── */
+
+.workflow-libtv .workflow-port {
+    border: 1.5px solid #d0d0d0 !important;
+    background: #fff !important;
+    box-shadow: 0 0 0 3px #fff;
+    transition: border-color 150ms ease, background-color 150ms ease;
+}
+.workflow-libtv .workflow-port:hover {
+    border-color: #1a1a1a !important;
+    background: #1a1a1a !important;
+}
+
+/* ── Runtime controls ──────────────────────────────────────────── */
+
+.workflow-node-runtime-controls {
+    border-color: #e5e5e5;
+    background: #fafafa;
+}
+.workflow-node-runtime-controls button,
+.workflow-node-runtime-controls select {
+    color: #1a1a1a;
+}
+.workflow-node-runtime-controls button {
+    background: transparent;
+}
+.workflow-node-runtime-controls button.is-active,
+.workflow-node-runtime-controls button:hover {
+    background: #f0f0f0;
+}
+
+/* ── Edges ─────────────────────────────────────────────────────── */
+
+.workflow-libtv .workflow-edge {
+    stroke-linecap: round;
+}
+.workflow-libtv .workflow-pending-edge {
+    stroke: #1a1a1a !important;
+    stroke-width: 2px !important;
+    stroke-dasharray: 6 4;
+}
+
+/* ── Text / inputs / selects ───────────────────────────────────── */
+
+.workflow-libtv textarea,
+.workflow-libtv select,
+.workflow-libtv input {
+    color: #1a1a1a !important;
+}
+.workflow-libtv textarea::placeholder,
+.workflow-libtv input::placeholder {
+    color: #9a9a9a !important;
+}
+.workflow-libtv select option {
+    background: #fff;
+    color: #1a1a1a;
+}
+.workflow-libtv pre {
+    background: #fafafa !important;
+    border-color: #e5e5e5 !important;
+    color: #1a1a1a !important;
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────── */
+
+.workflow-libtv aside::-webkit-scrollbar,
+.workflow-libtv main::-webkit-scrollbar,
+.workflow-left-panel div::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+.workflow-libtv aside::-webkit-scrollbar-thumb,
+.workflow-libtv main::-webkit-scrollbar-thumb,
+.workflow-left-panel div::-webkit-scrollbar-thumb {
+    background: #d0d0d0;
+    border-radius: 999px;
+}
+
+/* ── Minimap ───────────────────────────────────────────────────── */
+
+.workflow-minimap {
+    border-radius: 6px !important;
+    overflow: hidden;
+}
+
+/* ── Misc ──────────────────────────────────────────────────────── */
+
+.workflow-bottom-controls {
+    border: 1px solid #e5e5e5;
+    background: #fff;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+}
+.workflow-bottom-button,
+.workflow-zoom-readout {
+    color: #6b6b6b;
+}
+.workflow-bottom-button:hover {
+    background: #f0f0f0;
+}
+.workflow-panel-close {
+    color: #6b6b6b;
+    transition: color 150ms ease;
+}
+.workflow-panel-close:hover {
+    color: #1a1a1a;
+}
+
+.workflow-provider-status {
+    border-color: #e5e5e5;
+    background: #fafafa;
+    color: #6b6b6b;
+}
+.workflow-provider-status.is-warning {
+    border-color: #fbbf24;
+    background: #fefce8;
+}
+.workflow-provider-warning {
+    color: #92400e;
+}
+
+.workflow-node-library-card span:first-child {
+    background: #f0f0f0;
+    color: #1a1a1a;
+}
+
+.workflow-canvas {
+    background: transparent;
+}
+
+@media (max-width: 1100px) {
+    .workflow-left-panel {
+        width: min(420px, calc(100vw - 132px));
+    }
+
+    .workflow-inspector-panel {
+        width: min(320px, calc(100vw - 132px));
+    }
 }

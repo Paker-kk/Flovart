@@ -1,6 +1,20 @@
 import React from 'react';
 import type { WheelAction, UserApiKey, ModelPreference, AIProvider, AICapability, ThemeMode, ModelItem } from '../types';
-import { DEFAULT_PROVIDER_MODELS, validateApiKey, inferProviderFromKey, inferCapabilitiesByProvider, PROVIDER_LABELS } from '../services/aiGateway';
+import {
+    DEFAULT_PROVIDER_MODELS,
+    validateApiKey,
+    inferProviderFromKey,
+    inferCapabilitiesByProvider,
+    inferProviderFromModel,
+    PROVIDER_LABELS,
+} from '../services/aiGateway';
+import {
+    findModelTemplateByModel,
+    getBuiltinModelTemplates,
+    getModelTemplatesByCapability,
+    type ModelTemplate,
+    type ModelTemplateCapability,
+} from '../services/modelTemplateRegistry';
 import { formatCost, type KeyUsageSummary } from '../utils/usageMonitor';
 import { fetchModelsForProvider, FREE_KEY_LINKS, type FetchedModel } from '../services/modelFetcher';
 import { normalizeProviderBaseUrl } from '../services/baseUrl';
@@ -61,6 +75,46 @@ const ensureModelOption = (options: string[], model?: string) => {
     if (!trimmed) return options;
     return options.includes(trimmed) ? options : [trimmed, ...options];
 };
+
+type PreferenceTemplateCard = {
+    key: keyof ModelPreference;
+    title: string;
+    capability: ModelTemplateCapability;
+    model: string;
+    template: ModelTemplate | null;
+    providerLabel: string;
+    providerId?: AIProvider;
+    tagLabels: string[];
+    defaultParamPreview: string[];
+};
+
+const PREFERENCE_TEMPLATE_SPECS: Array<{
+    key: keyof ModelPreference;
+    title: string;
+    capability: ModelTemplateCapability;
+}> = [
+    { key: 'textModel', title: 'Text Model', capability: 'text' },
+    { key: 'imageModel', title: 'Image Model', capability: 'image' },
+    { key: 'videoModel', title: 'Video Model', capability: 'video' },
+    { key: 'agentModel', title: 'Agent Model', capability: 'agent' },
+];
+
+function formatTemplateValue(value: unknown): string {
+    if (typeof value === 'boolean') return value ? 'on' : 'off';
+    if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, '');
+    if (typeof value === 'string') return value;
+    if (value == null) return 'manual';
+    return String(value);
+}
+
+function buildTemplateDefaultPreview(template: ModelTemplate | null): string[] {
+    if (!template) return [];
+    return template.paramsSchema.slice(0, 3).map((field) => {
+        const fallbackValue = template.defaultParams[field.key];
+        const resolvedValue = field.defaultValue ?? fallbackValue;
+        return `${field.label}: ${formatTemplateValue(resolvedValue)}`;
+    });
+}
 
 export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
     isOpen,
@@ -136,6 +190,49 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         ),
         agent: ensureModelOption([...(DEFAULT_PROVIDER_MODELS.banana?.agent || [])], modelPreference.agentModel),
     }), [dynamicModelOptions, modelPreference.agentModel, modelPreference.imageModel, modelPreference.textModel, modelPreference.videoModel]);
+
+    const builtinTemplateCount = React.useMemo(() => getBuiltinModelTemplates().length, []);
+
+    const preferenceTemplateCards = React.useMemo<PreferenceTemplateCard[]>(() => {
+        return PREFERENCE_TEMPLATE_SPECS.map(({ key, title, capability }) => {
+            const model = modelPreference[key]?.trim() || '';
+            const template = findModelTemplateByModel(model, capability);
+            const providerId = template?.provider || (model ? inferProviderFromModel(model) : undefined);
+            const providerLabel = providerId ? PROVIDER_LABELS[providerId] || providerId : 'Unresolved provider';
+            const tagLabels = template
+                ? template.tags.filter((tag) => tag !== template.provider && tag !== template.capability).slice(0, 4)
+                : [];
+            return {
+                key,
+                title,
+                capability,
+                model,
+                template,
+                providerLabel,
+                providerId,
+                tagLabels,
+                defaultParamPreview: buildTemplateDefaultPreview(template),
+            };
+        });
+    }, [modelPreference]);
+
+    const templateCoverageRows = React.useMemo(() => {
+        const providers = Array.from(new Set(
+            preferenceTemplateCards
+                .map((card) => card.providerId)
+                .filter((provider): provider is AIProvider => Boolean(provider))
+        ));
+        return providers.map((provider) => ({
+            provider,
+            label: PROVIDER_LABELS[provider] || provider,
+            counts: {
+                text: getModelTemplatesByCapability('text', provider).length,
+                image: getModelTemplatesByCapability('image', provider).length,
+                video: getModelTemplatesByCapability('video', provider).length,
+                agent: getModelTemplatesByCapability('agent', provider).length,
+            },
+        }));
+    }, [preferenceTemplateCards]);
 
     if (!isOpen) return null;
 
@@ -546,6 +643,83 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                     </div>
                                 </button>
                             ))}
+                        </div>
+                        <div className={`rounded-2xl border p-4 ${isDark ? 'border-[#2A3140] bg-[#12151B]' : 'border-[#E4E7EC] bg-white'}`}>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                    <div className={`text-sm font-medium ${isDark ? 'text-[#F3F4F6]' : 'text-[#101828]'}`}>Template Insight</div>
+                                    <div className={`mt-1 text-xs ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>
+                                        Current preferences resolved against {builtinTemplateCount} built-in model templates.
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                {preferenceTemplateCards.map((card) => (
+                                    <div
+                                        key={card.key}
+                                        className={`rounded-2xl border p-3 ${isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E4E7EC] bg-[#F8FAFC]'}`}
+                                    >
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <div className={`text-[11px] uppercase tracking-[0.14em] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>
+                                                    {card.title}
+                                                </div>
+                                                <div className={`mt-1 truncate text-sm font-medium ${isDark ? 'text-[#F3F4F6]' : 'text-[#101828]'}`}>
+                                                    {card.template?.displayName || card.model || 'No model selected'}
+                                                </div>
+                                            </div>
+                                            <span className={`rounded-full px-2 py-1 text-[10px] font-medium ${
+                                                card.template
+                                                    ? isDark ? 'bg-[#1B2330] text-[#7CB4FF]' : 'bg-[#EEF4FF] text-[#175CD3]'
+                                                    : isDark ? 'bg-[#1B2029] text-[#98A2B3]' : 'bg-[#F2F4F7] text-[#667085]'
+                                            }`}>
+                                                {card.template ? 'template' : 'raw model'}
+                                            </span>
+                                        </div>
+                                        <div className={`mt-2 text-xs ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>
+                                            {card.providerLabel}
+                                        </div>
+                                        <div className={`mt-1 text-xs ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>
+                                            {card.template?.description || 'No builtin template matched this model yet. Runtime still keeps the raw model id.'}
+                                        </div>
+                                        {card.tagLabels.length > 0 && (
+                                            <div className="mt-3 flex flex-wrap gap-1.5">
+                                                {card.tagLabels.map((tag) => (
+                                                    <span
+                                                        key={`${card.key}-${tag}`}
+                                                        className={`rounded-full px-2 py-1 text-[10px] ${
+                                                            isDark ? 'bg-[#1B2029] text-[#D0D5DD]' : 'bg-white text-[#475467]'
+                                                        }`}
+                                                    >
+                                                        {tag}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <div className={`mt-3 text-[11px] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>
+                                            Defaults: {card.defaultParamPreview.length > 0 ? card.defaultParamPreview.join(' · ') : 'No extra params'}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            {templateCoverageRows.length > 0 && (
+                                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                    {templateCoverageRows.map((row) => (
+                                        <div
+                                            key={row.provider}
+                                            className={`rounded-2xl border p-3 ${isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E4E7EC] bg-[#F8FAFC]'}`}
+                                        >
+                                            <div className={`text-sm font-medium ${isDark ? 'text-[#F3F4F6]' : 'text-[#101828]'}`}>{row.label}</div>
+                                            <div className={`mt-2 grid grid-cols-4 gap-2 text-[11px] ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>
+                                                <div>Text {row.counts.text}</div>
+                                                <div>Image {row.counts.image}</div>
+                                                <div>Video {row.counts.video}</div>
+                                                <div>Agent {row.counts.agent}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </section>
 

@@ -33,10 +33,10 @@ export interface BananaAgentResult {
 type RawLayer = Record<string, unknown>;
 
 const BANANA_API_URL =
-  process.env.BANANA_API_URL || "https://api.banana.dev/v1/vision/split-layers";
-const BANANA_API_KEY = process.env.BANANA_API_KEY || "";
+  import.meta.env.VITE_BANANA_API_URL || "https://api.banana.dev/v1/vision/split-layers";
+const BANANA_API_KEY = import.meta.env.VITE_BANANA_API_KEY || "";
 const BANANA_AGENT_API_URL =
-  process.env.BANANA_AGENT_API_URL || "https://api.banana.dev/v1/vision/agent";
+  import.meta.env.VITE_BANANA_AGENT_API_URL || "https://api.banana.dev/v1/vision/agent";
 
 let runtimeBananaConfig: {
   apiKey?: string;

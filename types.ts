@@ -6,7 +6,7 @@ export type WheelAction = 'zoom' | 'pan';
 
 export type GenerationMode = 'image' | 'video' | 'keyframe';
 
-export type WorkspaceView = 'canvas' | 'workflow' | 'storyboard' | 'assets';
+export type WorkspaceView = 'canvas' | 'workflow' | 'storyboard' | 'assets' | 'diagnostics' | 'publish';
 
 export interface Point {
   x: number;

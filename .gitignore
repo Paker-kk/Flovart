@@ -13,6 +13,18 @@ dist-ssr
 dist-extension
 *.local
 n8n-temp/
+tmp-*.png
+tmp-vite.*.log
+tmp-chrome-profile-*/
+
+# Build artifacts and cache
+.npm-cache/
+dist-extension.zip
+
+# Display / screenshot assets (not part of source)
+displayphoto0.png
+displayphoto1.png
+show.jpg
 
 # Environment variables (may contain API keys)
 .env

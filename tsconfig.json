@@ -26,5 +26,5 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "exclude": ["src/**"]
+  "exclude": ["src-tauri/**", "node_modules", "dist", "dist-extension"]
 }

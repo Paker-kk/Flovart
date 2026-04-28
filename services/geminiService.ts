@@ -30,8 +30,8 @@
 import { GoogleGenAI, Modality, GenerateContentResponse, GenerateVideosOperation } from "@google/genai";
 import type { PromptEnhanceRequest, PromptEnhanceResult } from "../types";
 
-// 从环境变量获取 API Key
-const API_KEY = process.env.API_KEY;
+// 从用户配置或 runtime config 获取 API Key（不在 bundle 中硬编码任何密钥）
+const API_KEY: string | undefined = undefined;
 let runtimeConfig: {
   textApiKey?: string;
   imageApiKey?: string;

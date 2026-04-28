@@ -47,9 +47,7 @@ import { AppShell } from './components/AppShell';
 import { TopWorkspaceBar } from './components/TopWorkspaceBar';
 import { CanvasWorkspace } from './components/workspaces/CanvasWorkspace';
 import { WorkflowWorkspace } from './components/workspaces/WorkflowWorkspace';
-import { StoryboardWorkspace } from './components/workspaces/StoryboardWorkspace';
-import { AssetsWorkspace } from './components/workspaces/AssetsWorkspace';
-import type { WorkflowValue } from './components/nodeflow/types';
+import type { WorkflowNode, WorkflowValue } from './components/nodeflow/types';
 import { useWorkspaceStore } from './stores/useWorkspaceStore';
 import type { WorkspaceView } from './types';
 
@@ -737,6 +735,18 @@ const App: React.FC = () => {
         commitAction, getPreferredApiKey,
     });
 
+    const resolveWorkflowImageSize = useCallback(async (value: Extract<WorkflowValue, { kind: 'image' }>) => (
+        new Promise<{ width: number; height: number }>((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve({
+                width: img.naturalWidth || value.width || 1024,
+                height: img.naturalHeight || value.height || 1024,
+            });
+            img.onerror = () => resolve({ width: value.width || 1024, height: value.height || 1024 });
+            img.src = value.href;
+        })
+    ), []);
+
     const handlePlaceWorkflowValue = useCallback(async (value: WorkflowValue) => {
         const visibleWidth = svgRef.current?.clientWidth || Math.max(960, viewportWidth - 360);
         const visibleHeight = svgRef.current?.clientHeight || Math.max(640, window.innerHeight - 260);
@@ -751,12 +761,7 @@ const App: React.FC = () => {
             };
 
         if (value.kind === 'image') {
-            const size = await new Promise<{ width: number; height: number }>((resolve) => {
-                const img = new Image();
-                img.onload = () => resolve({ width: img.naturalWidth || value.width || 1024, height: img.naturalHeight || value.height || 1024 });
-                img.onerror = () => resolve({ width: value.width || 1024, height: value.height || 1024 });
-                img.src = value.href;
-            });
+            const size = await resolveWorkflowImageSize(value);
             const nextImage: ImageElement = {
                 id: generateId(),
                 type: 'image',
@@ -814,7 +819,25 @@ const App: React.FC = () => {
             commitAction(prev => [...prev, nextText]);
             setSelectedElementIds([nextText.id]);
         }
-    }, [commitAction, getCanvasPoint, panOffset.x, panOffset.y, resolvedTheme, viewportWidth, zoom]);
+    }, [commitAction, getCanvasPoint, panOffset.x, panOffset.y, resolveWorkflowImageSize, resolvedTheme, viewportWidth, zoom]);
+
+    const handleSaveWorkflowValueToAssets = useCallback(async (value: WorkflowValue, node: WorkflowNode) => {
+        if (value.kind !== 'image') return;
+        const size = await resolveWorkflowImageSize(value);
+        const assetCategory: AssetCategory = node.config?.assetCategory || 'scene';
+        const assetName = node.config?.assetName?.trim() || node.config?.label?.trim() || 'Workflow Asset';
+        const newItem: AssetItem = {
+            id: generateId(),
+            name: assetName,
+            category: assetCategory,
+            dataUrl: value.href,
+            mimeType: value.mimeType,
+            width: size.width,
+            height: size.height,
+            createdAt: Date.now(),
+        };
+        setAssetLibrary(prev => addAsset(prev, newItem));
+    }, [resolveWorkflowImageSize]);
 
     useEffect(() => {
         setSelectedElementIds([]);
@@ -2246,7 +2269,7 @@ const App: React.FC = () => {
             />
             ) : null}
             rightSidebar={activeView === 'canvas' ? (
-                <Suspense fallback={null}>
+                <Suspense fallback={<div className="h-full w-full flex items-center justify-center opacity-40 text-sm">Loading…</div>}>
                 <RightPanel
                 theme={resolvedTheme}
                 isMinimized={isInspirationMinimized}
@@ -2298,8 +2321,8 @@ const App: React.FC = () => {
                 )}
             </>}
             main={<>
-            <Suspense fallback={null}>
-            <CanvasSettings 
+            <Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"><div className="rounded-xl bg-neutral-800 px-6 py-4 text-sm text-white/60">Loading Settings…</div></div>}>
+            <CanvasSettings
                 isOpen={isSettingsPanelOpen} 
                 onClose={() => setIsSettingsPanelOpen(false)} 
                 language={language}
@@ -2327,7 +2350,7 @@ const App: React.FC = () => {
 
             {/* ============ A/B 对比弹窗 ============ */}
             {abCompare && (
-                <Suspense fallback={null}>
+                <Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"><div className="rounded-xl bg-neutral-800 px-6 py-4 text-sm text-white/60">Loading…</div></div>}>
                 <ABCompareOverlay
                     imageA={abCompare.imageA}
                     imageB={abCompare.imageB}
@@ -2423,7 +2446,7 @@ const App: React.FC = () => {
 
             {/* 新用户引导弹窗 — 无 API Key 时自动出现 */}
             {showOnboarding && (
-                <Suspense fallback={null}>
+                <Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"><div className="rounded-xl bg-neutral-800 px-6 py-4 text-sm text-white/60">Loading…</div></div>}>
                 <OnboardingWizard
                     isOpen={showOnboarding}
                     onClose={() => {
@@ -2464,8 +2487,8 @@ const App: React.FC = () => {
                 canRedo={historyIndex < history.length - 1}
             />
             {addAssetModal?.open && (
-                <Suspense fallback={null}>
-                <AssetAddModal 
+                <Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"><div className="rounded-xl bg-neutral-800 px-6 py-4 text-sm text-white/60">Loading…</div></div>}>
+                <AssetAddModal
                     isOpen={addAssetModal.open}
                     onClose={() => setAddAssetModal(null)}
                     previewDataUrl={addAssetModal.dataUrl}
@@ -3094,12 +3117,11 @@ const App: React.FC = () => {
                         onDropCanvasImage={handleAddPromptAttachmentFromCanvas}
                         userApiKeys={userApiKeys}
                         onPlaceWorkflowValue={handlePlaceWorkflowValue}
+                        onSaveWorkflowValueToAssets={handleSaveWorkflowValueToAssets}
                     />
                     </Suspense>
                 } />
             )}
-            {activeView === 'storyboard' && <StoryboardWorkspace />}
-            {activeView === 'assets' && <AssetsWorkspace />}
 
             {/* 法律文档弹窗 */}
             {legalModal && (

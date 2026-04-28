@@ -10,9 +10,9 @@ import type {
 } from './types';
 
 export const GRID_SIZE = 16;
-const NODE_HEADER = 34;
-const PORT_TOP = 56;
-const PORT_GAP = 24;
+const NODE_HEADER = 30;
+const PORT_TOP = 50;
+const PORT_GAP = 22;
 
 export const makeId = (prefix: string) =>
   `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -89,13 +89,19 @@ export function getPortPosition(node: WorkflowNode, portIndex: number, output: b
 }
 
 export function getPortLabelY(index: number): number {
-  return NODE_HEADER + 22 + index * PORT_GAP;
+  return NODE_HEADER + 17 + index * PORT_GAP;
 }
 
 function getPortType(kind: NodeKind, port: string, output: boolean) {
   const def = NODE_DEFS[kind];
   const list = output ? def.outputs : def.inputs;
   return list.find((p) => p.key === port)?.type;
+}
+
+function arePortTypesCompatible(sourceType: string, targetType: string): boolean {
+  if (sourceType === targetType) return true;
+  if (sourceType === 'any' || targetType === 'any') return true;
+  return sourceType === 'result' || targetType === 'result';
 }
 
 export function canConnectEdge(
@@ -109,7 +115,7 @@ export function canConnectEdge(
   const sourceType = getPortType(sourceNode.kind, sourcePort, true);
   const targetType = getPortType(targetNode.kind, targetPort, false);
   if (!sourceType || !targetType) return false;
-  return sourceType === targetType;
+  return arePortTypesCompatible(sourceType, targetType);
 }
 
 export function upsertEdgeToInput(
@@ -144,8 +150,10 @@ export function removeNodeAndEdges(
 }
 
 export function getBezierPath(p1: XYPosition, p2: XYPosition): string {
-  const cx1 = p1.x + 110;
-  const cx2 = p2.x - 110;
+  const dx = p2.x - p1.x;
+  const controlOffset = Math.min(Math.max(Math.abs(dx) * 0.5, 48), 150);
+  const cx1 = p1.x + controlOffset;
+  const cx2 = p2.x - controlOffset;
   return `M ${p1.x} ${p1.y} C ${cx1} ${p1.y}, ${cx2} ${p2.y}, ${p2.x} ${p2.y}`;
 }
 

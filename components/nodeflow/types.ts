@@ -1,3 +1,5 @@
+import type { AssetCategory } from '../../types';
+
 export type WorkflowStage = 'idle' | 'input' | 'agent' | 'generate' | 'output' | 'error';
 
 export type WorkflowRunStatus = 'idle' | 'queued' | 'running' | 'success' | 'error' | 'skipped' | 'pinned';
@@ -24,6 +26,10 @@ export interface WorkflowVideoValue {
   width?: number;
   height?: number;
   posterHref?: string;
+  durationSec?: number;
+  trimInSec?: number;
+  trimOutSec?: number;
+  sourceVideoId?: string;
 }
 
 export interface WorkflowJsonValue {
@@ -108,40 +114,43 @@ export function summarizeWorkflowValue(value: PortValue | undefined): string {
   if (value.kind === 'text') return value.text.trim() || 'Empty text';
   if (value.kind === 'image') {
     return value.width && value.height
-      ? `Image · ${value.width}x${value.height}`
-      : `Image · ${value.mimeType}`;
+      ? `Image - ${value.width}x${value.height}`
+      : `Image - ${value.mimeType}`;
   }
   if (value.kind === 'video') {
     return value.width && value.height
-      ? `Video · ${value.width}x${value.height}`
-      : `Video · ${value.mimeType}`;
+      ? `Video - ${value.width}x${value.height}`
+      : `Video - ${value.mimeType}`;
   }
-  if (Array.isArray(value.value)) return `JSON array · ${value.value.length} items`;
+  if (Array.isArray(value.value)) return `JSON array - ${value.value.length} items`;
   if (value.value && typeof value.value === 'object') {
-    return `JSON object · ${Object.keys(value.value as Record<string, unknown>).length} keys`;
+    return `JSON object - ${Object.keys(value.value as Record<string, unknown>).length} keys`;
   }
-  return `JSON · ${String(value.value ?? '')}`;
+  return `JSON - ${String(value.value ?? '')}`;
 }
 
 export type NodeKind =
-  | 'prompt'       // Text input
-  | 'loadImage'    // Image input
-  | 'enhancer'     // Prompt enhancer
-  | 'generator'    // Image generation (AIGC)
-  | 'preview'      // Output preview
-  | 'llm'          // Generic LLM node (system prompt → text in → text out)
-  | 'imageGen'     // Text/Image → Image (provider-agnostic)
-  | 'videoGen'     // Text/Image → Video
-  | 'runningHub'   // RunningHub ComfyUI API call
-  | 'httpRequest'  // Generic HTTP / MCP call
-  | 'condition'    // Branch based on text condition
-  | 'switch'       // Multi-way branch (N output ports)
-  | 'merge'        // Merge multiple inputs into one
-  | 'template'     // Text template with {{variable}} interpolation
-  | 'upscale'      // Image super-resolution
-  | 'faceRestore'  // Face restoration (CodeFormer, GFPGAN)
-  | 'bgRemove'     // Background removal
-  | 'saveToCanvas';// Place result onto the drawing canvas
+  | 'prompt'
+  | 'loadImage'
+  | 'loadVideo'
+  | 'enhancer'
+  | 'generator'
+  | 'preview'
+  | 'llm'
+  | 'imageGen'
+  | 'videoGen'
+  | 'videoEdit'
+  | 'runningHub'
+  | 'httpRequest'
+  | 'condition'
+  | 'switch'
+  | 'merge'
+  | 'template'
+  | 'upscale'
+  | 'faceRestore'
+  | 'bgRemove'
+  | 'saveToCanvas'
+  | 'saveToAssets';
 
 export type PortType = 'text' | 'image' | 'result' | 'video' | 'any';
 
@@ -166,63 +175,48 @@ export interface WorkflowNode {
   kind: NodeKind;
   x: number;
   y: number;
-  /** Per-node configuration (system prompt, model, URL, etc.) */
   config?: NodeConfig;
 }
 
-/** Node-specific configuration depending on kind */
 export interface NodeConfig {
-  /** Debug: pinned outputs reused instead of re-executing the node */
   pinnedOutputs?: NodeIOMap;
-  /** LLM: system prompt */
+  prompt?: string;
   systemPrompt?: string;
-  /** LLM / ImageGen / VideoGen: provider to use */
   provider?: string;
-  /** LLM / ImageGen / VideoGen: model to use */
   model?: string;
-  /** Generator: execution mode */
+  apiKeyRef?: string;
   generationMode?: 'image' | 'video';
-  /** RunningHub: model endpoint path */
+  aspectRatio?: string;
+  resolution?: string;
+  durationSec?: number;
+  fps?: number;
+  cameraPreset?: string;
   rhEndpoint?: string;
-  /** RunningHub: resolution (1k/2k/4k) */
   rhResolution?: '1k' | '2k' | '4k';
-  /** RunningHub: aspect ratio */
   rhAspectRatio?: string;
-  /** HTTP/MCP: request URL */
   httpUrl?: string;
-  /** HTTP/MCP: HTTP method */
   httpMethod?: 'GET' | 'POST' | 'PUT' | 'DELETE';
-  /** HTTP/MCP: request headers (JSON string) */
   httpHeaders?: string;
-  /** HTTP/MCP: request body template (supports {{input}} variables) */
   httpBodyTemplate?: string;
-  /** HTTP/MCP: JSONPath to extract result from response */
   httpResultPath?: string;
-  /** Template: text template with {{variable}} placeholders */
   templateText?: string;
-  /** Condition: expression to evaluate (e.g., "{{input}} contains 'error'") */
+  videoSourceId?: string;
+  videoEditMode?: 'trim' | 'replacePoster';
+  trimInSec?: number;
+  trimOutSec?: number;
   conditionExpr?: string;
-  /** Condition: multi-rule evaluation */
   conditionRules?: { field: string; operator: string; value: string; logicGroup?: 'and' | 'or' }[];
-  /** Switch: case definitions [{label, rules}] */
   cases?: { label: string; rules: { field: string; operator: string; value: string; logicGroup?: 'and' | 'or' }[] }[];
-  /** Upscale: scale factor */
   scale?: number;
-  /** Upscale/FaceRestore/BgRemove: RunningHub workflow ID */
   workflowId?: string;
-  /** FaceRestore: fidelity weight (0-1) */
   fidelity?: number;
-  /** Retry: number of retry attempts for this node */
   retryCount?: number;
-  /** Per-node timeout override */
   timeoutMs?: number;
-  /** Generic label for display */
   label?: string;
-  /** Temperature for LLM calls */
+  assetCategory?: AssetCategory;
+  assetName?: string;
   temperature?: number;
-  /** Max tokens for LLM calls */
   maxTokens?: number;
-  /** RunningHub workflow variable bag */
   nodeConfigs?: Record<string, string>;
 }
 
@@ -263,4 +257,3 @@ export interface SelectionBox {
   currentX: number;
   currentY: number;
 }
-

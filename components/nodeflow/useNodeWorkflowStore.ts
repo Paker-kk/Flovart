@@ -1,5 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { INITIAL_EDGES, INITIAL_GROUPS, INITIAL_NODES, NODE_DEFS } from './defs';
+import {
+  collectPinnedOutputObjectUrls,
+  hydrateWorkflowNodesFromStorage,
+  serializeWorkflowNodesForStorage,
+} from './pinnedOutputPersistence';
 import {
   buildGroupFromNodes,
   canConnectEdge,
@@ -66,12 +71,58 @@ type StoredWorkflow = {
   viewport?: WorkflowViewport;
 };
 
+function isKnownNodeKind(kind: unknown): kind is NodeKind {
+  return typeof kind === 'string' && kind in NODE_DEFS;
+}
+
+function sanitizeStoredWorkflow(stored: StoredWorkflow): StoredWorkflow {
+  const nodes = (stored.nodes ?? []).filter((node): node is WorkflowNode => (
+    !!node
+    && typeof node.id === 'string'
+    && isKnownNodeKind(node.kind)
+    && typeof node.x === 'number'
+    && typeof node.y === 'number'
+  ));
+  if (nodes.length === 0) {
+    return { viewport: stored.viewport };
+  }
+
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const edges = (stored.edges ?? []).filter((edge): edge is WorkflowEdge => (
+    !!edge
+    && nodeIds.has(edge.fromNode)
+    && nodeIds.has(edge.toNode)
+  ));
+  const groups = (stored.groups ?? [])
+    .filter((group): group is WorkflowGroup => (
+      !!group
+      && typeof group.id === 'string'
+      && Array.isArray(group.nodeIds)
+    ))
+    .map((group) => ({
+      ...group,
+      nodeIds: group.nodeIds.filter((nodeId) => nodeIds.has(nodeId)),
+    }))
+    .filter((group): group is WorkflowGroup => (
+      !!group
+      && typeof group.id === 'string'
+      && group.nodeIds.length > 0
+    ));
+
+  return {
+    nodes: nodes.length > 0 ? nodes : undefined,
+    edges,
+    groups,
+    viewport: stored.viewport,
+  };
+}
+
 function loadStoredWorkflow(): StoredWorkflow | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as StoredWorkflow;
+    return sanitizeStoredWorkflow(JSON.parse(raw) as StoredWorkflow);
   } catch {
     return null;
   }
@@ -99,11 +150,12 @@ export function useNodeWorkflowStore() {
     viewport: stored?.viewport ?? { x: -120, y: -80, scale: 0.86 },
   }));
 
-  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>(['generator_1']);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [pendingConnection, setPendingConnection] = useState<PendingConnection | null>(null);
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const dragRef = useRef<DragState | null>(null);
   const [panning, setPanning] = useState<{ start: XYPosition; origin: XYPosition } | null>(null);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [, bumpMeta] = useState(0);
@@ -111,6 +163,9 @@ export function useNodeWorkflowStore() {
   const historyPastRef = useRef<GraphState[]>([]);
   const historyFutureRef = useRef<GraphState[]>([]);
   const clipboardRef = useRef<ClipboardData | null>(null);
+  const persistVersionRef = useRef(0);
+  const hasLocalEditsRef = useRef(false);
+  const hydratedPinnedUrlsRef = useRef<Set<string>>(new Set());
 
   const nodeMap = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node])), [graph.nodes]);
 
@@ -123,16 +178,33 @@ export function useNodeWorkflowStore() {
   const persistGraph = (next: GraphState) => {
     if (typeof window === 'undefined') return;
     const snapshot: StoredWorkflow = {
-      nodes: next.nodes,
+      nodes: next.nodes.map((node) => ({ ...node, config: node.config ? { ...node.config } : node.config })),
       edges: next.edges,
       groups: next.groups,
       viewport: next.viewport,
     };
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-    } catch {
-      // ignore storage quota errors
-    }
+    const persistVersion = ++persistVersionRef.current;
+
+    void serializeWorkflowNodesForStorage(snapshot.nodes ?? [])
+      .then((serializedNodes) => {
+        if (persistVersion !== persistVersionRef.current) return;
+        try {
+          window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            ...snapshot,
+            nodes: serializedNodes,
+          }));
+        } catch {
+          // ignore storage quota errors
+        }
+      })
+      .catch(() => {
+        if (persistVersion !== persistVersionRef.current) return;
+        try {
+          window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+        } catch {
+          // ignore storage quota errors
+        }
+      });
   };
 
   const pushHistory = (snapshot: GraphState) => {
@@ -145,12 +217,39 @@ export function useNodeWorkflowStore() {
     if (recordHistory) {
       pushHistory(graph);
     }
+    hasLocalEditsRef.current = true;
     setGraph((prev) => {
       const next = updater(prev);
       persistGraph(next);
       return next;
     });
   };
+
+  useEffect(() => {
+    if (!stored?.nodes || stored.nodes.length === 0) return;
+    let cancelled = false;
+
+    void hydrateWorkflowNodesFromStorage(stored.nodes).then((hydratedNodes) => {
+      if (cancelled || hasLocalEditsRef.current) {
+        collectPinnedOutputObjectUrls(hydratedNodes).forEach((url) => URL.revokeObjectURL(url));
+        return;
+      }
+      hydratedPinnedUrlsRef.current = collectPinnedOutputObjectUrls(hydratedNodes);
+      setGraph((prev) => ({
+        ...prev,
+        nodes: hydratedNodes,
+      }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stored]);
+
+  useEffect(() => () => {
+    hydratedPinnedUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    hydratedPinnedUrlsRef.current.clear();
+  }, []);
 
   const setViewport = (next: WorkflowViewport | ((prev: WorkflowViewport) => WorkflowViewport), recordHistory = false) => {
     commitGraph(
@@ -168,6 +267,36 @@ export function useNodeWorkflowStore() {
     commitGraph((prev) => ({ ...prev, nodes: [...prev.nodes, created] }), true);
     setSelectedNodeIds([created.id]);
     setSelectedGroupId(null);
+    return created;
+  };
+
+  const addNodeFromConnection = (
+    kind: NodeKind,
+    worldPosition: XYPosition,
+    connection: PendingConnection,
+  ) => {
+    const position = snapPosition(worldPosition);
+    const created: WorkflowNode = { id: makeId(kind), kind, x: position.x, y: position.y };
+    const targetPort = NODE_DEFS[kind].inputs.find((port) => {
+      const source = graph.nodes.find((node) => node.id === connection.fromNode);
+      return canConnectEdge(source, connection.fromPort, created, port.key);
+    })?.key;
+
+    commitGraph((prev) => {
+      const source = prev.nodes.find((node) => node.id === connection.fromNode);
+      const canConnect = !!targetPort && canConnectEdge(source, connection.fromPort, created, targetPort);
+      return {
+        ...prev,
+        nodes: [...prev.nodes, created],
+        edges: canConnect
+          ? upsertEdgeToInput(prev.edges, connection, created.id, targetPort)
+          : prev.edges,
+      };
+    }, true);
+    setPendingConnection(null);
+    setSelectedNodeIds([created.id]);
+    setSelectedGroupId(null);
+    return created;
   };
 
   const removeSelected = () => {
@@ -256,7 +385,9 @@ export function useNodeWorkflowStore() {
       if (ids.includes(node.id)) origin[node.id] = { x: node.x, y: node.y };
     });
     pushHistory(graph);
-    setDragState({ kind: 'node', nodeIds: ids, start: world, origin });
+    const next: DragState = { kind: 'node', nodeIds: ids, start: world, origin };
+    dragRef.current = next;
+    setDragState(next);
   };
 
   const startGroupDrag = (groupId: string, world: XYPosition) => {
@@ -267,20 +398,23 @@ export function useNodeWorkflowStore() {
       if (group.nodeIds.includes(node.id)) origin[node.id] = { x: node.x, y: node.y };
     });
     pushHistory(graph);
-    setDragState({ kind: 'group', groupId, nodeIds: group.nodeIds, start: world, origin });
+    const next: DragState = { kind: 'group', groupId, nodeIds: group.nodeIds, start: world, origin };
+    dragRef.current = next;
+    setDragState(next);
     setSelectedGroupId(groupId);
     setSelectedNodeIds([]);
   };
 
   const moveDrag = (world: XYPosition) => {
-    if (!dragState) return;
-    const dx = world.x - dragState.start.x;
-    const dy = world.y - dragState.start.y;
+    const ds = dragRef.current;
+    if (!ds) return;
+    const dx = world.x - ds.start.x;
+    const dy = world.y - ds.start.y;
     commitGraph(
       (prev) => {
         const moved = prev.nodes.map((node) => {
-          if (!dragState.nodeIds.includes(node.id)) return node;
-          const origin = dragState.origin[node.id];
+          if (!ds.nodeIds.includes(node.id)) return node;
+          const origin = ds.origin[node.id];
           return snapPosition({ ...node, x: origin.x + dx, y: origin.y + dy });
         });
         return {
@@ -293,7 +427,10 @@ export function useNodeWorkflowStore() {
     );
   };
 
-  const endDrag = () => setDragState(null);
+  const endDrag = () => {
+    dragRef.current = null;
+    setDragState(null);
+  };
 
   const startPan = (client: XYPosition) => {
     setPanning({ start: client, origin: { x: graph.viewport.x, y: graph.viewport.y } });
@@ -588,6 +725,7 @@ export function useNodeWorkflowStore() {
     historyPastRef.current = historyPastRef.current.slice(0, -1);
     historyFutureRef.current = [cloneGraph(graph), ...historyFutureRef.current].slice(0, HISTORY_LIMIT);
     const restored = cloneGraph(previous);
+    hasLocalEditsRef.current = true;
     setGraph(restored);
     persistGraph(restored);
     touchMeta();
@@ -600,6 +738,7 @@ export function useNodeWorkflowStore() {
     historyFutureRef.current = historyFutureRef.current.slice(1);
     historyPastRef.current = [...historyPastRef.current, cloneGraph(graph)].slice(-HISTORY_LIMIT);
     const restored = cloneGraph(next);
+    hasLocalEditsRef.current = true;
     setGraph(restored);
     persistGraph(restored);
     touchMeta();
@@ -635,6 +774,7 @@ export function useNodeWorkflowStore() {
     };
     historyPastRef.current = [...historyPastRef.current, cloneGraph(graph)].slice(-HISTORY_LIMIT);
     historyFutureRef.current = [];
+    hasLocalEditsRef.current = true;
     setGraph(newGraph);
     persistGraph(newGraph);
     touchMeta();
@@ -658,6 +798,7 @@ export function useNodeWorkflowStore() {
     setViewport,
     setActiveNodeId,
     addNode,
+    addNodeFromConnection,
     removeNode,
     removeGroup,
     removeSelected,
