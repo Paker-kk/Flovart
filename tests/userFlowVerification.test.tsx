@@ -242,11 +242,9 @@ describe('TopWorkspaceBar — tab completeness', () => {
     expect(screen.queryByText('Publish')).toBeNull();
     expect(screen.queryByText('Diag')).toBeNull();
 
-    // Settings should still be present
-    expect(screen.getByText('Settings')).toBeTruthy();
-
-    // Logo should be present
-    expect(screen.getByText('Flovart')).toBeTruthy();
+    // The shared switcher should stay minimal: no brand or settings chrome.
+    expect(screen.queryByText('Settings')).toBeNull();
+    expect(screen.queryByText('Flovart')).toBeNull();
   });
 });
 

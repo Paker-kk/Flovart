@@ -10,8 +10,8 @@ describe('NodeWorkflowPanel smoke', () => {
     localStorage.clear();
   });
 
-  it('renders the selected node inspector without missing helper references', () => {
-    render(
+  it('renders the starter workflow without requiring side panels', () => {
+    const { container } = render(
       <NodeWorkflowPanel
         prompt=""
         setPrompt={() => undefined}
@@ -29,10 +29,9 @@ describe('NodeWorkflowPanel smoke', () => {
       />,
     );
 
-    expect(screen.getByText('Connected Inputs')).toBeTruthy();
-    expect(screen.getByText('Outputs')).toBeTruthy();
-    expect(screen.getByText('No connected inputs yet')).toBeTruthy();
-    expect(screen.getByText('No outputs yet')).toBeTruthy();
+    expect(container.querySelector('.workflow-libtv')).toBeTruthy();
+    expect(container.querySelectorAll('.workflow-node-card').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Connected Inputs')).toBeNull();
   });
 
   it('falls back to the starter graph when stored workflow nodes are unknown', () => {
@@ -61,7 +60,7 @@ describe('NodeWorkflowPanel smoke', () => {
     );
 
     expect(screen.getAllByText('Generate').length).toBeGreaterThan(0);
-    expect(screen.getByText('Connected Inputs')).toBeTruthy();
+    expect(screen.queryByText('legacyNode')).toBeNull();
   });
 
   it('keeps nodes on double click and opens the quick add menu from output ports', () => {
@@ -89,14 +88,23 @@ describe('NodeWorkflowPanel smoke', () => {
 
     const initialCount = container.querySelectorAll('.workflow-node-card').length;
     const firstNode = container.querySelector('.workflow-node-card');
+    const canvas = container.querySelector('.workflow-canvas');
     expect(firstNode).toBeTruthy();
+    expect(canvas).toBeTruthy();
+
     fireEvent.doubleClick(firstNode!);
     expect(container.querySelectorAll('.workflow-node-card')).toHaveLength(initialCount);
 
+    const firstHeader = firstNode!.querySelector('.workflow-node-header');
+    expect(firstHeader).toBeTruthy();
+    fireEvent.mouseDown(firstHeader!, { clientX: 160, clientY: 160, button: 0 });
+    fireEvent.mouseMove(canvas!, { clientX: 260, clientY: 220 });
+    expect(container.querySelectorAll('.workflow-node-card')).toHaveLength(initialCount);
+    fireEvent.mouseUp(canvas!, { clientX: 260, clientY: 220 });
+    expect(container.querySelectorAll('.workflow-node-card')).toHaveLength(initialCount);
+
     const outputPort = container.querySelector('[data-port-type="output"]');
-    const canvas = container.querySelector('.workflow-canvas');
     expect(outputPort).toBeTruthy();
-    expect(canvas).toBeTruthy();
     fireEvent.mouseDown(outputPort!, { clientX: 200, clientY: 200, button: 0 });
     fireEvent.mouseMove(canvas!, { clientX: 300, clientY: 240 });
     fireEvent.mouseUp(canvas!, { clientX: 300, clientY: 240 });

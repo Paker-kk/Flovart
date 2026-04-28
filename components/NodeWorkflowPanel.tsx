@@ -40,6 +40,7 @@ import type {
   WorkflowValue,
 } from './nodeflow/types';
 import { useNodeWorkflowStore } from './nodeflow/useNodeWorkflowStore';
+import { CanvasFloatingPanel, CanvasIconButton } from './canvas-ui/CanvasChrome';
 
 interface NodeWorkflowPanelProps {
   prompt: string;
@@ -1758,6 +1759,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
       <div className="pointer-events-none absolute inset-0 workflow-libtv-grid" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-28 workflow-libtv-top-fade" />
 
+      {false && (
       <div className="workflow-topbar pointer-events-none absolute left-4 right-4 top-3 z-50 flex h-12 items-center justify-between gap-4">
         <div className="workflow-title-pill pointer-events-auto flex h-10 min-w-0 items-center gap-2 rounded-lg px-3">
           <input
@@ -1808,10 +1810,11 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
           </button>
         </div>
       </div>
+      )}
 
-      <div className="workflow-tool-rail absolute left-5 top-1/2 z-50 flex -translate-y-1/2 flex-col items-center gap-2 rounded-2xl p-2">
-        <button
-          type="button"
+      <CanvasFloatingPanel className="workflow-tool-rail absolute left-5 top-1/2 z-50 flex -translate-y-1/2 flex-col items-center gap-2 rounded-2xl p-2">
+        <CanvasIconButton
+          variant="primary"
           className="workflow-rail-primary h-10 w-10 rounded-lg"
           onClick={() => store.addNode('imageGen', centerWorldPosition())}
           title="Add node"
@@ -1820,9 +1823,24 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
-        </button>
-        <button
-          type="button"
+        </CanvasIconButton>
+        <CanvasIconButton
+          variant="primary"
+          className="workflow-rail-primary h-10 w-10 rounded-lg"
+          onClick={() => runGraph('workflow')}
+          disabled={!canRunScope('workflow')}
+          title={runError || runMessage || 'Run workflow'}
+          aria-label="Run workflow"
+        >
+          {isExecuting ? (
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M8 5v14l11-7-11-7Z" fill="currentColor" />
+            </svg>
+          )}
+        </CanvasIconButton>
+        <CanvasIconButton
           className="workflow-rail-button h-10 w-10 rounded-lg"
           onClick={fitWorkflowView}
           title="Fit view"
@@ -1831,22 +1849,45 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M8 4H5a1 1 0 0 0-1 1v3M16 4h3a1 1 0 0 1 1 1v3M8 20H5a1 1 0 0 1-1-1v-3M16 20h3a1 1 0 0 0 1-1v-3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
-        </button>
-        <button
-          type="button"
+        </CanvasIconButton>
+        <CanvasIconButton
           className="workflow-rail-button h-10 w-10 rounded-lg"
           onClick={() => setIsToolPanelOpen((value) => !value)}
           title="Toggle panel"
           aria-label="Toggle panel"
+          active={isToolPanelOpen}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
-        </button>
-      </div>
+        </CanvasIconButton>
+        <div className="my-1 h-px w-6 shrink-0 bg-current opacity-15" />
+        <CanvasIconButton
+          className="workflow-rail-button h-10 w-10 rounded-lg"
+          onClick={() => store.undo()}
+          disabled={!store.canUndo}
+          title="Undo"
+          aria-label="Undo"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M9 7 5 11l4 4M5 11h9a5 5 0 0 1 0 10h-2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </CanvasIconButton>
+        <CanvasIconButton
+          className="workflow-rail-button h-10 w-10 rounded-lg"
+          onClick={() => store.redo()}
+          disabled={!store.canRedo}
+          title="Redo"
+          aria-label="Redo"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="m15 7 4 4-4 4M19 11h-9a5 5 0 0 0 0 10h2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </CanvasIconButton>
+      </CanvasFloatingPanel>
 
       {isToolPanelOpen && (
-        <aside className="workflow-left-panel absolute left-[96px] top-[86px] z-40 flex max-h-[calc(100%-132px)] w-[480px] flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white/95 text-neutral-900 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+        <aside className="canvas-floating-panel workflow-left-panel absolute left-[96px] top-[86px] z-40 flex max-h-[calc(100%-132px)] w-[480px] flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white/95 text-neutral-900 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
             <div className="flex items-center gap-3 text-sm font-semibold">
               <button
@@ -2938,4 +2979,3 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
     </div>
   );
 };
-

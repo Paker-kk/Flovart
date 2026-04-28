@@ -904,3 +904,256 @@ input[type='range'].toolbar-range::-moz-range-thumb:hover {
         width: min(320px, calc(100vw - 132px));
     }
 }
+
+/* Shared Canvas chrome */
+.canvas-workspace-switcher {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 44px;
+    padding: 4px;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background: var(--panel-bg);
+    color: var(--text-muted);
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(14px);
+}
+
+.canvas-workspace-switcher__tab {
+    min-width: 94px;
+    min-height: 36px;
+    border-radius: 10px;
+    padding: 0 16px;
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1;
+    color: var(--text-muted);
+    transition:
+        background-color 160ms ease,
+        color 160ms ease,
+        transform 160ms ease;
+}
+
+.canvas-workspace-switcher__tab:hover {
+    background: var(--panel-muted);
+    color: var(--text-primary);
+}
+
+.canvas-workspace-switcher__tab.is-active {
+    background: var(--primary-bg);
+    color: var(--primary-text);
+    box-shadow: 0 1px 8px rgba(0, 0, 0, 0.22);
+}
+
+.canvas-workspace-switcher__tab:focus-visible,
+.canvas-icon-button:focus-visible {
+    outline: 2px solid var(--accent-text);
+    outline-offset: 2px;
+}
+
+.canvas-floating-panel {
+    border: 1px solid var(--border-color);
+    background: var(--panel-bg);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-panel);
+    backdrop-filter: blur(14px);
+}
+
+.canvas-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    border: 1px solid transparent;
+    color: var(--toolbar-icon);
+    transition:
+        background-color 160ms ease,
+        color 160ms ease,
+        transform 160ms ease;
+}
+
+.canvas-icon-button:hover,
+.canvas-icon-button.is-active {
+    background: var(--panel-muted);
+    color: var(--text-primary);
+}
+
+.canvas-icon-button--primary {
+    background: var(--primary-bg);
+    color: var(--primary-text);
+}
+
+.canvas-icon-button--primary:hover {
+    filter: brightness(1.08);
+}
+
+/* Workflow reuses Canvas chrome */
+.workflow-libtv {
+    background: var(--canvas-bg);
+    color: var(--text-primary);
+}
+
+.workflow-libtv-grid {
+    background-image: radial-gradient(rgba(148, 163, 184, 0.18) 1px, transparent 1px);
+    background-size: 18px 18px;
+    background-position: -2px -2px;
+}
+
+.workflow-topbar {
+    display: none;
+}
+
+.workflow-tool-rail,
+.workflow-left-panel,
+.workflow-inspector-panel,
+.workflow-minimap,
+.workflow-floating-composer,
+.workflow-connection-menu,
+.workflow-context-menu,
+.workflow-bottom-controls {
+    border-color: var(--border-color) !important;
+    background: var(--panel-bg) !important;
+    color: var(--text-primary) !important;
+    box-shadow: var(--shadow-panel) !important;
+}
+
+.workflow-panel-tab,
+.workflow-run-status,
+.workflow-bottom-button,
+.workflow-zoom-readout,
+.workflow-panel-close {
+    color: var(--text-muted);
+}
+
+.workflow-panel-tab.is-active,
+.workflow-panel-tab:hover,
+.workflow-panel-close:hover {
+    color: var(--text-primary);
+}
+
+.workflow-chip,
+.workflow-composer-chip,
+.workflow-composer-select {
+    border-color: var(--border-color);
+    background: transparent;
+    color: var(--text-muted);
+}
+
+.workflow-chip:hover,
+.workflow-chip.is-active,
+.workflow-composer-chip:hover,
+.workflow-composer-chip.is-active,
+.workflow-bottom-button:hover {
+    background: var(--panel-muted);
+    color: var(--text-primary);
+}
+
+.workflow-asset-card,
+.workflow-template-card,
+.workflow-node-library-card {
+    border-color: var(--border-color);
+    background: var(--panel-strong);
+    color: var(--text-primary);
+}
+
+.workflow-empty-state,
+.workflow-provider-status,
+.workflow-composer-input,
+.workflow-node-runtime-controls {
+    border-color: var(--border-color);
+    background: var(--panel-soft);
+    color: var(--text-muted);
+}
+
+.workflow-libtv .workflow-node-card {
+    border-color: var(--border-color) !important;
+    background: var(--panel-strong) !important;
+    color: var(--text-primary) !important;
+    box-shadow: var(--shadow-soft) !important;
+}
+
+.workflow-libtv .workflow-node-card:hover {
+    border-color: var(--border-strong) !important;
+    box-shadow: var(--shadow-panel) !important;
+}
+
+.workflow-libtv .workflow-node-card.is-selected {
+    border-color: var(--accent-text) !important;
+    box-shadow: 0 0 0 2px var(--accent-bg), var(--shadow-panel) !important;
+}
+
+.workflow-libtv .workflow-node-card.is-running {
+    border-color: #38bdf8 !important;
+}
+
+.workflow-libtv .workflow-node-card.is-success,
+.workflow-libtv .workflow-node-card.is-pinned {
+    border-color: #34d399 !important;
+}
+
+.workflow-libtv .workflow-node-card.is-error {
+    border-color: #fb7185 !important;
+}
+
+.workflow-libtv .workflow-node-header {
+    border-color: var(--border-color) !important;
+    background: var(--panel-soft) !important;
+    color: var(--text-primary) !important;
+}
+
+.workflow-libtv .workflow-node-header .text-neutral-800,
+.workflow-libtv .workflow-node-card .text-neutral-800,
+.workflow-libtv .workflow-node-card .text-neutral-700,
+.workflow-libtv textarea,
+.workflow-libtv select,
+.workflow-libtv input,
+.workflow-libtv pre {
+    color: var(--text-primary) !important;
+}
+
+.workflow-libtv .workflow-node-card .text-neutral-500,
+.workflow-libtv .workflow-node-card .text-neutral-400,
+.workflow-libtv .workflow-inspector-panel .text-neutral-400,
+.workflow-libtv .workflow-inspector-panel .text-neutral-500,
+.workflow-libtv textarea::placeholder,
+.workflow-libtv input::placeholder {
+    color: var(--text-muted) !important;
+}
+
+.workflow-libtv .workflow-node-card [class*="bg-white"],
+.workflow-libtv .workflow-node-card [class*="bg-neutral-50"],
+.workflow-libtv .workflow-node-card [class*="bg-black/"],
+.workflow-libtv .workflow-inspector-panel [class*="bg-white/5"],
+.workflow-libtv .workflow-inspector-panel [class*="bg-black/"],
+.workflow-libtv pre {
+    background-color: var(--panel-soft) !important;
+}
+
+.workflow-libtv .workflow-node-card [class*="border-white"],
+.workflow-libtv .workflow-node-card [class*="border-neutral"],
+.workflow-libtv .workflow-inspector-panel [class*="border-white"],
+.workflow-libtv pre {
+    border-color: var(--border-color) !important;
+}
+
+.workflow-libtv .workflow-port {
+    border-color: var(--border-strong) !important;
+    background: var(--panel-strong) !important;
+    box-shadow: 0 0 0 3px var(--canvas-bg);
+}
+
+.workflow-libtv .workflow-port:hover {
+    border-color: var(--accent-text) !important;
+    background: var(--accent-text) !important;
+}
+
+.workflow-libtv .workflow-pending-edge {
+    stroke: var(--accent-text) !important;
+}
+
+.workflow-libtv select option {
+    background: var(--panel-strong);
+    color: var(--text-primary);
+}

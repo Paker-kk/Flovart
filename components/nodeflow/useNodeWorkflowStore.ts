@@ -415,7 +415,10 @@ export function useNodeWorkflowStore() {
         const moved = prev.nodes.map((node) => {
           if (!ds.nodeIds.includes(node.id)) return node;
           const origin = ds.origin[node.id];
-          return snapPosition({ ...node, x: origin.x + dx, y: origin.y + dy });
+          return {
+            ...node,
+            ...snapPosition({ x: origin.x + dx, y: origin.y + dy }),
+          };
         });
         return {
           ...prev,
