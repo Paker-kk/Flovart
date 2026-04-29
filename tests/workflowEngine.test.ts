@@ -64,6 +64,75 @@ describe('workflowEngine', () => {
     );
   });
 
+  it('outputs node-local image media without requiring a model call', async () => {
+    const imageHref = 'data:image/png;base64,bm9kZS1pbWFnZQ==';
+    const nodes: WorkflowNode[] = [
+      {
+        id: 'image_1',
+        kind: 'imageGen',
+        x: 0,
+        y: 0,
+        config: {
+          mediaKind: 'image',
+          mediaHref: imageHref,
+          mediaMimeType: 'image/png',
+          mediaWidth: 640,
+          mediaHeight: 360,
+        } as any,
+      },
+    ];
+
+    const result = await executeWorkflow(nodes, [], {
+      apiKeys: [],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.nodeOutputs.get('image_1')?.image).toMatchObject({
+      kind: 'image',
+      href: imageHref,
+      mimeType: 'image/png',
+      width: 640,
+      height: 360,
+    });
+  });
+
+  it('passes image output through a downstream image node when that node has no prompt', async () => {
+    const imageHref = 'data:image/png;base64,dXBzdHJlYW0taW1hZ2U=';
+    const nodes: WorkflowNode[] = [
+      {
+        id: 'image_1',
+        kind: 'imageGen',
+        x: 0,
+        y: 0,
+        config: {
+          mediaKind: 'image',
+          mediaHref: imageHref,
+          mediaMimeType: 'image/png',
+        } as any,
+      },
+      {
+        id: 'image_2',
+        kind: 'imageGen',
+        x: 320,
+        y: 0,
+      },
+    ];
+    const edges: WorkflowEdge[] = [
+      { id: 'edge_1', fromNode: 'image_1', fromPort: 'image', toNode: 'image_2', toPort: 'image' },
+    ];
+
+    const result = await executeWorkflow(nodes, edges, {
+      apiKeys: [],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.nodeOutputs.get('image_2')?.image).toMatchObject({
+      kind: 'image',
+      href: imageHref,
+      mimeType: 'image/png',
+    });
+  });
+
   it('reuses pinned outputs instead of executing the node again', async () => {
     const nodes: WorkflowNode[] = [
       {

@@ -218,6 +218,16 @@ export interface NodeConfig {
   temperature?: number;
   maxTokens?: number;
   nodeConfigs?: Record<string, string>;
+  mediaKind?: 'image' | 'video';
+  mediaHref?: string;
+  mediaMimeType?: string;
+  mediaName?: string;
+  mediaWidth?: number;
+  mediaHeight?: number;
+  mediaPosterHref?: string;
+  mediaDurationSec?: number;
+  mediaTrimInSec?: number;
+  mediaTrimOutSec?: number;
 }
 
 export interface WorkflowEdge {

@@ -117,28 +117,11 @@ type WorkflowAssetPanelItem = {
   canAttach: boolean;
 };
 
+type DisplayMediaValue = Extract<WorkflowValue, { kind: 'image' | 'video' }>;
+
 const NODE_LIBRARY_KINDS: NodeKind[] = [
-  'prompt',
-  'loadImage',
-  'loadVideo',
-  'llm',
-  'enhancer',
-  'template',
   'imageGen',
   'videoGen',
-  'videoEdit',
-  'generator',
-  'runningHub',
-  'httpRequest',
-  'condition',
-  'switch',
-  'merge',
-  'upscale',
-  'faceRestore',
-  'bgRemove',
-  'preview',
-  'saveToCanvas',
-  'saveToAssets',
 ];
 
 const NODE_LIBRARY_LABELS: Partial<Record<NodeKind, string>> = {
@@ -148,8 +131,8 @@ const NODE_LIBRARY_LABELS: Partial<Record<NodeKind, string>> = {
   llm: 'Text AI',
   enhancer: 'Prompt Enhance',
   template: 'Text Template',
-  imageGen: 'Generate Image',
-  videoGen: 'Generate Video',
+  imageGen: 'Image',
+  videoGen: 'Video',
   videoEdit: 'Edit Video',
   generator: 'Generate',
   runningHub: 'RunningHub',
@@ -228,9 +211,9 @@ const COMPOSER_RESOLUTIONS = ['720P', '1080P', '2K', '4K', '8K'];
 const COMPOSER_DURATIONS = [5, 8, 10, 15];
 const COMPOSER_FPS = [24, 30, 60];
 const COMPOSER_COMMANDS = [
-  { label: '/风格', value: ' /风格 电影感' },
-  { label: '/镜头', value: ' /镜头 缓慢推进' },
-  { label: '/参数', value: ' /参数 高细节, 干净构图' },
+  { label: '/style', value: ' /style cinematic' },
+  { label: '/camera', value: ' /camera slow push in' },
+  { label: '/detail', value: ' /detail clean composition' },
 ];
 
 function buildEnhancerSystemPrompt(mode: PromptEnhanceMode, stylePreset: string): string {
@@ -257,6 +240,84 @@ function formatVideoDuration(seconds?: number): string {
   return minutes > 0 ? `${minutes}m ${remaining}s` : `${remaining}s`;
 }
 
+function isMediaNodeKind(kind: NodeKind): boolean {
+  return kind === 'imageGen' || kind === 'videoGen';
+}
+
+function isDisplayMediaValue(value: WorkflowValue | null | undefined): value is DisplayMediaValue {
+  return value?.kind === 'image' || value?.kind === 'video';
+}
+
+function getConfigMediaValue(config?: NodeConfig): DisplayMediaValue | null {
+  if (!config?.mediaKind || !config.mediaHref) return null;
+  if (config.mediaKind === 'image') {
+    return {
+      kind: 'image',
+      href: config.mediaHref,
+      mimeType: config.mediaMimeType || 'image/png',
+      width: config.mediaWidth,
+      height: config.mediaHeight,
+    };
+  }
+  return {
+    kind: 'video',
+    href: config.mediaHref,
+    mimeType: config.mediaMimeType || 'video/mp4',
+    width: config.mediaWidth,
+    height: config.mediaHeight,
+    posterHref: config.mediaPosterHref,
+    durationSec: config.mediaDurationSec,
+    trimInSec: config.mediaTrimInSec,
+    trimOutSec: config.mediaTrimOutSec,
+  };
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function readImageDimensions(href: string): Promise<{ width?: number; height?: number }> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    const timeout = window.setTimeout(() => resolve({}), 300);
+    image.onload = () => {
+      window.clearTimeout(timeout);
+      resolve({ width: image.naturalWidth || image.width, height: image.naturalHeight || image.height });
+    };
+    image.onerror = () => {
+      window.clearTimeout(timeout);
+      resolve({});
+    };
+    image.src = href;
+  });
+}
+
+function readVideoMetadata(href: string): Promise<{ width?: number; height?: number; durationSec?: number }> {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    const timeout = window.setTimeout(() => resolve({}), 300);
+    video.onloadedmetadata = () => {
+      window.clearTimeout(timeout);
+      resolve({
+        width: video.videoWidth || undefined,
+        height: video.videoHeight || undefined,
+        durationSec: Number.isFinite(video.duration) ? video.duration : undefined,
+      });
+    };
+    video.onerror = () => {
+      window.clearTimeout(timeout);
+      resolve({});
+    };
+    video.src = href;
+  });
+}
+
 export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
   prompt,
   setPrompt,
@@ -280,6 +341,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
   onSaveWorkflowValueToAssets,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const nodeMediaInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const minimapRef = useRef<SVGSVGElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -295,6 +357,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
   const [stylePreset, setStylePreset] = useState('cinematic');
   const [isPromptDropOver, setIsPromptDropOver] = useState(false);
   const [isImageDropOver, setIsImageDropOver] = useState(false);
+  const [mediaUploadTargetId, setMediaUploadTargetId] = useState<string | null>(null);
   const [isMiniMapDragging, setIsMiniMapDragging] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [connectionMenu, setConnectionMenu] = useState<ConnectionMenuState | null>(null);
@@ -447,7 +510,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
   const canRunScope = (scope: WorkflowExecutionScope, focusNodeId?: string): boolean => {
     if (isExecuting) return false;
     const plan = createExecutionPlan(preparedNodes, store.edges, scope, focusNodeId);
-    return plan.nodes.length > 0 && !!resolveRunPrompt(plan.nodes, focusNodeId);
+    return plan.nodes.length > 0;
   };
 
   const openToolPanel = (tab: ToolPanelTab) => {
@@ -645,7 +708,6 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
     const executionPlan = createExecutionPlan(preparedNodes, store.edges, scope, focusNodeId);
     if (executionPlan.nodes.length === 0) return;
     const runPrompt = resolveRunPrompt(executionPlan.nodes, focusNodeId);
-    if (!runPrompt) return;
 
     const runLabel = scope === 'node'
       ? 'Node execution'
@@ -973,7 +1035,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
             .filter(() => true)
             .map((apiKey) => ({
               value: apiKey.value,
-              label: `${apiKey.name || apiKey.provider}${apiKey.isDefault ? ' · Default' : ''} (${apiKey.provider})`,
+              label: `${apiKey.name || apiKey.provider}${apiKey.isDefault ? ' 路 Default' : ''} (${apiKey.provider})`,
             }))
         : field.options;
       const resolvedSelectOptions = field.key === 'videoSourceId'
@@ -1075,6 +1137,78 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
     });
   };
 
+  const renderMediaNodeCardBody = (
+    node: WorkflowNode,
+    displayMedia: DisplayMediaValue | null,
+  ) => {
+    const label = node.kind === 'videoGen' ? 'Video' : 'Image';
+    const modelName = node.config?.model || (node.kind === 'videoGen' ? selectedVideoModel : selectedImageModel) || 'Default model';
+    const boundKey = node.config?.apiKeyRef
+      ? usableApiKeyOptions.find((apiKey) => apiKey.value === node.config?.apiKeyRef)?.label
+      : 'Auto API key';
+
+    return (
+      <div
+        className="workflow-media-node space-y-2"
+        onDragOver={(event) => {
+          event.preventDefault();
+        }}
+        onDrop={(event) => handleNodeMediaDrop(event, node)}
+      >
+        <div className="workflow-media-frame flex aspect-video items-center justify-center overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50">
+          {displayMedia?.kind === 'image' && (
+            <img src={displayMedia.href} alt={`${label} media`} className="h-full w-full object-cover" />
+          )}
+          {displayMedia?.kind === 'video' && (
+            <video
+              src={displayMedia.href}
+              poster={displayMedia.posterHref}
+              muted
+              playsInline
+              controls
+              className="h-full w-full bg-black object-cover"
+            />
+          )}
+          {!displayMedia && (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-neutral-400">
+              <div className="text-3xl font-semibold">{node.kind === 'videoGen' ? 'VID' : 'IMG'}</div>
+              <div className="text-[11px] font-medium">{label}</div>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            title={`Upload media to ${label}`}
+            className="rounded-md border border-neutral-200 bg-white px-2.5 py-1 text-[11px] font-medium text-neutral-700 hover:bg-neutral-50"
+            onClick={(event) => {
+              event.stopPropagation();
+              openNodeMediaPicker(node);
+            }}
+          >
+            Upload
+          </button>
+          <button
+            type="button"
+            title={`Run ${label} node`}
+            className="ml-auto rounded-md border border-neutral-900 bg-neutral-900 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-neutral-700 disabled:opacity-45"
+            disabled={!canRunScope('node', node.id)}
+            onClick={(event) => {
+              event.stopPropagation();
+              void runGraph('node', node.id);
+            }}
+          >
+            Run
+          </button>
+        </div>
+        <div className="min-w-0 space-y-0.5 text-[10px] text-neutral-500">
+          <div className="truncate">{modelName}</div>
+          <div className="truncate">{boundKey}</div>
+        </div>
+      </div>
+    );
+  };
+
   const renderNodeRuntimeControls = (node: WorkflowNode) => {
     const modelOptions = getModelOptionsForNode(node);
     const canChooseModel = modelOptions.length > 0;
@@ -1148,6 +1282,86 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
     const composerLeft = store.viewport.x + node.x * store.viewport.scale;
     const composerTop = store.viewport.y + (node.y + def.height) * store.viewport.scale + 12;
 
+    if (isMediaNodeKind(node.kind)) {
+      const label = node.kind === 'videoGen' ? 'Video' : 'Image';
+      return (
+        <div
+          key={`composer-${node.id}`}
+          className="workflow-floating-composer absolute z-40 w-[560px] max-w-[calc(100vw-32px)] rounded-2xl border p-3"
+          style={{ left: composerLeft, top: composerTop }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsPromptDropOver(true);
+          }}
+          onDragLeave={() => setIsPromptDropOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsPromptDropOver(false);
+            handleDropPayload(e);
+          }}
+        >
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="text-[12px] font-semibold text-neutral-700">{label} prompt</div>
+            <button
+              type="button"
+              className="workflow-composer-run flex h-9 w-9 items-center justify-center rounded-xl"
+              aria-label={`Run ${label} node`}
+              disabled={!canRunScope('node', node.id)}
+              onClick={() => runGraph('node', node.id)}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M8 5v14l11-7-11-7Z" fill="currentColor" />
+              </svg>
+            </button>
+          </div>
+          <div className={joinClasses('workflow-composer-input relative rounded-xl border', isPromptDropOver && 'is-drop-over')}>
+            <textarea
+              value={promptValue}
+              onChange={(e) => updateNodePrompt(node, e.target.value)}
+              aria-label={`${label} node prompt`}
+              className="h-24 w-full resize-none bg-transparent px-3 py-3 text-[14px] leading-6 text-white outline-none placeholder:text-white/38"
+              placeholder={node.kind === 'videoGen' ? 'Describe the video this node should make' : 'Describe the image this node should make'}
+              title={`${label} prompt`}
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px]">
+            {canChooseModel && (
+              <select
+                value={node.config?.model || ''}
+                onChange={(e) => updateNodeModel(node, e.target.value)}
+                className="workflow-composer-select h-9 rounded-xl px-3"
+                title="Node model"
+              >
+                <option value="">Default model</option>
+                {modelOptions.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+            )}
+            {canChooseKey && (
+              <select
+                value={node.config?.apiKeyRef || ''}
+                onChange={(e) => store.updateNodeConfig(node.id, { apiKeyRef: e.target.value || undefined })}
+                className="workflow-composer-select h-9 rounded-xl px-3"
+                title="Node API key"
+              >
+                <option value="">Auto API key</option>
+                {usableApiKeyOptions.map((apiKey) => (
+                  <option key={apiKey.value} value={apiKey.value}>
+                    {apiKey.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div
         key={`composer-${node.id}`}
@@ -1167,7 +1381,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
         }}
       >
         <div className="mb-2 flex flex-wrap items-center gap-2">
-          {(['风格', '标记', '聚焦'] as const).map((label) => (
+          {(['椋庢牸', '鏍囪', '鑱氱劍'] as const).map((label) => (
             <button
               key={label}
               type="button"
@@ -1186,7 +1400,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                   className={joinClasses('h-7 rounded-lg px-3 text-[11px] font-semibold', getNodeGenerationMode(node) === mode && 'is-active')}
                   onClick={() => updateNodeGenerationMode(node, mode)}
                 >
-                  {mode === 'image' ? '图片' : '视频'}
+                  {mode === 'image' ? '鍥剧墖' : '瑙嗛'}
                 </button>
               ))}
             </div>
@@ -1199,7 +1413,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
             onChange={(e) => updateNodePrompt(node, e.target.value)}
             aria-label="Node prompt"
             className="h-28 w-full resize-none bg-transparent px-3 py-3 text-[14px] leading-6 text-white outline-none placeholder:text-white/38"
-            placeholder="描述你想要生成的画面内容，按 / 呼出指令，@引用节点"
+            placeholder="鎻忚堪浣犳兂瑕佺敓鎴愮殑鐢婚潰鍐呭锛屾寜 / 鍛煎嚭鎸囦护锛孈寮曠敤鑺傜偣"
             title="Node prompt"
           />
           {(showCommandMenu || showReferenceMenu) && (
@@ -1236,7 +1450,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
               className="workflow-composer-select h-9 rounded-xl px-3"
               title="Node model"
             >
-              <option value="">默认模型</option>
+              <option value="">榛樿妯″瀷</option>
               {modelOptions.map((model) => (
                 <option key={model} value={model}>
                   {model}
@@ -1251,7 +1465,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
               className="workflow-composer-select h-9 rounded-xl px-3"
               title="Node API key"
             >
-              <option value="">自动 API Key</option>
+              <option value="">鑷姩 API Key</option>
               {usableApiKeyOptions.map((apiKey) => (
                 <option key={apiKey.value} value={apiKey.value}>
                   {apiKey.label}
@@ -1316,8 +1530,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
             className={joinClasses('workflow-composer-chip h-9 rounded-xl px-3 font-semibold', node.config?.cameraPreset && 'is-active')}
             onClick={() => store.updateNodeConfig(node.id, { cameraPreset: node.config?.cameraPreset ? undefined : 'cinematic' })}
           >
-            摄像机
-          </button>
+            鎽勫儚鏈?          </button>
           <button
             type="button"
             className="workflow-composer-run ml-auto flex h-10 w-10 items-center justify-center rounded-xl"
@@ -1325,8 +1538,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
             disabled={!canRunScope('node', node.id)}
             onClick={() => runGraph('node', node.id)}
           >
-            ↑
-          </button>
+            鈫?          </button>
         </div>
       </div>
     );
@@ -1390,6 +1602,57 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
         ))}
       </div>
     );
+  };
+
+  const openNodeMediaPicker = (node: WorkflowNode) => {
+    if (!isMediaNodeKind(node.kind)) return;
+    setMediaUploadTargetId(node.id);
+    store.selectSingleNode(node.id, false);
+    nodeMediaInputRef.current?.click();
+  };
+
+  const handleNodeMediaFiles = async (nodeId: string, fileList: FileList | File[]) => {
+    const node = store.nodeMap.get(nodeId);
+    if (!node || !isMediaNodeKind(node.kind)) return;
+
+    const files = Array.from(fileList);
+    const file = files.find((item) => {
+      if (node.kind === 'imageGen') return item.type.startsWith('image/');
+      return item.type.startsWith('image/') || item.type.startsWith('video/');
+    });
+    if (!file) return;
+
+    const isVideo = file.type.startsWith('video/');
+    const href = await readFileAsDataUrl(file);
+    const mediaMeta = isVideo ? await readVideoMetadata(href) : await readImageDimensions(href);
+    const updates: Partial<NodeConfig> = {
+      mediaKind: isVideo ? 'video' : 'image',
+      mediaHref: href,
+      mediaMimeType: file.type || (isVideo ? 'video/mp4' : 'image/png'),
+      mediaName: file.name,
+      mediaWidth: mediaMeta.width,
+      mediaHeight: mediaMeta.height,
+      mediaDurationSec: isVideo ? mediaMeta.durationSec : undefined,
+      mediaPosterHref: undefined,
+      mediaTrimInSec: undefined,
+      mediaTrimOutSec: undefined,
+      pinnedOutputs: undefined,
+    };
+
+    store.updateNodeConfig(node.id, updates, true);
+    setNodeRunState((prev) => {
+      const next = { ...prev };
+      delete next[node.id];
+      return next;
+    });
+  };
+
+  const handleNodeMediaDrop = (event: React.DragEvent, node: WorkflowNode) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+      void handleNodeMediaFiles(node.id, event.dataTransfer.files);
+    }
   };
 
   const handleDropPayload = (e: React.DragEvent) => {
@@ -1573,25 +1836,15 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
 
   const getConnectionMenuOptions = (menu: ConnectionMenuState): ChainNodeOption[] => {
     const options: ChainNodeOption[] = [
-      { id: 'text', label: '文本', badge: 'TXT', kind: 'llm' },
-      { id: 'image', label: '图片', badge: 'IMG', kind: 'imageGen' },
-      { id: 'video', label: '视频', badge: 'VID', kind: 'videoGen' },
-      { id: 'compose', label: '视频合成', badge: 'CUT', kind: 'videoEdit', beta: true },
-      { id: 'enhance', label: '优化提示词', badge: 'FX', kind: 'enhancer' },
-      { id: 'upscale', label: '超分辨率', badge: 'UP', kind: 'upscale' },
-      { id: 'face', label: '面部修复', badge: 'FR', kind: 'faceRestore' },
-      { id: 'bgremove', label: '移除背景', badge: 'BG', kind: 'bgRemove' },
-      { id: 'save', label: '保存到素材库', badge: 'LIB', kind: 'saveToAssets' },
-      { id: 'audio', label: '音频', badge: 'AUD', beta: true, disabled: true, disabledReason: '音频节点尚未接入运行器' },
-      { id: 'script', label: '脚本', badge: 'SCR', beta: true, disabled: true, disabledReason: '脚本节点尚未接入运行器' },
+      { id: 'image', label: 'Image', badge: 'IMG', kind: 'imageGen' },
+      { id: 'video', label: 'Video', badge: 'VID', kind: 'videoGen' },
     ];
     return options.map((option) => (
       option.kind && !canCreateConnectedNode(menu, option.kind)
-        ? { ...option, disabled: true, disabledReason: '当前输出类型不可直连' }
+        ? { ...option, disabled: true, disabledReason: 'Current output cannot connect to this node' }
         : option
     ));
   };
-
   const openConnectionMenu = (event: React.MouseEvent) => {
     const pending = store.pendingConnection;
     if (!pending) return;
@@ -1782,7 +2035,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
             className="workflow-primary-action h-9 rounded-lg px-4 text-[13px] font-semibold"
             title="Run workflow"
           >
-            {isExecuting ? 'Running…' : 'Run'}
+              {isExecuting ? 'Running...' : 'Run'}
           </button>
           <button
             type="button"
@@ -2180,6 +2433,15 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
             const active = store.activeNodeId === node.id;
             const runtime = getEffectiveNodeRuntime(node.id, node.config);
             const primaryValue = getPrimaryWorkflowValue(runtime?.outputs);
+            const configuredMedia = getConfigMediaValue(node.config);
+            const upstreamMedia = getPrimaryWorkflowValue(collectNodeInputValues(node.id, store.edges, nodeOutputsById));
+            const displayMedia = isDisplayMediaValue(primaryValue)
+              ? primaryValue
+              : isDisplayMediaValue(configuredMedia)
+                ? configuredMedia
+                : isDisplayMediaValue(upstreamMedia)
+                  ? upstreamMedia
+                  : null;
             const runtimeSummary = runtime?.error || runtime?.message || summarizeWorkflowValue(primaryValue);
             const displayTitle = getNodeTitle(node.kind, node.config?.label);
             const runtimeStatus = runtime?.status || 'idle';
@@ -2236,7 +2498,8 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                 </div>
 
                 <div className="relative p-2.5">
-                  {renderNodeRuntimeControls(node)}
+                  {!isMediaNodeKind(node.kind) && renderNodeRuntimeControls(node)}
+                  {isMediaNodeKind(node.kind) && renderMediaNodeCardBody(node, displayMedia)}
 
                   {node.kind === 'prompt' && (
                     <div
@@ -2445,7 +2708,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                     </div>
                   )}
 
-                  {(node.kind === 'imageGen' || node.kind === 'videoGen') && (
+                  {!isMediaNodeKind(node.kind) && (node.kind === 'imageGen' || node.kind === 'videoGen') && (
                     <div className="rounded-lg border border-white/10 bg-black/25 p-2 text-[11px] text-white/70">
                       <div className="font-medium text-white/88">
                         {(modelTemplate?.displayName || node.config?.model || (node.kind === 'videoGen' ? selectedVideoModel : selectedImageModel) || 'Model pending').slice(0, 64)}
@@ -2881,7 +3144,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
             style={{ left: connectionMenu.x + 8, top: connectionMenu.y + 8 }}
           >
             <div className="px-2 pb-2 text-[12px] font-semibold opacity-80">
-              引用该节点生成
+              Create linked node
             </div>
             <div className="grid gap-1">
               {options.map((option) => (
@@ -2892,7 +3155,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                     'flex items-center gap-3 rounded-lg px-2.5 py-2 text-left text-[13px]',
                     option.disabled && 'is-disabled',
                   )}
-                  title={option.disabledReason || `创建${option.label}节点`}
+                  title={option.disabledReason || `鍒涘缓${option.label}鑺傜偣`}
                   disabled={option.disabled || !option.kind}
                   onClick={() => option.kind && addNodeFromConnectionMenu(option.kind)}
                 >
@@ -2961,6 +3224,21 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
           )}
         </div>
       )}
+
+      <input
+        ref={nodeMediaInputRef}
+        type="file"
+        accept="image/*,video/*"
+        className="hidden"
+        data-testid="workflow-node-media-input"
+        title="Upload media to selected node"
+        onChange={(e) => {
+          if (mediaUploadTargetId && e.target.files && e.target.files.length > 0) {
+            void handleNodeMediaFiles(mediaUploadTargetId, e.target.files);
+          }
+          e.target.value = '';
+        }}
+      />
 
       <input
         ref={fileInputRef}

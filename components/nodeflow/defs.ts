@@ -54,23 +54,17 @@ export const NODE_DEFS: Record<NodeKind, NodeDefinition> = {
     outputs: [{ key: 'text', type: 'text', label: 'OUTPUT' }],
   },
   imageGen: {
-    title: 'Image Generate',
-    width: 310,
-    height: 170,
-    inputs: [
-      { key: 'text', type: 'text', label: 'PROMPT' },
-      { key: 'image', type: 'image', label: 'REF IMAGE' },
-    ],
+    title: 'Image',
+    width: 300,
+    height: 250,
+    inputs: [{ key: 'image', type: 'image', label: 'IMAGE IN' }],
     outputs: [{ key: 'image', type: 'image', label: 'IMAGE' }],
   },
   videoGen: {
-    title: 'Video Generate',
-    width: 310,
-    height: 170,
-    inputs: [
-      { key: 'text', type: 'text', label: 'PROMPT' },
-      { key: 'image', type: 'image', label: 'FIRST FRAME' },
-    ],
+    title: 'Video',
+    width: 300,
+    height: 250,
+    inputs: [{ key: 'image', type: 'image', label: 'IMAGE IN' }],
     outputs: [{ key: 'video', type: 'video', label: 'VIDEO' }],
   },
   videoEdit: {
@@ -182,18 +176,12 @@ export const NODE_DEFS: Record<NodeKind, NodeDefinition> = {
 };
 
 export const INITIAL_NODES: WorkflowNode[] = [
-  { id: 'prompt_1', kind: 'prompt', x: 240, y: 120 },
-  { id: 'image_1', kind: 'loadImage', x: 260, y: 460 },
-  { id: 'enhancer_1', kind: 'enhancer', x: 740, y: 140 },
-  { id: 'generator_1', kind: 'generator', x: 1180, y: 260 },
-  { id: 'preview_1', kind: 'preview', x: 1600, y: 280 },
+  { id: 'image_1', kind: 'imageGen', x: 240, y: 180, config: { label: 'Image' } },
+  { id: 'video_1', kind: 'videoGen', x: 680, y: 180, config: { label: 'Video' } },
 ];
 
 export const INITIAL_EDGES: WorkflowEdge[] = [
-  { id: 'edge_1', fromNode: 'prompt_1', fromPort: 'text', toNode: 'enhancer_1', toPort: 'text' },
-  { id: 'edge_2', fromNode: 'enhancer_1', fromPort: 'text', toNode: 'generator_1', toPort: 'text' },
-  { id: 'edge_3', fromNode: 'image_1', fromPort: 'image', toNode: 'generator_1', toPort: 'image' },
-  { id: 'edge_4', fromNode: 'generator_1', fromPort: 'result', toNode: 'preview_1', toPort: 'result' },
+  { id: 'edge_1', fromNode: 'image_1', fromPort: 'image', toNode: 'video_1', toPort: 'image' },
 ];
 
 export const INITIAL_GROUPS: WorkflowGroup[] = [];

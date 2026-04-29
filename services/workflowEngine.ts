@@ -12,6 +12,7 @@ import {
   summarizeWorkflowValue,
 } from '../components/nodeflow/types';
 import type {
+  NodeConfig,
   NodeIOMap,
   NodeKind,
   PortValue,
@@ -140,6 +141,31 @@ function getVideoInput(inputs: NodeIOMap, ...keys: string[]): WorkflowVideoValue
     if (value) return value;
   }
   return null;
+}
+
+function getConfigImageMedia(config?: NodeConfig): WorkflowImageValue | null {
+  if (config?.mediaKind !== 'image' || !config.mediaHref) return null;
+  return imageValue(
+    config.mediaHref,
+    config.mediaMimeType || detectMimeTypeFromHref(config.mediaHref, 'image/png'),
+    config.mediaWidth,
+    config.mediaHeight,
+  );
+}
+
+function getConfigVideoMedia(config?: NodeConfig): WorkflowVideoValue | null {
+  if (config?.mediaKind !== 'video' || !config.mediaHref) return null;
+  return {
+    kind: 'video',
+    href: config.mediaHref,
+    mimeType: config.mediaMimeType || detectMimeTypeFromHref(config.mediaHref, 'video/mp4'),
+    width: config.mediaWidth,
+    height: config.mediaHeight,
+    posterHref: config.mediaPosterHref,
+    durationSec: config.mediaDurationSec,
+    trimInSec: config.mediaTrimInSec,
+    trimOutSec: config.mediaTrimOutSec,
+  };
 }
 
 function pickFirstValue(...values: PortValue[]): PortValue {
@@ -364,8 +390,11 @@ async function executeImageGen(
   inputs: NodeIOMap,
   ctx: ExecutionContext,
 ): Promise<NodeIOMap> {
-  const prompt = getPromptInput(node, inputs, ctx, 'text', 'input');
-  const refImage = getImageInput(inputs, 'image', 'input');
+  const prompt = getTextInput(inputs, 'text', 'input') || node.config?.prompt || '';
+  const refImage = getImageInput(inputs, 'image', 'input') || getConfigImageMedia(node.config);
+  if (!prompt.trim()) {
+    return { image: refImage };
+  }
   const provider = (node.config?.provider as AIProvider) || 'google';
   const model = node.config?.model || (provider === 'openrouter' ? 'google/gemini-3.1-flash-image-preview' : provider === 'openai' ? 'gpt-image-1' : 'gemini-3.1-flash-image-preview');
   const key = resolveNodeApiKey(ctx.apiKeys, node.config, provider);
@@ -438,8 +467,12 @@ async function executeVideoGen(
   inputs: NodeIOMap,
   ctx: ExecutionContext,
 ): Promise<NodeIOMap> {
-  const prompt = getPromptInput(node, inputs, ctx, 'text', 'input');
-  const firstFrame = getImageInput(inputs, 'image', 'input');
+  const prompt = getTextInput(inputs, 'text', 'input') || node.config?.prompt || '';
+  const firstFrame = getImageInput(inputs, 'image', 'input') || getConfigImageMedia(node.config);
+  const localVideo = getConfigVideoMedia(node.config);
+  if (!prompt.trim()) {
+    return { video: localVideo };
+  }
   const provider = (node.config?.provider as AIProvider) || 'google';
   const model = node.config?.model || (provider === 'minimax' ? 'video-01' : 'veo-3.1-generate-preview');
   const key = resolveNodeApiKey(ctx.apiKeys, node.config, provider, 'google', 'minimax', 'keling');
