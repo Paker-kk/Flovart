@@ -30,7 +30,7 @@ export const AppShell: React.FC<AppShellProps> = ({
     <div className="shrink-0">{topBar}</div>
     <div className="min-h-0 flex flex-1 relative">
       {leftSidebar && <div className="shrink-0">{leftSidebar}</div>}
-      <div className="min-w-0 min-h-0 flex-1 relative">{main}</div>
+      <div className="min-w-0 min-h-0 flex-1 relative flex flex-col">{main}</div>
       {rightSidebar && <div className="shrink-0">{rightSidebar}</div>}
     </div>
     {overlays}
