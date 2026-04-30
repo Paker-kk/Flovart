@@ -7,7 +7,7 @@ const modelPreference: ModelPreference = {
   textModel: 'gemini-3-flash-preview',
   imageModel: 'gpt-image-1',
   videoModel: 'veo-3.1-generate-preview',
-  agentModel: 'banana-vision-v1',
+  agentModel: '',
 };
 
 describe('runtimeBridgeState', () => {

@@ -190,6 +190,7 @@ export interface NodeConfig {
   resolution?: string;
   durationSec?: number;
   fps?: number;
+  outputCount?: number;
   cameraPreset?: string;
   rhEndpoint?: string;
   rhResolution?: '1k' | '2k' | '4k';

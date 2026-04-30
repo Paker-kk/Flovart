@@ -223,6 +223,67 @@ describe('workflowEngine', () => {
     ]);
   });
 
+  it('routes LLM nodes through custom Anthropic request format and model mapping', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ content: [{ text: 'workflow answer' }] }),
+      text: async () => JSON.stringify({ content: [{ text: 'workflow answer' }] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const nodes: WorkflowNode[] = [
+      {
+        id: 'llm_1',
+        kind: 'llm',
+        x: 0,
+        y: 0,
+        config: {
+          provider: 'custom',
+          model: 'claude-sonnet-4-6',
+        },
+      },
+    ];
+
+    const result = await executeWorkflow(nodes, [], {
+      apiKeys: [{
+        id: 'key_1',
+        provider: 'custom',
+        capabilities: ['text'],
+        key: 'secret-key',
+        baseUrl: 'https://anthropic-proxy.example.com/v1',
+        models: [{ id: 'claude-sonnet-4-6', name: 'Claude Sonnet' }],
+        extraConfig: {
+          requestFormat: 'anthropic',
+          authHeaderName: 'x-api-key',
+          authScheme: '',
+          modelMappingsJson: '{"claude-sonnet-4-6":"vendor-claude"}',
+        },
+        createdAt: 0,
+        updatedAt: 0,
+      }],
+      inputPrompt: 'Explain the workflow',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.nodeOutputs.get('llm_1')?.text).toMatchObject({ kind: 'text', text: 'workflow answer' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://anthropic-proxy.example.com/v1/messages',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'x-api-key': 'secret-key',
+          'anthropic-version': '2023-06-01',
+        }),
+      }),
+    );
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(init.body))).toEqual(expect.objectContaining({
+      model: 'vendor-claude',
+    }));
+
+    vi.unstubAllGlobals();
+  });
+
   it('loads canvas video inputs through loadVideo nodes', async () => {
     const nodes: WorkflowNode[] = [
       { id: 'load_video_1', kind: 'loadVideo', x: 0, y: 0 },
@@ -364,5 +425,46 @@ describe('workflowEngine', () => {
       posterHref: imageHref,
       sourceVideoId: 'video_1',
     });
+  });
+
+  it('fails a slow node when timeoutMs expires', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise(resolve => {
+        setTimeout(() => {
+          resolve({
+            ok: true,
+            text: async () => '{"ok":true}',
+          });
+        }, 40);
+      })),
+    );
+
+    const nodes: WorkflowNode[] = [
+      {
+        id: 'http_1',
+        kind: 'httpRequest',
+        x: 0,
+        y: 0,
+        config: {
+          httpUrl: 'https://example.test/api',
+          timeoutMs: 5,
+        },
+      },
+    ];
+
+    const result = await executeWorkflow(nodes, [], {
+      apiKeys: [],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        nodeId: 'http_1',
+        error: expect.stringContaining('timed out'),
+      }),
+    ]);
+
+    vi.unstubAllGlobals();
   });
 });

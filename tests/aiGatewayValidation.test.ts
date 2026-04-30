@@ -4,12 +4,21 @@
  * 以及 generateImageWithProvider 对不支持 provider 的报错行为
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { validateApiKey, inferProviderFromModel, generateImageWithProvider, generateVideoWithProvider } from '../services/aiGateway';
+import {
+    validateApiKey,
+    inferProviderFromModel,
+    generateImageWithProvider,
+    generateVideoWithProvider,
+    reversePromptWithProvider,
+    splitImageLayersWithProvider,
+    runImageAgentWithProvider,
+} from '../services/aiGateway';
 
 function mockJsonResponse(body: unknown, status = 200) {
     return {
         ok: status >= 200 && status < 300,
         status,
+        json: () => Promise.resolve(body),
         text: () => Promise.resolve(JSON.stringify(body)),
         headers: {
             get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
@@ -93,6 +102,32 @@ describe('aiGateway - validateApiKey', () => {
             })
         );
     });
+
+    it('custom provider validation honors Anthropic requestFormat and auth header config', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+        });
+
+        const result = await validateApiKey(
+            'custom',
+            'secret-key',
+            'https://anthropic-proxy.example.com/v1',
+            { requestFormat: 'anthropic', authHeaderName: 'x-api-key', authScheme: '' },
+        );
+
+        expect(result.ok).toBe(true);
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            'https://anthropic-proxy.example.com/v1/messages',
+            expect.objectContaining({
+                method: 'POST',
+                headers: expect.objectContaining({
+                    'x-api-key': 'secret-key',
+                    'anthropic-version': '2023-06-01',
+                }),
+            }),
+        );
+    });
 });
 
 describe('aiGateway - generateImageWithProvider', () => {
@@ -171,6 +206,174 @@ describe('aiGateway - generateImageWithProvider', () => {
         await expect(
             generateImageWithProvider('test prompt', 'claude-3-haiku', { id: '1', provider: 'anthropic', capabilities: ['text'], key: 'test', createdAt: 0, updatedAt: 0 })
         ).rejects.toThrow('暂不支持');
+    });
+    it('custom provider applies model mapping and custom auth header', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue(mockJsonResponse({
+            data: [{ b64_json: 'ZmFrZQ==' }],
+        }));
+
+        const result = await generateImageWithProvider('test prompt', 'openai/gpt-image-1', {
+            id: '4',
+            provider: 'custom',
+            capabilities: ['image'],
+            key: 'secret-key',
+            baseUrl: 'https://gateway.example.com/v1',
+            extraConfig: {
+                endpointFlavor: 'openai-compatible',
+                authHeaderName: 'x-api-key',
+                authScheme: '',
+                modelMappingsJson: '{"openai/gpt-image-1":"vendor-image-model"}',
+            },
+            createdAt: 0,
+            updatedAt: 0,
+        });
+
+        expect(result.newImageBase64).toBe('ZmFrZQ==');
+        const [, init] = vi.mocked(globalThis.fetch).mock.calls[0];
+        expect(init).toEqual(expect.objectContaining({
+            headers: expect.objectContaining({ 'x-api-key': 'secret-key' }),
+        }));
+        expect(JSON.parse(String(init?.body))).toEqual(expect.objectContaining({
+            model: 'vendor-image-model',
+        }));
+    });
+});
+
+describe('aiGateway - custom request format routing', () => {
+    it('custom provider with Anthropic requestFormat uses messages endpoint, mapped model, and configured auth header', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue(mockJsonResponse({
+            content: [{ text: 'described prompt' }],
+        }));
+
+        const result = await reversePromptWithProvider(
+            'data:image/png;base64,ZmFrZQ==',
+            'image/png',
+            'claude-sonnet-4-6',
+            {
+                id: 'anthropic-custom',
+                provider: 'custom',
+                capabilities: ['text'],
+                key: 'secret-key',
+                baseUrl: 'https://anthropic-proxy.example.com/v1',
+                extraConfig: {
+                    requestFormat: 'anthropic',
+                    authHeaderName: 'x-api-key',
+                    authScheme: '',
+                    modelMappingsJson: '{"claude-sonnet-4-6":"vendor-claude"}',
+                },
+                createdAt: 0,
+                updatedAt: 0,
+            },
+            'en',
+        );
+
+        expect(result).toBe('described prompt');
+        const [url, init] = vi.mocked(globalThis.fetch).mock.calls[0];
+        expect(url).toBe('https://anthropic-proxy.example.com/v1/messages');
+        expect(init).toEqual(expect.objectContaining({
+            method: 'POST',
+            headers: expect.objectContaining({
+                'Content-Type': 'application/json',
+                'x-api-key': 'secret-key',
+                'anthropic-version': '2023-06-01',
+            }),
+        }));
+        expect(JSON.parse(String(init?.body))).toEqual(expect.objectContaining({
+            model: 'vendor-claude',
+        }));
+    });
+});
+
+describe('aiGateway - unified agent provider actions', () => {
+    it('splits image layers through the selected UserApiKey provider config', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue(mockJsonResponse({
+            layers: [{
+                name: 'subject',
+                imageBase64: 'c3ViamVjdA==',
+                width: 64,
+                height: 48,
+                bbox: { x: 7, y: 9 },
+            }],
+        }));
+
+        const layers = await splitImageLayersWithProvider(
+            { href: 'data:image/png;base64,ZmFrZQ==', mimeType: 'image/png' },
+            'banana-vision-v1',
+            {
+                id: 'agent-custom',
+                provider: 'custom',
+                capabilities: ['agent'],
+                key: 'secret-key',
+                baseUrl: 'https://agent.example.com/v1/vision',
+                models: [{ id: 'banana-vision-v1', name: 'Banana Vision' }],
+                extraConfig: {
+                    requestFormat: 'native',
+                    authHeaderName: 'x-api-key',
+                    authScheme: '',
+                    modelMappingsJson: '{"banana-vision-v1":"vendor-layer-model"}',
+                },
+                createdAt: 0,
+                updatedAt: 0,
+            },
+        );
+
+        expect(layers).toEqual([expect.objectContaining({
+            name: 'subject',
+            dataUrl: 'data:image/png;base64,c3ViamVjdA==',
+            width: 64,
+            height: 48,
+            offsetX: 7,
+            offsetY: 9,
+        })]);
+        const [url, init] = vi.mocked(globalThis.fetch).mock.calls[0];
+        expect(url).toBe('https://agent.example.com/v1/vision/split-layers');
+        expect(init).toEqual(expect.objectContaining({
+            method: 'POST',
+            headers: expect.objectContaining({ 'x-api-key': 'secret-key' }),
+        }));
+        expect(JSON.parse(String(init?.body))).toEqual(expect.objectContaining({
+            model: 'vendor-layer-model',
+            task: 'layer-segmentation',
+        }));
+    });
+
+    it('runs image agent tasks through the selected UserApiKey provider config', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue(mockJsonResponse({
+            result: {
+                imageBase64: 'dXBzY2FsZWQ=',
+                mimeType: 'image/png',
+                width: 128,
+                height: 96,
+            },
+        }));
+
+        const result = await runImageAgentWithProvider(
+            { href: 'data:image/png;base64,ZmFrZQ==', mimeType: 'image/png' },
+            'upscale',
+            'banana-vision-v1',
+            {
+                id: 'agent-custom',
+                provider: 'custom',
+                capabilities: ['agent'],
+                key: 'secret-key',
+                baseUrl: 'https://agent.example.com/v1/vision',
+                models: [{ id: 'banana-vision-v1', name: 'Banana Vision' }],
+                extraConfig: { requestFormat: 'native' },
+                createdAt: 0,
+                updatedAt: 0,
+            },
+            { scale: 2 },
+        );
+
+        expect(result).toEqual(expect.objectContaining({
+            dataUrl: 'data:image/png;base64,dXBzY2FsZWQ=',
+            width: 128,
+            height: 96,
+        }));
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            'https://agent.example.com/v1/vision/agent',
+            expect.objectContaining({ method: 'POST' }),
+        );
     });
 });
 

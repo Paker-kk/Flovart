@@ -24,7 +24,6 @@ import type {
 } from '../components/nodeflow/types';
 import { NODE_DEFS } from '../components/nodeflow/defs';
 import type { AIProvider, UserApiKey } from '../types';
-import { normalizeProviderBaseUrl } from './baseUrl';
 import { normalizeVideoTrim } from '../utils/videoEdit';
 
 // ──── Data Types ────
@@ -341,47 +340,13 @@ async function executeLLM(
   const temperature = node.config?.temperature ?? 0.7;
   const maxTokens = node.config?.maxTokens ?? 4096;
 
-  if (key.provider === 'google') {
-    // Use Gemini native format
-    const { enhancePromptWithGemini, setGeminiRuntimeConfig } = await import('../services/geminiService');
-    setGeminiRuntimeConfig({ textApiKey: key.key, imageApiKey: key.key, videoApiKey: key.key });
-    const result = await enhancePromptWithGemini(inputText, systemPrompt, key.key);
-    return { text: textValue(result || inputText) };
-  }
-
-  // OpenAI-compatible
-  const baseUrl = normalizeProviderBaseUrl(key.provider, key.baseUrl || 'https://api.openai.com/v1');
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${key.key}`,
-      ...(key.provider === 'anthropic'
-        ? { 'x-api-key': key.key, 'anthropic-version': '2023-06-01' }
-        : {}),
-    },
-    body: JSON.stringify({
-      model,
-      temperature,
-      max_tokens: maxTokens,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: inputText },
-      ],
-    }),
+  const { generateTextWithProvider } = await import('../services/aiGateway');
+  const text = await generateTextWithProvider(inputText, model, key, {
+    systemPrompt,
+    temperature,
+    maxTokens,
     signal: ctx.signal,
   });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`LLM 调用失败: ${err}`);
-  }
-
-  const json = await res.json();
-  const text =
-    json.choices?.[0]?.message?.content ||
-    json.content?.[0]?.text ||
-    '';
   return { text: textValue(text) };
 }
 
@@ -985,6 +950,58 @@ async function executeNode(
   }
 }
 
+function getNodeTimeoutMs(config?: NodeConfig): number | undefined {
+  const timeoutMs = config?.timeoutMs;
+  return typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
+    ? timeoutMs
+    : undefined;
+}
+
+async function executeNodeWithTimeout(
+  node: WorkflowNode,
+  inputs: NodeIOMap,
+  ctx: ExecutionContext,
+): Promise<NodeIOMap> {
+  const timeoutMs = getNodeTimeoutMs(node.config);
+  if (!timeoutMs) {
+    return executeNode(node, inputs, ctx);
+  }
+
+  const controller = new AbortController();
+  const parentSignal = ctx.signal;
+  let timedOut = false;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  const abortFromParent = () => controller.abort();
+  if (parentSignal?.aborted) {
+    controller.abort();
+  } else {
+    parentSignal?.addEventListener('abort', abortFromParent, { once: true });
+  }
+
+  const timeoutError = new Error(`Node timed out after ${timeoutMs}ms`);
+  const timeoutPromise = new Promise<NodeIOMap>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      reject(timeoutError);
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([
+      executeNode(node, inputs, { ...ctx, signal: controller.signal }).catch((error) => {
+        if (timedOut) throw timeoutError;
+        throw error;
+      }),
+      timeoutPromise,
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    parentSignal?.removeEventListener('abort', abortFromParent);
+  }
+}
+
 /**
  * Execute an entire workflow graph.
  * Supports: conditional path skipping, retry with exponential backoff.
@@ -1090,7 +1107,7 @@ export async function executeWorkflow(
         await new Promise(r => setTimeout(r, delay));
       }
       try {
-        outputs = await executeNode(node, inputs, ctx);
+        outputs = await executeNodeWithTimeout(node, inputs, ctx);
         lastError = undefined;
         break;
       } catch (err) {

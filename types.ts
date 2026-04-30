@@ -151,6 +151,13 @@ export interface AssetItem {
   width: number;
   height: number;
   createdAt: number;
+  source?: 'local' | 'extension' | 'workflow' | 'generation' | 'recipe' | 'market';
+  sourceUrl?: string;
+  prompt?: string;
+  provider?: string;
+  model?: string;
+  generationParams?: Record<string, unknown>;
+  workflow?: Record<string, unknown>;
 }
 
 export interface AssetLibrary {
@@ -170,6 +177,32 @@ export interface GenerationHistoryItem {
   createdAt: number;
   /** 生成类型：image | video，默认 image */
   mediaType?: 'image' | 'video';
+  provider?: string;
+  model?: string;
+  generationParams?: Record<string, unknown>;
+  workflow?: Record<string, unknown>;
+}
+
+export interface GenerationRecipe {
+  prompt: string;
+  provider?: string;
+  model?: string;
+  generationParams?: Record<string, unknown>;
+  workflow?: Record<string, unknown>;
+}
+
+export interface RecipePackage {
+  version: 1;
+  asset: {
+    name?: string;
+    category: AssetCategory;
+    dataUrl: string;
+    mimeType: string;
+    width: number;
+    height: number;
+  };
+  recipe: GenerationRecipe;
+  createdAt: number;
 }
 
 // API Key & Model Preferences

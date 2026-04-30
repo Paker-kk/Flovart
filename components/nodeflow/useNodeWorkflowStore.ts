@@ -722,6 +722,80 @@ export function useNodeWorkflowStore() {
     });
   };
 
+  const autoArrange = () => {
+    if (graph.nodes.length === 0) return;
+    const nodeOrder = new Map(graph.nodes.map((node, index) => [node.id, index]));
+    const outgoing = new Map<string, string[]>();
+    const indegree = new Map(graph.nodes.map((node) => [node.id, 0]));
+    const layers = new Map(graph.nodes.map((node) => [node.id, 0]));
+
+    graph.edges.forEach((edge) => {
+      if (!indegree.has(edge.fromNode) || !indegree.has(edge.toNode)) return;
+      outgoing.set(edge.fromNode, [...(outgoing.get(edge.fromNode) ?? []), edge.toNode]);
+      indegree.set(edge.toNode, (indegree.get(edge.toNode) ?? 0) + 1);
+    });
+
+    const queue = graph.nodes
+      .filter((node) => (indegree.get(node.id) ?? 0) === 0)
+      .sort((a, b) => (nodeOrder.get(a.id) ?? 0) - (nodeOrder.get(b.id) ?? 0))
+      .map((node) => node.id);
+    const visited = new Set<string>();
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      visited.add(current);
+      for (const next of outgoing.get(current) ?? []) {
+        layers.set(next, Math.max(layers.get(next) ?? 0, (layers.get(current) ?? 0) + 1));
+        indegree.set(next, (indegree.get(next) ?? 1) - 1);
+        if ((indegree.get(next) ?? 0) === 0) {
+          queue.push(next);
+        }
+      }
+    }
+
+    graph.nodes.forEach((node) => {
+      if (!visited.has(node.id)) {
+        layers.set(node.id, Math.max(layers.get(node.id) ?? 0, 0));
+      }
+    });
+
+    const nodesByLayer = new Map<number, WorkflowNode[]>();
+    graph.nodes.forEach((node) => {
+      const layer = layers.get(node.id) ?? 0;
+      nodesByLayer.set(layer, [...(nodesByLayer.get(layer) ?? []), node]);
+    });
+
+    const arranged = new Map<string, XYPosition>();
+    const origin = { x: 220, y: 160 };
+    const columnGap = 380;
+    const rowGap = 220;
+
+    Array.from(nodesByLayer.entries())
+      .sort(([a], [b]) => a - b)
+      .forEach(([layer, nodes]) => {
+        nodes
+          .sort((a, b) => (nodeOrder.get(a.id) ?? 0) - (nodeOrder.get(b.id) ?? 0))
+          .forEach((node, index) => {
+            arranged.set(node.id, snapPosition({
+              x: origin.x + layer * columnGap,
+              y: origin.y + index * rowGap,
+            }));
+          });
+      });
+
+    commitGraph((prev) => {
+      const nextNodes = prev.nodes.map((node) => ({
+        ...node,
+        ...(arranged.get(node.id) ?? { x: node.x, y: node.y }),
+      }));
+      return {
+        ...prev,
+        nodes: nextNodes,
+        groups: updateGroupsWithNodes(prev.groups, nextNodes),
+      };
+    });
+  };
+
   const undo = () => {
     if (historyPastRef.current.length === 0) return;
     const previous = historyPastRef.current[historyPastRef.current.length - 1];
@@ -768,12 +842,12 @@ export function useNodeWorkflowStore() {
   };
 
   /** Replace the entire graph from a template or imported workflow */
-  const loadTemplate = (template: { nodes: WorkflowNode[]; edges: WorkflowEdge[]; groups?: WorkflowGroup[] }) => {
+  const loadTemplate = (template: { nodes: WorkflowNode[]; edges: WorkflowEdge[]; groups?: WorkflowGroup[]; viewport?: WorkflowViewport }) => {
     const newGraph: GraphState = {
       nodes: template.nodes.map(n => ({ ...n })),
       edges: template.edges.map(e => ({ ...e })),
       groups: (template.groups ?? []).map(g => ({ ...g, nodeIds: [...g.nodeIds] })),
-      viewport: { x: -120, y: -80, scale: 0.86 },
+      viewport: template.viewport ?? { x: -120, y: -80, scale: 0.86 },
     };
     historyPastRef.current = [...historyPastRef.current, cloneGraph(graph)].slice(-HISTORY_LIMIT);
     historyFutureRef.current = [];
@@ -832,6 +906,7 @@ export function useNodeWorkflowStore() {
     pasteFromClipboard,
     alignSelectedNodes,
     distributeSelectedNodes,
+    autoArrange,
     undo,
     redo,
     updateNodeConfig,

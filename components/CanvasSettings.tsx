@@ -5,18 +5,10 @@ import {
     validateApiKey,
     inferProviderFromKey,
     inferCapabilitiesByProvider,
-    inferProviderFromModel,
     PROVIDER_LABELS,
 } from '../services/aiGateway';
-import {
-    findModelTemplateByModel,
-    getBuiltinModelTemplates,
-    getModelTemplatesByCapability,
-    type ModelTemplate,
-    type ModelTemplateCapability,
-} from '../services/modelTemplateRegistry';
 import { formatCost, type KeyUsageSummary } from '../utils/usageMonitor';
-import { fetchModelsForProvider, FREE_KEY_LINKS, type FetchedModel } from '../services/modelFetcher';
+import { fetchModelsForProvider, type FetchedModel } from '../services/modelFetcher';
 import { normalizeProviderBaseUrl } from '../services/baseUrl';
 
 interface CanvasSettingsProps {
@@ -42,7 +34,7 @@ interface CanvasSettingsProps {
     /** Per-key usage summary (optional) */
     usageSummary?: Map<string, KeyUsageSummary>;
     /** 动态模型选项（从 App.tsx 传入，基于用户 Key 计算） */
-    dynamicModelOptions?: { text: string[]; image: string[]; video: string[] };
+    dynamicModelOptions?: { text: string[]; image: string[]; video: string[]; agent: string[] };
 }
 
 const providerBaseUrl: Record<AIProvider, string> = {
@@ -70,51 +62,121 @@ const capabilityLabels: Record<AICapability, string> = {
     agent: 'Agent',
 };
 
+type ProviderPreset = {
+    id: string;
+    name: string;
+    shortName: string;
+    provider: AIProvider;
+    websiteUrl: string;
+    baseUrl: string;
+    capabilities: AICapability[];
+    requestFormat: 'openai' | 'anthropic' | 'google' | 'native';
+    authHeaderName?: string;
+    authScheme?: string;
+    defaultModel?: string;
+    models?: string[];
+    featured?: boolean;
+};
+
+const PROVIDER_PRESETS: ProviderPreset[] = [
+    {
+        id: 'custom',
+        name: '自定义配置',
+        shortName: '自',
+        provider: 'custom',
+        websiteUrl: '',
+        baseUrl: '',
+        capabilities: ['text', 'image'],
+        requestFormat: 'openai',
+        authHeaderName: 'Authorization',
+        authScheme: 'Bearer',
+        featured: true,
+    },
+    {
+        id: 'claude-official',
+        name: 'Claude Official',
+        shortName: 'AI',
+        provider: 'anthropic',
+        websiteUrl: 'https://www.anthropic.com/claude-code',
+        baseUrl: providerBaseUrl.anthropic,
+        capabilities: ['text'],
+        requestFormat: 'anthropic',
+        authHeaderName: 'x-api-key',
+        authScheme: '',
+        defaultModel: 'claude-sonnet-4-6',
+        models: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
+    },
+    {
+        id: 'deepseek',
+        name: 'DeepSeek',
+        shortName: 'DS',
+        provider: 'deepseek',
+        websiteUrl: 'https://platform.deepseek.com',
+        baseUrl: providerBaseUrl.deepseek,
+        capabilities: ['text'],
+        requestFormat: 'openai',
+        defaultModel: 'deepseek-chat',
+        models: ['deepseek-chat', 'deepseek-reasoner'],
+    },
+    {
+        id: 'openrouter',
+        name: 'OpenRouter',
+        shortName: 'OR',
+        provider: 'openrouter',
+        websiteUrl: 'https://openrouter.ai',
+        baseUrl: providerBaseUrl.openrouter,
+        capabilities: ['text', 'image'],
+        requestFormat: 'openai',
+        defaultModel: 'openrouter/auto',
+        models: ['openrouter/auto', 'anthropic/claude-sonnet-4-6', 'openai/gpt-image-1', 'google/gemini-3-flash-preview'],
+        featured: true,
+    },
+    {
+        id: 'siliconflow',
+        name: 'SiliconFlow',
+        shortName: 'SF',
+        provider: 'siliconflow',
+        websiteUrl: 'https://siliconflow.cn',
+        baseUrl: providerBaseUrl.siliconflow,
+        capabilities: ['text', 'image'],
+        requestFormat: 'openai',
+        defaultModel: 'deepseek-ai/DeepSeek-V3',
+        models: ['deepseek-ai/DeepSeek-V3', 'Qwen/Qwen2.5-72B-Instruct'],
+    },
+    {
+        id: 'google',
+        name: 'Gemini Native',
+        shortName: 'G',
+        provider: 'google',
+        websiteUrl: 'https://aistudio.google.com',
+        baseUrl: providerBaseUrl.google,
+        capabilities: ['text', 'image', 'video'],
+        requestFormat: 'google',
+        defaultModel: 'gemini-3-flash-preview',
+        models: ['gemini-3-flash-preview', 'gemini-3.1-flash-image-preview', 'veo-3.1-generate-preview'],
+    },
+    {
+        id: 'banana',
+        name: 'Banana Vision',
+        shortName: 'BN',
+        provider: 'banana',
+        websiteUrl: 'https://www.banana.dev',
+        baseUrl: providerBaseUrl.banana,
+        capabilities: ['agent'],
+        requestFormat: 'native',
+        authHeaderName: 'Authorization',
+        authScheme: 'Bearer',
+        defaultModel: 'banana-vision-v1',
+        models: ['banana-vision-v1'],
+        featured: true,
+    },
+];
+
 const ensureModelOption = (options: string[], model?: string) => {
     const trimmed = model?.trim();
     if (!trimmed) return options;
     return options.includes(trimmed) ? options : [trimmed, ...options];
 };
-
-type PreferenceTemplateCard = {
-    key: keyof ModelPreference;
-    title: string;
-    capability: ModelTemplateCapability;
-    model: string;
-    template: ModelTemplate | null;
-    providerLabel: string;
-    providerId?: AIProvider;
-    tagLabels: string[];
-    defaultParamPreview: string[];
-};
-
-const PREFERENCE_TEMPLATE_SPECS: Array<{
-    key: keyof ModelPreference;
-    title: string;
-    capability: ModelTemplateCapability;
-}> = [
-    { key: 'textModel', title: 'Text Model', capability: 'text' },
-    { key: 'imageModel', title: 'Image Model', capability: 'image' },
-    { key: 'videoModel', title: 'Video Model', capability: 'video' },
-    { key: 'agentModel', title: 'Agent Model', capability: 'agent' },
-];
-
-function formatTemplateValue(value: unknown): string {
-    if (typeof value === 'boolean') return value ? 'on' : 'off';
-    if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, '');
-    if (typeof value === 'string') return value;
-    if (value == null) return 'manual';
-    return String(value);
-}
-
-function buildTemplateDefaultPreview(template: ModelTemplate | null): string[] {
-    if (!template) return [];
-    return template.paramsSchema.slice(0, 3).map((field) => {
-        const fallbackValue = template.defaultParams[field.key];
-        const resolvedValue = field.defaultValue ?? fallbackValue;
-        return `${field.label}: ${formatTemplateValue(resolvedValue)}`;
-    });
-}
 
 export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
     isOpen,
@@ -188,51 +250,8 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
             ],
             modelPreference.videoModel
         ),
-        agent: ensureModelOption([...(DEFAULT_PROVIDER_MODELS.banana?.agent || [])], modelPreference.agentModel),
+        agent: ensureModelOption(dynamicModelOptions?.agent?.length ? dynamicModelOptions.agent : [], modelPreference.agentModel),
     }), [dynamicModelOptions, modelPreference.agentModel, modelPreference.imageModel, modelPreference.textModel, modelPreference.videoModel]);
-
-    const builtinTemplateCount = React.useMemo(() => getBuiltinModelTemplates().length, []);
-
-    const preferenceTemplateCards = React.useMemo<PreferenceTemplateCard[]>(() => {
-        return PREFERENCE_TEMPLATE_SPECS.map(({ key, title, capability }) => {
-            const model = modelPreference[key]?.trim() || '';
-            const template = findModelTemplateByModel(model, capability);
-            const providerId = template?.provider || (model ? inferProviderFromModel(model) : undefined);
-            const providerLabel = providerId ? PROVIDER_LABELS[providerId] || providerId : 'Unresolved provider';
-            const tagLabels = template
-                ? template.tags.filter((tag) => tag !== template.provider && tag !== template.capability).slice(0, 4)
-                : [];
-            return {
-                key,
-                title,
-                capability,
-                model,
-                template,
-                providerLabel,
-                providerId,
-                tagLabels,
-                defaultParamPreview: buildTemplateDefaultPreview(template),
-            };
-        });
-    }, [modelPreference]);
-
-    const templateCoverageRows = React.useMemo(() => {
-        const providers = Array.from(new Set(
-            preferenceTemplateCards
-                .map((card) => card.providerId)
-                .filter((provider): provider is AIProvider => Boolean(provider))
-        ));
-        return providers.map((provider) => ({
-            provider,
-            label: PROVIDER_LABELS[provider] || provider,
-            counts: {
-                text: getModelTemplatesByCapability('text', provider).length,
-                image: getModelTemplatesByCapability('image', provider).length,
-                video: getModelTemplatesByCapability('video', provider).length,
-                agent: getModelTemplatesByCapability('agent', provider).length,
-            },
-        }));
-    }, [preferenceTemplateCards]);
 
     if (!isOpen) return null;
 
@@ -246,6 +265,9 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         isDark
             ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]'
             : 'border-[#E4E7EC] bg-[#F8FAFC] text-[#475467] hover:bg-[#F2F4F7]'
+    }`;
+    const sectionPanelClass = `rounded-2xl border p-3 ${
+        isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E4E7EC] bg-[#F8FAFC]'
     }`;
 
     const toggleCapability = (capability: AICapability) => {
@@ -261,10 +283,53 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         return `${key.slice(0, 4)}****${key.slice(-4)}`;
     };
 
+    const applyProviderPreset = (preset: ProviderPreset, options: { resetKey?: boolean; fillName?: boolean } = {}) => {
+        const modelItems: ModelItem[] = (preset.models || []).map(id => ({ id, name: id }));
+        const presetExtra: Record<string, string> = {
+            requestFormat: preset.requestFormat,
+            ...(preset.websiteUrl ? { websiteUrl: preset.websiteUrl } : {}),
+            ...(preset.authHeaderName ? { authHeaderName: preset.authHeaderName } : {}),
+            ...(preset.authScheme !== undefined ? { authScheme: preset.authScheme } : {}),
+            ...(preset.provider === 'openrouter' ? { endpointFlavor: 'openrouter-compatible' } : {}),
+            ...(preset.provider === 'custom' ? { endpointFlavor: 'openai-compatible' } : {}),
+        };
+
+        setProvider(preset.provider);
+        setBaseUrl(preset.baseUrl);
+        setCapabilities([...preset.capabilities]);
+        setEditModels(modelItems);
+        setEditDefaultModel(preset.defaultModel || modelItems[0]?.id || '');
+        setExtraConfig(presetExtra);
+        setEndpointFlavor(
+            preset.provider === 'openrouter'
+                ? 'openrouter-compatible'
+                : preset.provider === 'custom'
+                    ? 'openai-compatible'
+                    : null
+        );
+        setDetectedCapabilities([...preset.capabilities]);
+        setFetchedModels([]);
+        setFetchError(null);
+        setValidationResult(null);
+        if (options.fillName) setDisplayName(preset.id === 'custom' ? '' : preset.name);
+        if (options.resetKey) setApiKey('');
+    };
+
     const handleProviderChange = (next: AIProvider) => {
+        const preset = PROVIDER_PRESETS.find(item => item.provider === next && item.id !== 'custom');
+        if (preset) {
+            applyProviderPreset(preset);
+            return;
+        }
         setProvider(next);
         setBaseUrl(providerBaseUrl[next]);
         setCapabilities(inferCapabilitiesByProvider(next));
+        setExtraConfig(prev => ({
+            ...prev,
+            requestFormat: next === 'anthropic' ? 'anthropic' : next === 'google' ? 'google' : 'openai',
+            authHeaderName: next === 'anthropic' ? 'x-api-key' : 'Authorization',
+            authScheme: next === 'anthropic' ? '' : 'Bearer',
+        }));
         setEndpointFlavor(null);
         setDetectedCapabilities([]);
         setFetchError(null);
@@ -292,7 +357,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         // 先验证 key 是否有效
         setIsValidating(true);
         setValidationResult(null);
-        const result = await validateApiKey(provider, apiKey.trim(), requestedBaseUrl);
+        const result = await validateApiKey(provider, apiKey.trim(), requestedBaseUrl, extraConfig);
         setIsValidating(false);
         setValidationResult(result);
 
@@ -406,8 +471,18 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         if (!targetKey.trim()) return;
         setIsFetchingModels(true);
         setFetchError(null);
+        const requestFormat = targetProvider === 'custom' ? extraConfig.requestFormat : undefined;
+        if (requestFormat === 'anthropic' || requestFormat === 'native') {
+            setFetchedModels([]);
+            setFetchError(requestFormat === 'native'
+                ? '供应商原生接口通常不提供公开模型列表，请手动添加模型 ID。'
+                : 'Anthropic Messages 格式通常不提供公开模型列表，请手动添加模型 ID。');
+            setIsFetchingModels(false);
+            return;
+        }
+        const fetchProvider: AIProvider = requestFormat === 'google' ? 'google' : targetProvider;
         try {
-            const result = await fetchModelsForProvider(targetProvider, targetKey.trim(), targetBaseUrl?.trim() || undefined);
+            const result = await fetchModelsForProvider(fetchProvider, targetKey.trim(), targetBaseUrl?.trim() || undefined);
             if (result.ok && result.models.length > 0) {
                 setFetchedModels(result.models);
                 setEndpointFlavor(result.endpointFlavor || null);
@@ -467,6 +542,19 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         const next = editModels.filter(m => m.id !== id);
         setEditModels(next);
         if (editDefaultModel === id) setEditDefaultModel(next[0]?.id || '');
+    };
+
+    const updateExtraConfig = (key: string, value: string) => {
+        setExtraConfig(prev => {
+            const next = { ...prev };
+            const normalized = value.trim();
+            if (normalized) {
+                next[key] = normalized;
+            } else {
+                delete next[key];
+            }
+            return next;
+        });
     };
 
     /** 导出所有 API Key 配置为 JSON */
@@ -555,7 +643,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         setBatchTestResults({});
         const results: Record<string, { ok: boolean; message?: string }> = {};
         for (const item of userApiKeys) {
-            const result = await validateApiKey(item.provider, item.key, item.baseUrl);
+            const result = await validateApiKey(item.provider, item.key, item.baseUrl, item.extraConfig);
             results[item.id] = result;
             onUpdateApiKey(item.id, { status: result.ok ? 'ok' : 'error' });
             setBatchTestResults({ ...results });
@@ -643,83 +731,6 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                     </div>
                                 </button>
                             ))}
-                        </div>
-                        <div className={`rounded-2xl border p-4 ${isDark ? 'border-[#2A3140] bg-[#12151B]' : 'border-[#E4E7EC] bg-white'}`}>
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div>
-                                    <div className={`text-sm font-medium ${isDark ? 'text-[#F3F4F6]' : 'text-[#101828]'}`}>Template Insight</div>
-                                    <div className={`mt-1 text-xs ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>
-                                        Current preferences resolved against {builtinTemplateCount} built-in model templates.
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="mt-4 grid gap-3 md:grid-cols-2">
-                                {preferenceTemplateCards.map((card) => (
-                                    <div
-                                        key={card.key}
-                                        className={`rounded-2xl border p-3 ${isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E4E7EC] bg-[#F8FAFC]'}`}
-                                    >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <div className={`text-[11px] uppercase tracking-[0.14em] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>
-                                                    {card.title}
-                                                </div>
-                                                <div className={`mt-1 truncate text-sm font-medium ${isDark ? 'text-[#F3F4F6]' : 'text-[#101828]'}`}>
-                                                    {card.template?.displayName || card.model || 'No model selected'}
-                                                </div>
-                                            </div>
-                                            <span className={`rounded-full px-2 py-1 text-[10px] font-medium ${
-                                                card.template
-                                                    ? isDark ? 'bg-[#1B2330] text-[#7CB4FF]' : 'bg-[#EEF4FF] text-[#175CD3]'
-                                                    : isDark ? 'bg-[#1B2029] text-[#98A2B3]' : 'bg-[#F2F4F7] text-[#667085]'
-                                            }`}>
-                                                {card.template ? 'template' : 'raw model'}
-                                            </span>
-                                        </div>
-                                        <div className={`mt-2 text-xs ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>
-                                            {card.providerLabel}
-                                        </div>
-                                        <div className={`mt-1 text-xs ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>
-                                            {card.template?.description || 'No builtin template matched this model yet. Runtime still keeps the raw model id.'}
-                                        </div>
-                                        {card.tagLabels.length > 0 && (
-                                            <div className="mt-3 flex flex-wrap gap-1.5">
-                                                {card.tagLabels.map((tag) => (
-                                                    <span
-                                                        key={`${card.key}-${tag}`}
-                                                        className={`rounded-full px-2 py-1 text-[10px] ${
-                                                            isDark ? 'bg-[#1B2029] text-[#D0D5DD]' : 'bg-white text-[#475467]'
-                                                        }`}
-                                                    >
-                                                        {tag}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        )}
-                                        <div className={`mt-3 text-[11px] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>
-                                            Defaults: {card.defaultParamPreview.length > 0 ? card.defaultParamPreview.join(' · ') : 'No extra params'}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                            {templateCoverageRows.length > 0 && (
-                                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                                    {templateCoverageRows.map((row) => (
-                                        <div
-                                            key={row.provider}
-                                            className={`rounded-2xl border p-3 ${isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E4E7EC] bg-[#F8FAFC]'}`}
-                                        >
-                                            <div className={`text-sm font-medium ${isDark ? 'text-[#F3F4F6]' : 'text-[#101828]'}`}>{row.label}</div>
-                                            <div className={`mt-2 grid grid-cols-4 gap-2 text-[11px] ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>
-                                                <div>Text {row.counts.text}</div>
-                                                <div>Image {row.counts.image}</div>
-                                                <div>Video {row.counts.video}</div>
-                                                <div>Agent {row.counts.agent}</div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
                         </div>
                     </section>
 
@@ -823,12 +834,17 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                 )}
                                 <button
                                     type="button"
-                                    onClick={() => { setEditingKeyId(null); setApiKey(''); setDisplayName(''); setProvider('google'); setBaseUrl(providerBaseUrl.google); setCapabilities(inferCapabilitiesByProvider('google')); handleProviderChange('google'); setValidationResult(null); setShowKeyModal(true); }}
+                                    onClick={() => {
+                                        setEditingKeyId(null);
+                                        setDisplayName('');
+                                        applyProviderPreset(PROVIDER_PRESETS[0], { resetKey: true });
+                                        setShowKeyModal(true);
+                                    }}
                                     className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
                                         isDark ? 'border-[#4B5B78] bg-[#1B2330] text-[#B2CCFF] hover:bg-[#252C39]' : 'border-[#B2CCFF] bg-[#EEF4FF] text-[#175CD3] hover:bg-[#DBEAFE]'
                                     }`}
                                 >
-                                    + 添加 API Key
+                                    + 添加供应商
                                 </button>
                             </div>
                         </div>
@@ -839,8 +855,8 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                     isDark ? 'border-[#3A4458] text-[#98A2B3]' : 'border-[#D0D5DD] text-[#667085]'
                                 }`}>
                                     <div className="mb-2 text-lg">🔑</div>
-                                    <div className="font-medium">还没有配置 API Key</div>
-                                    <div className="mt-1 text-xs">点击右上方「+ 添加 API Key」按钮开始配置</div>
+                                    <div className="font-medium">还没有配置供应商</div>
+                                    <div className="mt-1 text-xs">点击右上方「+ 添加供应商」按钮开始配置第三方 API Key</div>
                                 </div>
                             ) : (
                                 userApiKeys.map(item => (
@@ -849,7 +865,13 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                             ? isDark ? 'border-[#4B5B78] bg-[#1B2330]' : 'border-[#1D4ED8] bg-[#EFF6FF]'
                                             : isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E4E7EC] bg-white'
                                     }`}>
-                                        <div className="min-w-0">
+                                        <div className="flex min-w-0 items-start gap-3">
+                                            <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border text-sm font-semibold ${
+                                                isDark ? 'border-[#2A3140] bg-[#12151B] text-[#98A2B3]' : 'border-[#E4E7EC] bg-[#F8FAFC] text-[#667085]'
+                                            }`}>
+                                                {(item.name || PROVIDER_LABELS[item.provider] || item.provider).slice(0, 2).toUpperCase()}
+                                            </div>
+                                            <div className="min-w-0">
                                             <div className="flex items-center gap-2">
                                                 <span className={`inline-block h-2 w-2 rounded-full ${
                                                     item.status === 'ok' ? 'bg-green-500' : item.status === 'error' ? 'bg-red-400' : 'bg-yellow-400'
@@ -861,7 +883,14 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                                     }`}>编辑中</span>
                                                 )}
                                             </div>
-                                            <div className={`mt-1 text-xs ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>{maskKey(item.key)}</div>
+                                            <div className={`mt-1 truncate text-xs ${isDark ? 'text-[#7CB4FF]' : 'text-[#175CD3]'}`}>
+                                                {item.extraConfig?.websiteUrl || item.baseUrl || '本地供应商配置'}
+                                            </div>
+                                            <div className={`mt-1 text-[11px] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>
+                                                {maskKey(item.key)}
+                                                {item.extraConfig?.requestFormat && <span> · {item.extraConfig.requestFormat}</span>}
+                                                {item.defaultModel && <span> · 默认 {item.defaultModel}</span>}
+                                            </div>
                                             <div className="mt-2 flex flex-wrap gap-1.5">
                                                 {(item.capabilities || []).map(capability => (
                                                     <span key={capability} className={`rounded-full px-2 py-1 text-[11px] ${
@@ -884,6 +913,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                                     </div>
                                                 );
                                             })()}
+                                            </div>
                                         </div>
                                         <div className="ml-3 flex items-center gap-2">
                                             {!item.isDefault ? (
@@ -948,6 +978,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                             <label className={`rounded-2xl p-3 ${isDark ? 'bg-[#161A22]' : 'bg-[#F8FAFC]'}`}>
                                 <div className={`mb-2 text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>Agent 模型</div>
                                 <select value={modelPreference.agentModel} onChange={(event) => setModelPreference({ ...modelPreference, agentModel: event.target.value })} className={inputClass}>
+                                    {modelOptions.agent.length === 0 && <option value="">先添加支持 Agent 的供应商模型</option>}
                                     {modelOptions.agent.map(model => <option key={model} value={model}>{model}</option>)}
                                 </select>
                             </label>
@@ -1003,7 +1034,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                     >
                         <div className="mb-0 flex items-center justify-between px-6 pb-4 pt-6">
                             <h4 className={`text-base font-semibold ${isDark ? 'text-[#F3F4F6]' : 'text-[#101828]'}`}>
-                                {editingKeyId ? '编辑 API Key' : '添加 API Key'}
+                                {editingKeyId ? '编辑供应商' : '添加新供应商'}
                             </h4>
                             <button type="button" title="关闭 API Key 表单" aria-label="关闭 API Key 表单" onClick={handleCancelEdit} className={`rounded-full p-1.5 transition ${isDark ? 'hover:bg-[#252C39]' : 'hover:bg-[#F2F4F7]'}`}>
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -1011,63 +1042,76 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                         </div>
 
                         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 pb-4">
-                            {/* 免费获取 API Key 引导 */}
+                            {/* 预设供应商 */}
                             {!editingKeyId && (
-                                <div className={`rounded-2xl border p-3 ${isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E4E7EC] bg-[#F8FAFC]'}`}>
-                                    <div className={`mb-2 text-xs font-semibold ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>🆓 免费获取 API Key</div>
+                                <div className={sectionPanelClass}>
+                                    <div className="mb-3 flex items-center justify-between gap-3">
+                                        <div>
+                                            <div className={`text-sm font-semibold ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>预设供应商</div>
+                                            <div className={`mt-0.5 text-[11px] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>选择后会自动填充请求地址、API 格式、认证字段和常用模型</div>
+                                        </div>
+                                        <div className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] ${isDark ? 'bg-[#1B2029] text-[#98A2B3]' : 'bg-white text-[#667085]'}`}>
+                                            可继续手动修改
+                                        </div>
+                                    </div>
                                     <div className="flex flex-wrap gap-2">
-                                        {FREE_KEY_LINKS.map(link => (
-                                            <a
-                                                key={link.provider}
-                                                href={link.url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium transition ${
-                                                    isDark
-                                                        ? 'border-[#2A3140] text-[#7CB4FF] hover:bg-[#1B2330]'
-                                                        : 'border-[#B2CCFF] text-[#175CD3] hover:bg-[#EEF4FF]'
+                                        {PROVIDER_PRESETS.map(preset => (
+                                            <button
+                                                key={preset.id}
+                                                type="button"
+                                                onClick={() => applyProviderPreset(preset, { fillName: true })}
+                                                className={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-left text-sm font-medium transition ${
+                                                    provider === preset.provider && (displayName === preset.name || (preset.id === 'custom' && !displayName))
+                                                        ? isDark ? 'border-[#4B5B78] bg-[#1B2330] text-[#F3F4F6]' : 'border-[#B2CCFF] bg-[#EEF4FF] text-[#175CD3]'
+                                                        : isDark ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E4E7EC] bg-white text-[#475467] hover:bg-[#F2F4F7]'
                                                 }`}
-                                                title={link.description}
                                             >
-                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                                                {link.label}
-                                            </a>
+                                                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-[11px] font-semibold ${
+                                                    isDark ? 'bg-[#12151B] text-[#98A2B3]' : 'bg-[#F8FAFC] text-[#667085]'
+                                                }`}>
+                                                    {preset.shortName}
+                                                </span>
+                                                <span>{preset.name}</span>
+                                                {preset.featured && (
+                                                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${isDark ? 'bg-[#123524] text-[#75E0A7]' : 'bg-[#ECFDF3] text-[#027A48]'}`}>
+                                                        推荐
+                                                    </span>
+                                                )}
+                                            </button>
                                         ))}
                                     </div>
                                 </div>
                             )}
 
-                            {/* ComfyUI 本地模型 — Coming Soon */}
-                            {!editingKeyId && (
-                                <div className={`flex items-center gap-3 rounded-2xl border border-dashed p-3 ${isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E4E7EC] bg-[#F8FAFC]'}`}>
-                                    <span className="text-lg">🖥️</span>
-                                    <div className="flex-1 min-w-0">
-                                        <div className={`text-xs font-semibold ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>ComfyUI 本地模型</div>
-                                        <div className={`text-[10px] mt-0.5 ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>连接本地 ComfyUI 服务，运行 Wan2.1 等视频模型</div>
-                                    </div>
-                                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-medium ${isDark ? 'bg-purple-900/30 text-purple-400' : 'bg-purple-50 text-purple-600'}`}>Coming Soon</span>
-                                </div>
-                            )}
-
                             <div className="grid gap-3 md:grid-cols-2">
-                                <select value={provider} onChange={(event) => handleProviderChange(event.target.value as AIProvider)} className={inputClass} title="选择 API Provider" aria-label="选择 API Provider">
-                                    {Object.entries(PROVIDER_LABELS).map(([key, label]) => (
-                                        <option key={key} value={key}>{label}</option>
-                                    ))}
-                                </select>
-                                <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="备注名称（可选）" className={inputClass} />
+                                <label>
+                                    <span className={`mb-1.5 block text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>供应商名称</span>
+                                    <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="例如：Claude 官方" className={inputClass} />
+                                </label>
+                                <label>
+                                    <span className={`mb-1.5 block text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>备注</span>
+                                    <input value={extraConfig.remark || ''} onChange={(event) => updateExtraConfig('remark', event.target.value)} placeholder="例如：公司专用账号" className={inputClass} />
+                                </label>
                             </div>
 
+                            <label className="block">
+                                <span className={`mb-1.5 block text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>官网链接</span>
+                                <input value={extraConfig.websiteUrl || ''} onChange={(event) => updateExtraConfig('websiteUrl', event.target.value)} placeholder="https://example.com（可选）" className={inputClass} />
+                            </label>
+
                             <div className="flex gap-2">
-                                <input
-                                    value={apiKey}
-                                    onChange={(event) => setApiKey(event.target.value)}
-                                    onPaste={handleKeyPaste}
-                                    type={showKey ? 'text' : 'password'}
-                                    placeholder="粘贴 API Key（自动识别 Provider 并拉取模型）"
-                                    className={inputClass}
-                                    autoFocus
-                                />
+                                <label className="min-w-0 flex-1">
+                                    <span className={`mb-1.5 block text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>API Key</span>
+                                    <input
+                                        value={apiKey}
+                                        onChange={(event) => setApiKey(event.target.value)}
+                                        onPaste={handleKeyPaste}
+                                        type={showKey ? 'text' : 'password'}
+                                        placeholder="只需要填这里，下方配置会自动填充"
+                                        className={inputClass}
+                                        autoFocus
+                                    />
+                                </label>
                                 <button type="button" onClick={() => setShowKey(prev => !prev)} className={chipClass}>
                                     {showKey ? '隐藏' : '显示'}
                                 </button>
@@ -1105,7 +1149,10 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                 </div>
                             )}
 
-                            <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="Base URL（可选）" className={inputClass} />
+                            <label className="block">
+                                <span className={`mb-1.5 block text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>请求地址</span>
+                                <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://your-api-endpoint.com" className={inputClass} />
+                            </label>
 
                             {provider === 'custom' && (
                                 <div className={`rounded-xl px-3 py-2 text-xs ${isDark ? 'bg-[#161A22] text-[#98A2B3]' : 'bg-[#F8FAFC] text-[#667085]'}`}>
@@ -1191,17 +1238,99 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                             </div>
 
                             {/* extraConfig（如 Google Veo projectId） */}
-                            {(provider === 'keling' || provider === 'custom') && (
-                                <div>
-                                    <div className={`mb-2 text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>额外配置</div>
+                            <div>
+                                <div className={`mb-2 flex items-center justify-between`}>
+                                    <span className={`text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>高级配置</span>
+                                    <span className={`text-[11px] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>第三方兼容端点可选</span>
+                                </div>
+                                <div className="grid gap-2 md:grid-cols-2">
+                                    <div className={`md:col-span-2 text-xs font-semibold ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>API 格式</div>
+                                    <select
+                                        value={extraConfig.requestFormat || ''}
+                                        onChange={(e) => updateExtraConfig('requestFormat', e.target.value)}
+                                        className={inputClass}
+                                        title="API 格式"
+                                        aria-label="API 格式"
+                                    >
+                                        <option value="">自动识别 API 格式</option>
+                                        <option value="native">供应商原生 / 专用接口</option>
+                                        <option value="openai">OpenAI Compatible</option>
+                                        <option value="anthropic">Anthropic</option>
+                                        <option value="google">Google Gemini</option>
+                                    </select>
+                                    <input
+                                        value={extraConfig.authHeaderName || ''}
+                                        onChange={(e) => updateExtraConfig('authHeaderName', e.target.value)}
+                                        placeholder="认证字段，如 Authorization / x-api-key"
+                                        className={inputClass}
+                                    />
+                                    <input
+                                        value={extraConfig.authScheme || ''}
+                                        onChange={(e) => updateExtraConfig('authScheme', e.target.value)}
+                                        placeholder="认证前缀，如 Bearer（可选）"
+                                        className={inputClass}
+                                    />
                                     <input
                                         value={extraConfig.projectId || ''}
-                                        onChange={(e) => setExtraConfig({ ...extraConfig, projectId: e.target.value })}
-                                        placeholder="Project ID（可选）"
+                                        onChange={(e) => updateExtraConfig('projectId', e.target.value)}
+                                        placeholder="Project ID / Organization（可选）"
+                                        className={inputClass}
+                                    />
+                                    <div className={`md:col-span-2 mt-1 text-xs font-semibold ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>计费配置</div>
+                                    <input
+                                        value={extraConfig.costMultiplier || ''}
+                                        onChange={(e) => updateExtraConfig('costMultiplier', e.target.value)}
+                                        placeholder="成本倍率，如 1.2"
+                                        className={inputClass}
+                                    />
+                                    <select
+                                        value={extraConfig.billingMode || ''}
+                                        onChange={(e) => updateExtraConfig('billingMode', e.target.value)}
+                                        className={inputClass}
+                                        title="计费模式"
+                                        aria-label="计费模式"
+                                    >
+                                        <option value="">计费模式：自动</option>
+                                        <option value="per-token">按 Token</option>
+                                        <option value="per-image">按图片</option>
+                                        <option value="per-second">按秒</option>
+                                        <option value="flat">固定成本</option>
+                                    </select>
+                                    <div className={`md:col-span-2 mt-1 text-xs font-semibold ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>模型测试配置</div>
+                                    <input
+                                        value={extraConfig.testTimeoutMs || ''}
+                                        onChange={(e) => updateExtraConfig('testTimeoutMs', e.target.value)}
+                                        placeholder="模型测试超时 ms，如 30000"
+                                        className={inputClass}
+                                    />
+                                    <input
+                                        value={extraConfig.maxRetries || ''}
+                                        onChange={(e) => updateExtraConfig('maxRetries', e.target.value)}
+                                        placeholder="最大重试次数，如 2"
                                         className={inputClass}
                                     />
                                 </div>
-                            )}
+                                <textarea
+                                    value={extraConfig.testPrompt || ''}
+                                    onChange={(e) => updateExtraConfig('testPrompt', e.target.value)}
+                                    placeholder="测试提示词（可选）"
+                                    className={`${inputClass} mt-2 min-h-18 resize-y`}
+                                />
+                                <div className={`mb-1 mt-3 text-xs font-semibold ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>模型映射</div>
+                                <textarea
+                                    value={extraConfig.modelMappingsJson || ''}
+                                    onChange={(e) => updateExtraConfig('modelMappingsJson', e.target.value)}
+                                    placeholder='模型映射 JSON，如 {"gpt-image":"vendor-image-model"}'
+                                    className={`${inputClass} mt-2 min-h-18 resize-y font-mono text-xs`}
+                                />
+                                <div className={`mb-1 mt-3 text-xs font-semibold ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>配置 JSON</div>
+                                <textarea
+                                    value={extraConfig.configJson || ''}
+                                    onChange={(e) => updateExtraConfig('configJson', e.target.value)}
+                                    placeholder='配置 JSON（可选），用于保存供应商额外参数'
+                                    className={`${inputClass} mt-2 min-h-24 resize-y font-mono text-xs`}
+                                />
+                            </div>
                         </div>
 
                         <div className={`shrink-0 border-t px-6 py-4 ${isDark ? 'border-[#2A3140] bg-[#12151B]' : 'border-[#E4E7EC] bg-white'}`}>
