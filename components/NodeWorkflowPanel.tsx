@@ -52,6 +52,10 @@ import type {
 } from './nodeflow/types';
 import { useNodeWorkflowStore } from './nodeflow/useNodeWorkflowStore';
 import { CanvasFloatingPanel, CanvasIconButton } from './canvas-ui/CanvasChrome';
+import {
+  createWorkflowTemplatePackage,
+  serializeWorkflowTemplatePackage,
+} from '../utils/workflowTemplatePackage';
 
 interface NodeWorkflowPanelProps {
   prompt: string;
@@ -73,6 +77,7 @@ interface NodeWorkflowPanelProps {
   userApiKeys: UserApiKey[];
   assetLibrary?: AssetLibrary;
   generationHistory?: GenerationHistoryItem[];
+  language?: 'en' | 'zho';
   onSwitchWorkspace?: (view: 'canvas' | 'workflow') => void;
   onPlaceWorkflowValue: (value: WorkflowValue) => Promise<void> | void;
   onSaveWorkflowValueToAssets: (value: WorkflowValue, node: WorkflowNode) => Promise<void> | void;
@@ -109,6 +114,15 @@ type ChainNodeOption = {
   disabledReason?: string;
 };
 
+type WorkflowMentionItem = {
+  id: string;
+  label: string;
+  reference: string;
+  shortId: string;
+  kind: NodeKind;
+  badge: string;
+};
+
 type WorkflowRunEvent = {
   id: string;
   nodeId: string;
@@ -117,7 +131,7 @@ type WorkflowRunEvent = {
   timestamp: number;
 };
 
-type ToolPanelTab = 'create' | 'workflows' | 'assets' | 'history';
+type ToolPanelTab = 'create' | 'nodes' | 'workflows' | 'assets' | 'history';
 type AssetPanelFilter = 'all' | AssetCategory;
 
 type DisplayMediaValue = Extract<WorkflowValue, { kind: 'image' | 'video' }>;
@@ -151,25 +165,6 @@ const SAVED_WORKFLOWS_STORAGE_KEY = 'flovart.savedWorkflows.v1';
 const NODE_LIBRARY_KINDS: NodeKind[] = [
   'imageGen',
   'videoGen',
-  'prompt',
-  'loadImage',
-  'loadVideo',
-  'generator',
-  'enhancer',
-  'llm',
-  'template',
-  'preview',
-  'saveToCanvas',
-  'saveToAssets',
-  'videoEdit',
-  'runningHub',
-  'httpRequest',
-  'condition',
-  'switch',
-  'merge',
-  'upscale',
-  'faceRestore',
-  'bgRemove',
 ];
 
 const NODE_LIBRARY_LABELS: Partial<Record<NodeKind, string>> = {
@@ -222,10 +217,48 @@ const ASSET_FILTER_OPTIONS: Array<{ value: AssetPanelFilter; label: string }> = 
 
 const TOOL_PANEL_TITLES: Record<ToolPanelTab, string> = {
   create: 'Create node',
+  nodes: 'Workflow nodes',
   workflows: 'Saved workflows',
   assets: 'Shared asset library',
   history: 'Generation history',
 };
+
+const WORKFLOW_COPY = {
+  en: {
+    addNode: 'Add node',
+    nodeRecords: 'Open workflow node records',
+    openSavedWorkflows: 'Open saved workflows',
+    openSharedAssets: 'Open shared asset library',
+    openHistory: 'Open generation history',
+    workflowNodes: 'Workflow nodes',
+    savedWorkflows: 'Saved workflows',
+    sharedAssets: 'Shared asset library',
+    history: 'Generation history',
+    nodePrompt: 'Node prompt',
+    promptPlaceholder: 'Describe what you want to generate. Press / for commands, @ to reference nodes',
+    runNode: 'Run selected workflow node',
+    copyNode: 'Copy selected workflow node',
+    deleteNode: 'Delete selected workflow node',
+    uploadMedia: 'Double-click to upload media',
+  },
+  zho: {
+    addNode: '添加节点',
+    nodeRecords: '打开工作流节点记录',
+    openSavedWorkflows: '打开已保存工作流',
+    openSharedAssets: '打开共享素材库',
+    openHistory: '打开生成历史',
+    workflowNodes: '工作流节点',
+    savedWorkflows: '已保存工作流',
+    sharedAssets: '共享素材库',
+    history: '生成历史',
+    nodePrompt: '节点提示词',
+    promptPlaceholder: '描述你想生成的画面内容，按 / 呼出指令，@ 引用节点',
+    runNode: '运行选中的工作流节点',
+    copyNode: '复制选中的工作流节点',
+    deleteNode: '删除选中的工作流节点',
+    uploadMedia: '双击上传素材',
+  },
+} as const;
 
 const RUN_STATUS_STYLES: Record<WorkflowRunStatus, string> = {
   idle: 'bg-neutral-300',
@@ -309,6 +342,39 @@ function getCompactModelLabel(model?: string, mode: GenerationMode = 'image'): s
   if (normalized.includes('veo')) return 'Veo 3.1';
   if (normalized.includes('gemini') || normalized.includes('nano')) return 'Lib Nano Pro';
   return model;
+}
+
+function getTrailingMentionQuery(value: string): string | null {
+  const match = value.match(/(?:^|\s)@([^\s@]*)$/);
+  return match ? match[1] : null;
+}
+
+function replaceTrailingMentionQuery(value: string, label: string): string {
+  return value.replace(/(^|\s)@([^\s@]*)$/, `$1@${label} `);
+}
+
+function toWorkflowNodeReferenceLabel(label: string, nodeId: string): string {
+  return `[${label}](workflow-node:${nodeId})`;
+}
+
+function isWorkflowCanvasControl(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return !!target.closest([
+    '.workflow-node-card',
+    '.workflow-port',
+    '.workflow-floating-composer',
+    '.workflow-context-menu',
+    '.workflow-connection-menu',
+    '.workflow-left-panel',
+    '.workflow-tool-rail',
+    '.workflow-bottom-controls',
+    '.workflow-minimap',
+    'button',
+    'input',
+    'textarea',
+    'select',
+    'a',
+  ].join(','));
 }
 
 function formatVideoDuration(seconds?: number): string {
@@ -495,6 +561,16 @@ function formatPanelTimestamp(timestamp: number): string {
   }
 }
 
+function toTemplateFilename(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+  return `${slug || 'workflow-template'}.flovart.json`;
+}
+
 export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
   prompt,
   setPrompt,
@@ -515,6 +591,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
   userApiKeys,
   assetLibrary = EMPTY_ASSET_LIBRARY,
   generationHistory = [],
+  language = 'en',
   onSwitchWorkspace,
   onPlaceWorkflowValue,
   onSaveWorkflowValueToAssets,
@@ -551,6 +628,14 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
   const [workflowTitle, setWorkflowTitle] = useState('Untitled Flow');
   const [activeTraceMeta, setActiveTraceMeta] = useState<{ sessionId: string; jobId: string; eventCount: number } | null>(null);
   const activeTraceRef = useRef<{ sessionId: string; jobId: string } | null>(null);
+  const copy = WORKFLOW_COPY[language] || WORKFLOW_COPY.en;
+  const getToolPanelTitle = (tab: ToolPanelTab): string => {
+    if (tab === 'nodes') return copy.workflowNodes;
+    if (tab === 'workflows') return copy.savedWorkflows;
+    if (tab === 'assets') return copy.sharedAssets;
+    if (tab === 'history') return copy.history;
+    return TOOL_PANEL_TITLES.create;
+  };
 
   const selectedNode = store.selectedNodeIds.length > 0 ? store.nodeMap.get(store.selectedNodeIds[0]) ?? null : null;
   const selectedGroup = store.selectedGroupId
@@ -669,6 +754,42 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
     updateNodePrompt(node, `${getNodePromptValue(node)}${value}`);
   };
 
+  const workflowMentionItems = useMemo<WorkflowMentionItem[]>(() => {
+    const counts = new Map<NodeKind, number>();
+    return store.nodes.map((item) => {
+      const nextCount = (counts.get(item.kind) ?? 0) + 1;
+      counts.set(item.kind, nextCount);
+      const baseLabel = NODE_LIBRARY_LABELS[item.kind] || getNodeTitle(item.kind, item.config?.label);
+      const label = `${baseLabel} #${nextCount}`;
+      return {
+        id: item.id,
+        label,
+        reference: toWorkflowNodeReferenceLabel(label, item.id),
+        shortId: item.id,
+        kind: item.kind,
+        badge: NODE_KIND_BADGES[item.kind] || 'NOD',
+      };
+    });
+  }, [store.nodes]);
+
+  const getFilteredWorkflowMentions = (node: WorkflowNode, query: string): WorkflowMentionItem[] => {
+    const normalized = query.trim().toLowerCase();
+    return workflowMentionItems
+      .filter((item) => item.id !== node.id)
+      .filter((item) => (
+        !normalized
+        || item.label.toLowerCase().includes(normalized)
+        || item.kind.toLowerCase().includes(normalized)
+        || item.badge.toLowerCase().includes(normalized)
+        || item.id.toLowerCase().includes(normalized)
+      ))
+      .slice(0, 8);
+  };
+
+  const insertWorkflowMention = (node: WorkflowNode, item: WorkflowMentionItem) => {
+    updateNodePrompt(node, replaceTrailingMentionQuery(getNodePromptValue(node), item.reference));
+  };
+
   const resolveRunPrompt = (nodes: WorkflowNode[], focusNodeId?: string): string => {
     const focusNode = focusNodeId ? nodes.find((node) => node.id === focusNodeId) : null;
     return (
@@ -722,6 +843,29 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
     setWorkflowTitle(workflow.name);
     setRunError(null);
     setRunMessage(`Loaded saved workflow: ${workflow.name}. Undo restores the previous graph.`);
+  };
+
+  const exportSavedWorkflowTemplate = (workflow: SavedWorkflow) => {
+    const pack = createWorkflowTemplatePackage({
+      metadata: {
+        name: workflow.name,
+        description: `${workflow.name} workflow template`,
+        tags: ['flovart', 'workflow'],
+      },
+      nodes: workflow.nodes,
+      edges: workflow.edges,
+      groups: workflow.groups,
+      viewport: workflow.viewport,
+      now: Date.now(),
+    });
+    const blob = new Blob([serializeWorkflowTemplatePackage(pack)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = toTemplateFilename(workflow.name);
+    link.click();
+    URL.revokeObjectURL(url);
+    setRunMessage(`Exported template: ${workflow.name}`);
   };
 
   const toggleSavedWorkflowFavorite = (workflowId: string) => {
@@ -1409,21 +1553,14 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
         }}
         onDrop={(event) => handleNodeMediaDrop(event, node)}
       >
-        <button
-          type="button"
-          title={`Upload media to ${label}`}
-          className="workflow-node-upload-bubble"
-          onClick={(event) => {
+        <div
+          className="workflow-media-frame flex h-full min-h-[116px] items-center justify-center overflow-hidden rounded-md border border-neutral-200 bg-neutral-50"
+          title={copy.uploadMedia}
+          onDoubleClick={(event) => {
             event.stopPropagation();
             openNodeMediaPicker(node);
           }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M12 16V5M7 10l5-5 5 5M5 19h14" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span>上传</span>
-        </button>
-        <div className="workflow-media-frame flex h-full min-h-[116px] items-center justify-center overflow-hidden rounded-md border border-neutral-200 bg-neutral-50">
           {displayMedia?.kind === 'image' && (
             <img src={displayMedia.href} alt={`${label} media`} className="h-full w-full object-cover" />
           )}
@@ -1456,6 +1593,53 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
       </div>
     );
   };
+
+  const renderNodeActionMenu = (node: WorkflowNode) => (
+    <div
+      className="workflow-node-action-menu absolute left-1/2 top-[-38px] z-30 flex -translate-x-1/2 items-center gap-1 rounded-md border px-1 py-1"
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <button
+        type="button"
+        className="workflow-node-action-button"
+        aria-label={copy.runNode}
+        title={copy.runNode}
+        disabled={!canRunScope('node', node.id)}
+        onClick={() => runGraph('node', node.id)}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M8 5.5v13l10-6.5-10-6.5Z" fill="currentColor" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        className="workflow-node-action-button"
+        aria-label={copy.copyNode}
+        title={copy.copyNode}
+        onClick={() => {
+          store.selectSingleNode(node.id, false);
+          store.copySelection();
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect x="8" y="8" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.7" />
+          <path d="M6 14H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        className="workflow-node-action-button is-danger"
+        aria-label={copy.deleteNode}
+        title={copy.deleteNode}
+        onClick={() => store.removeNode(node.id)}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M5 7h14M10 11v6M14 11v6M9 7l1-2h4l1 2M7 7l1 13h8l1-13" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+    </div>
+  );
 
   const renderNodeRuntimeControls = (node: WorkflowNode) => {
     const modelOptions = getModelOptionsForNode(node);
@@ -1524,8 +1708,10 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
     const isVideoNode = node.kind === 'videoGen'
       || node.kind === 'videoEdit'
       || (node.kind === 'generator' && getNodeGenerationMode(node) === 'video');
+    const mentionQuery = getTrailingMentionQuery(promptValue);
+    const workflowReferenceItems = mentionQuery == null ? [] : getFilteredWorkflowMentions(node, mentionQuery);
     const showCommandMenu = promptValue.trimEnd().endsWith('/');
-    const showReferenceMenu = promptValue.trimEnd().endsWith('@');
+    const showReferenceMenu = workflowReferenceItems.length > 0;
     const composerWidth = COMPACT_COMPOSER_WIDTH;
     const composerLeft = node.x + def.width / 2 - composerWidth / 2;
     const composerTop = node.y + def.height + 12;
@@ -1552,10 +1738,10 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
           <textarea
             value={promptValue}
             onChange={(e) => updateNodePrompt(node, e.target.value)}
-            aria-label="Node prompt"
-            className="h-28 w-full resize-none bg-transparent px-3 py-3 text-[14px] leading-6 text-white outline-none placeholder:text-white/38"
-            placeholder="描述你想生成的画面内容，按 / 呼出指令，@ 引用素材"
-            title="Node prompt"
+            aria-label={copy.nodePrompt}
+            className="workflow-composer-textarea h-28 w-full resize-none bg-transparent px-3 py-3 text-[14px] leading-6 outline-none"
+            placeholder={copy.promptPlaceholder}
+            title={copy.nodePrompt}
           />
           {(showCommandMenu || showReferenceMenu) && (
             <div className="workflow-composer-suggest absolute left-3 top-12 z-10 w-[260px] rounded-xl border p-1.5">
@@ -1569,14 +1755,18 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                   {item.label}
                 </button>
               ))}
-              {showReferenceMenu && store.nodes.filter((item) => item.id !== node.id).slice(0, 6).map((item) => (
+              {showReferenceMenu && workflowReferenceItems.map((item) => (
                 <button
                   key={item.id}
                   type="button"
-                  className="block w-full rounded-lg px-2.5 py-2 text-left text-[12px]"
-                  onClick={() => insertComposerText(node, `${getNodeTitle(item.kind, item.config?.label)} `)}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px]"
+                  aria-label={`Reference workflow node ${item.label}`}
+                  onClick={() => insertWorkflowMention(node, item)}
                 >
-                  @{getNodeTitle(item.kind, item.config?.label)}
+                  <span className="workflow-reference-badge inline-flex h-5 min-w-8 items-center justify-center rounded px-1 text-[9px] font-bold">
+                    {item.badge}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">@{item.label}</span>
                 </button>
               ))}
             </div>
@@ -2212,8 +2402,8 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
           variant="primary"
           className="workflow-rail-primary h-10 w-10 rounded-lg"
           onClick={() => openToolPanel('create', true)}
-          title="Add node"
-          aria-label="Add node"
+          title={copy.addNode}
+          aria-label={copy.addNode}
           active={isToolPanelOpen && toolPanelTab === 'create'}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -2222,9 +2412,21 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
         </CanvasIconButton>
         <CanvasIconButton
           className="workflow-rail-button h-10 w-10 rounded-lg"
+          onClick={() => openToolPanel('nodes', true)}
+          title={copy.nodeRecords}
+          aria-label={copy.nodeRecords}
+          active={isToolPanelOpen && toolPanelTab === 'nodes'}
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M8 6h12M8 12h12M8 18h12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            <path d="M4 6h.01M4 12h.01M4 18h.01" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+          </svg>
+        </CanvasIconButton>
+        <CanvasIconButton
+          className="workflow-rail-button h-10 w-10 rounded-lg"
           onClick={() => openToolPanel('workflows', true)}
-          title="Open saved workflows"
-          aria-label="Open saved workflows"
+          title={copy.openSavedWorkflows}
+          aria-label={copy.openSavedWorkflows}
           active={isToolPanelOpen && toolPanelTab === 'workflows'}
         >
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -2235,8 +2437,8 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
         <CanvasIconButton
           className="workflow-rail-button h-10 w-10 rounded-lg"
           onClick={() => openToolPanel('assets', true)}
-          title="Open shared asset library"
-          aria-label="Open shared asset library"
+          title={copy.openSharedAssets}
+          aria-label={copy.openSharedAssets}
           active={isToolPanelOpen && toolPanelTab === 'assets'}
         >
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -2246,8 +2448,8 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
         <CanvasIconButton
           className="workflow-rail-button h-10 w-10 rounded-lg"
           onClick={() => openToolPanel('history', true)}
-          title="Open generation history"
-          aria-label="Open generation history"
+          title={copy.openHistory}
+          aria-label={copy.openHistory}
           active={isToolPanelOpen && toolPanelTab === 'history'}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -2283,7 +2485,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
         <aside className="canvas-floating-panel workflow-left-panel absolute left-[96px] top-[86px] z-40 flex max-h-[calc(100%-132px)] w-[480px] flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white/95 text-neutral-900 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
             <div className="min-w-0">
-              <div className="workflow-panel-title text-sm font-semibold">{TOOL_PANEL_TITLES[toolPanelTab]}</div>
+              <div className="workflow-panel-title text-sm font-semibold">{getToolPanelTitle(toolPanelTab)}</div>
             </div>
             <button
               type="button"
@@ -2318,6 +2520,41 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                     </button>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {toolPanelTab === 'nodes' && (
+              <div className="workflow-node-record-list space-y-2">
+                {workflowMentionItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={joinClasses(
+                      'workflow-node-record-item flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left',
+                      store.selectedNodeIds.includes(item.id) && 'is-selected',
+                    )}
+                    onClick={() => {
+                      store.selectSingleNode(item.id, false);
+                      const node = store.nodeMap.get(item.id);
+                      if (node) {
+                        store.setViewport((prev) => ({
+                          ...prev,
+                          x: Math.min(prev.x, 280 - node.x * prev.scale),
+                          y: Math.min(prev.y, 220 - node.y * prev.scale),
+                        }));
+                      }
+                    }}
+                    aria-label={`Select workflow node ${item.label}`}
+                  >
+                    <span className="workflow-reference-badge inline-flex h-7 min-w-9 items-center justify-center rounded px-1 text-[10px] font-bold">
+                      {item.badge}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-semibold">{item.label}</span>
+                      <span className="mt-0.5 block truncate text-[11px] opacity-55">{item.shortId}</span>
+                    </span>
+                  </button>
+                ))}
               </div>
             )}
 
@@ -2379,6 +2616,14 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                               aria-label={`Reuse workflow ${workflow.name}`}
                             >
                               Reuse
+                            </button>
+                            <button
+                              type="button"
+                              className="workflow-chip"
+                              onClick={() => exportSavedWorkflowTemplate(workflow)}
+                              aria-label={`Export template ${workflow.name}`}
+                            >
+                              Export template
                             </button>
                           </div>
                         </div>
@@ -2471,6 +2716,19 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
         ref={canvasRef}
         className="workflow-canvas absolute inset-0 z-10 overflow-hidden"
         onContextMenu={(e) => openContextMenu(e, 'canvas')}
+        onMouseDownCapture={(e) => {
+          if (isWorkflowCanvasControl(e.target)) return;
+          if (e.button === 1 || e.shiftKey) {
+            e.preventDefault();
+            store.startPan({ x: e.clientX, y: e.clientY });
+            return;
+          }
+          if (e.button === 0) {
+            e.preventDefault();
+            const world = toWorld(e.clientX, e.clientY);
+            store.startSelection(world);
+          }
+        }}
         onMouseMove={(e) => {
           const world = toWorld(e.clientX, e.clientY);
           store.moveConnection(world);
@@ -2628,6 +2886,14 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                 )}
                 style={{ left: node.x, top: node.y, width: def.width, minHeight: def.height, height: isMediaNodeKind(node.kind) ? def.height : undefined }}
                 onContextMenu={(e) => openContextMenu(e, 'node', { nodeId: node.id })}
+                onMouseDown={(e) => {
+                  if (!isMediaNodeKind(node.kind) || e.button !== 0) return;
+                  const target = e.target as HTMLElement;
+                  if (target.closest('.workflow-node-action-menu, button, input, textarea, select, video')) return;
+                  e.stopPropagation();
+                  const world = toWorld(e.clientX, e.clientY);
+                  store.startNodeDrag(node.id, world, e.metaKey || e.ctrlKey);
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   store.selectSingleNode(node.id, e.metaKey || e.ctrlKey);
@@ -2637,37 +2903,28 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                   store.selectSingleNode(node.id, false);
                 }}
               >
-                <div
-                  className={joinClasses(
-                    'workflow-node-header flex cursor-move items-center justify-between rounded-t-lg border-b border-neutral-100 bg-neutral-50 px-2.5 py-1.5 text-[11px]',
-                    isMediaNodeKind(node.kind) && 'workflow-node-caption',
-                  )}
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    const world = toWorld(e.clientX, e.clientY);
-                    store.startNodeDrag(node.id, world, e.metaKey || e.ctrlKey);
-                  }}
-                >
-                  <span className="flex items-center gap-2">
-                    {isMediaNodeKind(node.kind) ? (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        {node.kind === 'videoGen' ? (
-                          <path d="M8 6.5v11l9-5.5-9-5.5Z" fill="currentColor" />
-                        ) : (
-                          <path d="m4 16 4-4 3 3 2-2 7 7H4v-4Z" fill="currentColor" />
-                        )}
-                      </svg>
-                    ) : (
+                {selected && renderNodeActionMenu(node)}
+
+                {!isMediaNodeKind(node.kind) && (
+                  <div
+                    className="workflow-node-header flex cursor-move items-center justify-between rounded-t-lg border-b border-neutral-100 bg-neutral-50 px-2.5 py-1.5 text-[11px]"
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      const world = toWorld(e.clientX, e.clientY);
+                      store.startNodeDrag(node.id, world, e.metaKey || e.ctrlKey);
+                    }}
+                  >
+                    <span className="flex items-center gap-2">
                       <span className={joinClasses(
                         'workflow-node-status-dot h-2 w-2 rounded-full',
                         RUN_STATUS_STYLES[runtimeStatus],
                         `is-${runtimeStatus}`,
                       )} />
-                    )}
-                    <span className="font-medium text-neutral-800">{isMediaNodeKind(node.kind) ? getCompactNodeCaption(node.kind) : displayTitle}</span>
-                  </span>
-                  {!isMediaNodeKind(node.kind) && <span className="text-[10px] text-neutral-400">drag</span>}
-                </div>
+                      <span className="font-medium text-neutral-800">{displayTitle}</span>
+                    </span>
+                    <span className="text-[10px] text-neutral-400">drag</span>
+                  </div>
+                )}
 
                 <div className={joinClasses('relative', isMediaNodeKind(node.kind) ? 'h-full p-1.5' : 'p-2.5')}>
                   {!isMediaNodeKind(node.kind) && renderNodeRuntimeControls(node)}
@@ -3061,6 +3318,20 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
         )}
       </main>
 
+      {store.selectedNodeIds.length > 1 && (
+        <div className="workflow-selection-toolbar absolute left-1/2 top-5 z-50 flex -translate-x-1/2 items-center gap-2 rounded-2xl border px-3 py-2 text-xs">
+          <span className="font-medium">Selected nodes: {store.selectedNodeIds.length}</span>
+          <button
+            type="button"
+            className="workflow-selection-action rounded-lg px-2.5 py-1 font-semibold"
+            onClick={() => store.createGroupFromSelection()}
+            aria-label="Group selected workflow nodes"
+          >
+            Group
+          </button>
+        </div>
+      )}
+
       <div className="workflow-bottom-controls absolute bottom-5 left-5 z-50 flex items-center gap-1.5 rounded-2xl p-1.5">
         <button
           type="button"
@@ -3161,6 +3432,13 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
               <button className="rounded bg-white/10 px-2 py-1 hover:bg-white/20" onClick={() => store.alignSelectedNodes('center')}>Align C</button>
               <button className="rounded bg-white/10 px-2 py-1 hover:bg-white/20" onClick={() => store.alignSelectedNodes('top')}>Align T</button>
               <button className="rounded bg-white/10 px-2 py-1 hover:bg-white/20" onClick={() => store.alignSelectedNodes('middle')}>Align M</button>
+              <button
+                className="rounded bg-white/10 px-2 py-1 hover:bg-white/20"
+                onClick={() => store.createGroupFromSelection()}
+                aria-label="Group selected workflow nodes"
+              >
+                Group
+              </button>
               <button
                 className="rounded bg-white/10 px-2 py-1 hover:bg-white/20 disabled:opacity-45"
                 disabled={store.selectedNodeIds.length < 3}
@@ -3352,7 +3630,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="workflow-context-menu fixed z-[120] min-w-[176px] rounded-lg border border-neutral-200 bg-white p-1 text-neutral-700 shadow-[0_12px_28px_rgba(15,23,42,0.12)]"
+          className="workflow-context-menu fixed z-[120] min-w-[176px] rounded-lg border p-1"
           style={{ left: contextMenu.x + 4, top: contextMenu.y + 4 }}
         >
           {contextMenu.target === 'canvas' && (
@@ -3360,44 +3638,44 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
               {NODE_LIBRARY_KINDS.map((kind) => (
                 <button
                   key={kind}
-                  className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] hover:bg-neutral-100"
+                  className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px]"
                   onClick={() => runContextAction(`add-${kind}`)}
                 >
                   + {NODE_LIBRARY_LABELS[kind] || NODE_DEFS[kind].title}
                 </button>
               ))}
-              <div className="my-1 h-px bg-neutral-100" />
-              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] hover:bg-neutral-100 disabled:opacity-45" disabled={!store.canPaste} onClick={() => runContextAction('paste')}>Paste</button>
-              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] hover:bg-neutral-100 disabled:opacity-45" disabled={store.selectedNodeIds.length === 0} onClick={() => runContextAction('cut')}>Cut Selection</button>
-              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] hover:bg-neutral-100 disabled:opacity-45" disabled={store.selectedNodeIds.length < 2} onClick={() => runContextAction('group-selected')}>Group Selection</button>
-              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] hover:bg-neutral-100 disabled:opacity-45" disabled={store.selectedNodeIds.length < 2} onClick={() => runContextAction('align-left')}>Align Left</button>
-              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] hover:bg-neutral-100 disabled:opacity-45" disabled={store.selectedNodeIds.length < 2} onClick={() => runContextAction('align-top')}>Align Top</button>
-              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] hover:bg-neutral-100 disabled:opacity-45" disabled={store.selectedNodeIds.length < 3} onClick={() => runContextAction('dist-h')}>Distribute Horizontal</button>
-              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] hover:bg-neutral-100 disabled:opacity-45" disabled={store.selectedNodeIds.length < 3} onClick={() => runContextAction('dist-v')}>Distribute Vertical</button>
-              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] hover:bg-neutral-100" onClick={() => runContextAction('fit')}>Fit View</button>
+              <div className="workflow-context-divider my-1 h-px" />
+              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] disabled:opacity-45" disabled={!store.canPaste} onClick={() => runContextAction('paste')}>Paste</button>
+              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] disabled:opacity-45" disabled={store.selectedNodeIds.length === 0} onClick={() => runContextAction('cut')}>Cut Selection</button>
+              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] disabled:opacity-45" disabled={store.selectedNodeIds.length < 2} onClick={() => runContextAction('group-selected')}>Group Selection</button>
+              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] disabled:opacity-45" disabled={store.selectedNodeIds.length < 2} onClick={() => runContextAction('align-left')}>Align Left</button>
+              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] disabled:opacity-45" disabled={store.selectedNodeIds.length < 2} onClick={() => runContextAction('align-top')}>Align Top</button>
+              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] disabled:opacity-45" disabled={store.selectedNodeIds.length < 3} onClick={() => runContextAction('dist-h')}>Distribute Horizontal</button>
+              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] disabled:opacity-45" disabled={store.selectedNodeIds.length < 3} onClick={() => runContextAction('dist-v')}>Distribute Vertical</button>
+              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px]" onClick={() => runContextAction('fit')}>Fit View</button>
             </>
           )}
           {contextMenu.target === 'node' && (
             <>
-              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] hover:bg-neutral-100" onClick={() => runContextAction('copy-node')}>Copy Node</button>
+              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px]" onClick={() => runContextAction('copy-node')}>Copy Node</button>
               <button
-                className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] hover:bg-neutral-100 disabled:opacity-45"
+                className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] disabled:opacity-45"
                 disabled={!contextMenu.nodeId || !store.nodeMap.get(contextMenu.nodeId) || !getNodeDisplayMedia(store.nodeMap.get(contextMenu.nodeId)!)}
                 onClick={() => runContextAction('save-node-assets')}
               >
                 Add node to asset library
               </button>
-              <div className="my-1 h-px bg-neutral-100" />
-              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] hover:bg-neutral-100 disabled:opacity-45" disabled={!canRunScope('node', contextMenu.nodeId!)} onClick={() => runContextAction('run-node')}>Execute Node</button>
-              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] hover:bg-neutral-100 disabled:opacity-45" disabled={!canRunScope('from-here', contextMenu.nodeId!)} onClick={() => runContextAction('run-from-here')}>Execute From Here</button>
-              <div className="my-1 h-px bg-neutral-100" />
-              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] text-rose-600 hover:bg-rose-50" onClick={() => runContextAction('delete-node')}>Delete Node</button>
+              <div className="workflow-context-divider my-1 h-px" />
+              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] disabled:opacity-45" disabled={!canRunScope('node', contextMenu.nodeId!)} onClick={() => runContextAction('run-node')}>Execute Node</button>
+              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] disabled:opacity-45" disabled={!canRunScope('from-here', contextMenu.nodeId!)} onClick={() => runContextAction('run-from-here')}>Execute From Here</button>
+              <div className="workflow-context-divider my-1 h-px" />
+              <button className="workflow-context-danger w-full rounded-md px-2.5 py-1.5 text-left text-[11px]" onClick={() => runContextAction('delete-node')}>Delete Node</button>
             </>
           )}
           {contextMenu.target === 'group' && (
             <>
-              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] hover:bg-neutral-100" onClick={() => runContextAction('copy-group')}>Copy Group</button>
-              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px] text-amber-700 hover:bg-amber-50" onClick={() => runContextAction('ungroup')}>Ungroup</button>
+              <button className="w-full rounded-md px-2.5 py-1.5 text-left text-[11px]" onClick={() => runContextAction('copy-group')}>Copy Group</button>
+              <button className="workflow-context-warn w-full rounded-md px-2.5 py-1.5 text-left text-[11px]" onClick={() => runContextAction('ungroup')}>Ungroup</button>
             </>
           )}
         </div>

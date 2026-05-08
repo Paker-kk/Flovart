@@ -127,6 +127,8 @@ const MenuOptionButton: React.FC<{ label: string; active?: boolean; description?
     </button>
 );
 
+const isSupportedAttachment = (type: string) => type.startsWith('image/') || type.startsWith('video/');
+
 export const PromptBar: React.FC<PromptBarProps> = ({
     t,
     theme,
@@ -267,9 +269,9 @@ export const PromptBar: React.FC<PromptBarProps> = ({
 
     const handleDropFiles = useCallback((files: FileList | File[]) => {
         if (!onAddAttachments) return;
-        const images = Array.from(files).filter(file => file.type.startsWith('image/'));
-        if (images.length > 0) {
-            onAddAttachments(images);
+        const media = Array.from(files).filter(file => isSupportedAttachment(file.type));
+        if (media.length > 0) {
+            onAddAttachments(media);
         }
     }, [onAddAttachments]);
 
@@ -278,18 +280,18 @@ export const PromptBar: React.FC<PromptBarProps> = ({
             <div
                 className={`relative overflow-visible rounded-[20px] border transition-all duration-200 ${shellClass} ${isDragActive ? (isDark ? 'scale-[1.01] border-[#4B5B78]' : 'scale-[1.01] border-[#B2CCFF]') : ''}`}
                 onDragEnter={event => {
-                    if (!Array.from(event.dataTransfer.items).some(item => item.type.startsWith('image/'))) return;
+                    if (!Array.from(event.dataTransfer.items).some(item => isSupportedAttachment(item.type))) return;
                     event.preventDefault();
                     dragDepthRef.current += 1;
                     setIsDragActive(true);
                 }}
                 onDragOver={event => {
-                    if (!Array.from(event.dataTransfer.items).some(item => item.type.startsWith('image/'))) return;
+                    if (!Array.from(event.dataTransfer.items).some(item => isSupportedAttachment(item.type))) return;
                     event.preventDefault();
                     event.dataTransfer.dropEffect = 'copy';
                 }}
                 onDragLeave={event => {
-                    if (!Array.from(event.dataTransfer.items).some(item => item.type.startsWith('image/'))) return;
+                    if (!Array.from(event.dataTransfer.items).some(item => isSupportedAttachment(item.type))) return;
                     event.preventDefault();
                     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
                     if (dragDepthRef.current === 0) setIsDragActive(false);
@@ -304,11 +306,11 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                 <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/*"
+                    accept="image/*,video/*"
                     multiple
                     className="hidden"
-                    title="上传参考图"
-                    aria-label="上传参考图"
+                    title="上传参考媒体"
+                    aria-label="上传参考媒体"
                     onChange={event => {
                         if (event.target.files?.length) {
                             handleDropFiles(event.target.files);
@@ -320,7 +322,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                 {isDragActive && (
                     <div className={`pointer-events-none absolute inset-3 z-20 rounded-[26px] border border-dashed backdrop-blur-sm ${isDark ? 'border-[#4B5B78] bg-[#1B2029]/72' : 'border-[#84ADFF] bg-[#EEF4FF]/78'}`}>
                         <div className="flex h-full items-center justify-center">
-                            <div className="rounded-full bg-white/90 px-4 py-2 text-sm font-medium text-[#111827] shadow-lg">松手上传参考图</div>
+                            <div className="rounded-full bg-white/90 px-4 py-2 text-sm font-medium text-[#111827] shadow-lg">松手上传参考媒体</div>
                         </div>
                     </div>
                 )}
@@ -354,17 +356,21 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                         className={`group flex items-center gap-2 rounded-[14px] border px-2 py-1.5 transition-all duration-200 hover:-translate-y-0.5 ${isDark ? 'border-[#2A3140] bg-[#171C24]' : 'border-[#E4E7EC] bg-[#F8FAFC]'}`}
                                     >
                                         <div className="h-8 w-8 overflow-hidden rounded-lg border border-[var(--border-color)] bg-white">
-                                            <img src={attachment.href} alt={attachment.name} className="h-full w-full object-cover" />
+                                            {attachment.mimeType.startsWith('video/') ? (
+                                                <video src={attachment.href} className="h-full w-full object-cover" muted playsInline />
+                                            ) : (
+                                                <img src={attachment.href} alt={attachment.name} className="h-full w-full object-cover" />
+                                            )}
                                         </div>
                                         <div className="min-w-0">
                                             <div className={`max-w-[120px] truncate text-xs font-medium ${isDark ? 'text-[#F8FAFC]' : 'text-[#111827]'}`}>{attachment.name}</div>
-                                            <div className="text-[10px] text-[var(--text-muted)]">参考图</div>
+                                            <div className="text-[10px] text-[var(--text-muted)]">{attachment.mimeType.startsWith('video/') ? '参考视频' : '参考图'}</div>
                                         </div>
                                         <button
                                             type="button"
                                             onClick={() => onRemoveAttachment?.(attachment.id)}
                                             className={`flex h-6 w-6 items-center justify-center rounded-full transition ${isDark ? 'text-[#98A2B3] hover:bg-[#202734] hover:text-white' : 'text-[#667085] hover:bg-white hover:text-[#111827]'}`}
-                                            title="移除参考图"
+                                            title="移除参考媒体"
                                         >
                                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                 <path d="M18 6 6 18" />

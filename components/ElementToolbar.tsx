@@ -19,6 +19,7 @@ export interface ElementToolbarProps {
     getSelectionBounds: (ids: string[]) => Rect;
     getElementBounds: (el: Element, elements: Element[]) => Rect;
     handleAlignSelection: (alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => void;
+    handleGroupSelection: () => void;
     handleCopyElement: (el: Element) => void;
     handleDownloadImage: (el: ImageElement) => void;
     handleDeleteElement: (id: string) => void;
@@ -41,7 +42,7 @@ export function ElementToolbar(props: ElementToolbarProps) {
         selectedElementIds, singleSelectedElement, elements, zoom, resolvedTheme, isLoading, language,
         filterPanelElementId, outpaintMenuId, maskEditingId, reversePromptLoading,
         t, getSelectionBounds, getElementBounds,
-        handleAlignSelection, handleCopyElement, handleDownloadImage, handleDeleteElement,
+        handleAlignSelection, handleGroupSelection, handleCopyElement, handleDownloadImage, handleDeleteElement,
         handlePropertyChange, handleStartCrop, handleReversePrompt, cancelReversePrompt,
         handleSplitImageWithBanana, handleUpscaleImageWithBanana, handleRemoveBackgroundWithBanana,
         handleOutpaint, setFilterPanelElementId, setOutpaintMenuId, setAddAssetModal, startMaskEditing,
@@ -49,7 +50,7 @@ export function ElementToolbar(props: ElementToolbarProps) {
 
     if (selectedElementIds.length > 1) {
         const bounds = getSelectionBounds(selectedElementIds);
-        const toolbarScreenWidth = 280;
+        const toolbarScreenWidth = 330;
         const toolbarScreenHeight = 56;
 
         const toolbarCanvasWidth = toolbarScreenWidth / zoom;
@@ -70,6 +71,19 @@ export function ElementToolbar(props: ElementToolbarProps) {
                 <button title={t('contextMenu.alignment.alignTop')} onClick={() => handleAlignSelection('top')} className={`p-2 rounded ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="4" x2="21" y2="4"></line><rect x="6" y="8" width="4" height="8" rx="1"></rect><rect x="14" y="8" width="4" height="12" rx="1"></rect></svg></button>
                 <button title={t('contextMenu.alignment.alignMiddle')} onClick={() => handleAlignSelection('middle')} className={`p-2 rounded ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="12" x2="21" y2="12" strokeDasharray="2 2"></line><rect x="6" y="7" width="4" height="10" rx="1"></rect><rect x="14" y="4" width="4" height="16" rx="1"></rect></svg></button>
                 <button title={t('contextMenu.alignment.alignBottom')} onClick={() => handleAlignSelection('bottom')} className={`p-2 rounded ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="20" x2="21" y2="20"></line><rect x="6" y="12" width="4" height="8" rx="1"></rect><rect x="14" y="8" width="4" height="12" rx="1"></rect></svg></button>
+                <div className={`h-6 w-px ${resolvedTheme === 'dark' ? 'bg-[#2A3140]' : 'bg-gray-200'}`}></div>
+                <button
+                    title={t('contextMenu.group')}
+                    aria-label="Group selected canvas layers"
+                    onClick={handleGroupSelection}
+                    className={`p-2 rounded ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}
+                >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <rect x="5" y="5" width="7" height="7" rx="1.5" />
+                        <rect x="12" y="12" width="7" height="7" rx="1.5" />
+                        <path d="M8.5 12v2.5A1.5 1.5 0 0 0 10 16h2" />
+                    </svg>
+                </button>
             </div>
         </div>;
         return (

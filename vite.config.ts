@@ -8,8 +8,8 @@ const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig(() => {
     return {
-      // 打包后使用相对路径，确保 Tauri 本地文件协议正常加载
-      base: './',
+      // Cloudflare Pages 使用绝对路径，Tauri 使用相对路径
+      base: process.env.CF_PAGES ? '/' : './',
       server: {
         port: 11451,
         host: host || '0.0.0.0',

@@ -68,6 +68,9 @@ export interface VideoElement extends CanvasElementBase {
   width: number;
   height: number;
   mimeType: string;
+  poster?: string;
+  durationSec?: number;
+  sourceKind?: 'upload' | 'workflow' | 'generation';
 }
 
 export interface PathElement extends CanvasElementBase {

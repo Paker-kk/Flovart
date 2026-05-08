@@ -738,6 +738,36 @@ input[type='range'].toolbar-range::-moz-range-thumb:hover {
     color: #37352f !important;
 }
 
+.workflow-node-action-menu {
+    border-color: #e5e5e5;
+    background: #fff;
+    color: #37352f;
+    box-shadow: 0 6px 18px rgba(15, 15, 15, 0.12);
+}
+
+.workflow-node-action-button {
+    display: inline-flex;
+    width: 28px;
+    height: 28px;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: #6b6b6b;
+    transition: background-color 140ms ease, color 140ms ease;
+}
+
+.workflow-node-action-button:hover {
+    background: #f1f1ef;
+    color: #1f1f1d;
+}
+
+.workflow-node-action-button.is-danger:hover {
+    background: #fbe9e7;
+    color: #d44c47;
+}
+
 /* Undo dark-only color overrides — use neutral Tailwind classes natively */
 .workflow-libtv .workflow-node-header .text-neutral-800,
 .workflow-libtv .workflow-node-card .text-neutral-800,
@@ -1322,6 +1352,16 @@ input[type='range'].toolbar-range::-moz-range-thumb:hover {
     background: #252525 !important;
 }
 
+.workflow-composer-textarea {
+    color: #f2f2f2 !important;
+    caret-color: #f2f2f2 !important;
+    background: transparent !important;
+}
+
+.workflow-composer-textarea::placeholder {
+    color: #9b9b9b !important;
+}
+
 .workflow-libtv textarea,
 .workflow-libtv select,
 .workflow-libtv input {
@@ -1346,6 +1386,11 @@ input[type='range'].toolbar-range::-moz-range-thumb:hover {
 .workflow-composer-suggest button:hover {
     background: #3a3a3a !important;
     color: #fff !important;
+}
+
+.workflow-reference-badge {
+    background: #3a3a3a;
+    color: #ededed;
 }
 
 .workflow-composer-icon-button {
@@ -1382,6 +1427,51 @@ input[type='range'].toolbar-range::-moz-range-thumb:hover {
 .workflow-context-menu button:hover {
     background: #333 !important;
     color: #fff !important;
+}
+
+.workflow-context-menu button,
+.workflow-connection-menu button {
+    color: #e8e8e8 !important;
+}
+
+.workflow-context-divider {
+    background: #3a3a3a !important;
+}
+
+.workflow-context-danger {
+    color: #fda4af !important;
+}
+
+.workflow-context-warn {
+    color: #fbbf24 !important;
+}
+
+.workflow-node-record-item {
+    border-color: #3a3a3a !important;
+    background: #242424 !important;
+    color: #e8e8e8 !important;
+}
+
+.workflow-node-record-item:hover,
+.workflow-node-record-item.is-selected {
+    border-color: #7a7a7a !important;
+    background: #303030 !important;
+}
+
+.workflow-selection-toolbar {
+    border-color: #3a3a3a !important;
+    background: #262626 !important;
+    color: #e8e8e8 !important;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28) !important;
+}
+
+.workflow-selection-action {
+    background: #3a3a3a !important;
+    color: #f2f2f2 !important;
+}
+
+.workflow-selection-action:hover {
+    background: #4a4a4a !important;
 }
 
 .workflow-libtv select option {

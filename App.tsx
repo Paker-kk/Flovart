@@ -882,11 +882,19 @@ const App: React.FC = () => {
         });
     }, [addPromptAttachment]);
 
+    const readAttachmentFile = useCallback(async (file: File) => {
+        if (file.type.startsWith('video/')) {
+            const { dataUrl, mimeType } = await fileToDataUrl(file);
+            return { dataUrl, mimeType: mimeType || 'video/mp4', resized: false };
+        }
+        return validateAndResizeImage(file);
+    }, []);
+
     const handleAddAttachmentFiles = useCallback(async (files: FileList | File[]) => {
-        const list = Array.from(files).filter(file => file.type.startsWith('image/'));
+        const list = Array.from(files).filter(file => file.type.startsWith('image/') || file.type.startsWith('video/'));
         if (list.length === 0) return;
         try {
-            const results = await Promise.all(list.map(f => validateAndResizeImage(f)));
+            const results = await Promise.all(list.map(f => readAttachmentFile(f)));
             let anyResized = false;
             results.forEach((item, index) => {
                 if (item.resized) anyResized = true;
@@ -904,13 +912,13 @@ const App: React.FC = () => {
             const message = error instanceof Error ? error.message : 'Attachment upload failed.';
             setError(message);
         }
-    }, [addChatAttachment, toast]);
+    }, [addChatAttachment, readAttachmentFile, toast]);
 
     const handleAddPromptAttachmentFiles = useCallback(async (files: FileList | File[]) => {
-        const list = Array.from(files).filter(file => file.type.startsWith('image/'));
+        const list = Array.from(files).filter(file => file.type.startsWith('image/') || file.type.startsWith('video/'));
         if (list.length === 0) return;
         try {
-            const results = await Promise.all(list.map(f => validateAndResizeImage(f)));
+            const results = await Promise.all(list.map(f => readAttachmentFile(f)));
             let anyResized = false;
             results.forEach((item, index) => {
                 if (item.resized) anyResized = true;
@@ -928,7 +936,7 @@ const App: React.FC = () => {
             const message = error instanceof Error ? error.message : 'Attachment upload failed.';
             setError(message);
         }
-    }, [addPromptAttachment, toast]);
+    }, [addPromptAttachment, readAttachmentFile, toast]);
 
     const handleRemoveChatAttachment = useCallback((id: string) => {
         setChatAttachments(prev => prev.filter(item => item.id !== id));
@@ -1142,6 +1150,70 @@ const App: React.FC = () => {
             console.error(err);
         }
     }, [getCanvasPoint, activeBoardId, setElements]);
+
+    const readLocalVideoMetadata = useCallback((href: string): Promise<{ width: number; height: number; durationSec?: number }> => (
+        new Promise((resolve) => {
+            const video = document.createElement('video');
+            video.preload = 'metadata';
+            video.muted = true;
+            video.onloadedmetadata = () => {
+                resolve({
+                    width: video.videoWidth || 960,
+                    height: video.videoHeight || 540,
+                    durationSec: Number.isFinite(video.duration) ? video.duration : undefined,
+                });
+            };
+            video.onerror = () => resolve({ width: 960, height: 540 });
+            video.src = href;
+        })
+    ), []);
+
+    const handleAddVideoElement = useCallback(async (file: File) => {
+        if (!file.type.startsWith('video/')) {
+            setError('Only video files are supported.');
+            return;
+        }
+        setError(null);
+        try {
+            if (!svgRef.current) return;
+            const href = URL.createObjectURL(file);
+            const metadata = await readLocalVideoMetadata(href);
+            const maxWidth = 960;
+            const scale = metadata.width > maxWidth ? maxWidth / metadata.width : 1;
+            const width = Math.max(160, Math.round(metadata.width * scale));
+            const height = Math.max(90, Math.round(metadata.height * scale));
+            const svgBounds = svgRef.current.getBoundingClientRect();
+            const screenCenter = { x: svgBounds.left + svgBounds.width / 2, y: svgBounds.top + svgBounds.height / 2 };
+            const canvasPoint = getCanvasPoint(screenCenter.x, screenCenter.y);
+            const newVideo: VideoElement = {
+                id: generateId(),
+                type: 'video',
+                name: file.name,
+                x: canvasPoint.x - width / 2,
+                y: canvasPoint.y - height / 2,
+                width,
+                height,
+                href,
+                mimeType: file.type || 'video/mp4',
+                durationSec: metadata.durationSec,
+            };
+            setElements(prev => [...prev, newVideo]);
+            setSelectedElementIds([newVideo.id]);
+            setActiveTool('select');
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to load video.';
+            setError(message);
+            console.error(err);
+        }
+    }, [getCanvasPoint, readLocalVideoMetadata, setElements]);
+
+    const handleAddMediaElement = useCallback((file: File) => {
+        if (file.type.startsWith('video/')) {
+            void handleAddVideoElement(file);
+            return;
+        }
+        void handleAddImageElement(file);
+    }, [handleAddImageElement, handleAddVideoElement]);
 
     // Chrome Extension bridge: pick up pending images/prompts sent from context menu or popup
     useEffect(() => {
@@ -1509,8 +1581,8 @@ const App: React.FC = () => {
         e.preventDefault(); 
         const text = e.dataTransfer.getData('text/plain');
         if (text && handleAssetDropRef.current) { handleAssetDropRef.current(e); return; }
-        if (e.dataTransfer.files && e.dataTransfer.files[0]) { handleAddImageElement(e.dataTransfer.files[0]); }
-    }, [handleAddImageElement]);
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) { handleAddMediaElement(e.dataTransfer.files[0]); }
+    }, [handleAddMediaElement]);
 
     const handlePropertyChange = (elementId: string, updates: Partial<Element>) => {
         commitAction(prev => prev.map(el => {
@@ -1655,10 +1727,16 @@ const App: React.FC = () => {
 
 
     useEffect(() => {
-        const handlePaste = (e: ClipboardEvent) => { if (e.clipboardData?.files[0]?.type.startsWith("image/")) { e.preventDefault(); handleAddImageElement(e.clipboardData.files[0]); } };
+        const handlePaste = (e: ClipboardEvent) => {
+            const file = e.clipboardData?.files[0];
+            if (file && (file.type.startsWith('image/') || file.type.startsWith('video/'))) {
+                e.preventDefault();
+                handleAddMediaElement(file);
+            }
+        };
         window.addEventListener('paste', handlePaste);
         return () => window.removeEventListener('paste', handlePaste);
-    }, [handleAddImageElement]);
+    }, [handleAddMediaElement]);
 
     // 用原生事件监听器挂载 wheel，确保 { passive: false } 以允许 preventDefault()
     useEffect(() => {
@@ -2244,7 +2322,15 @@ const App: React.FC = () => {
                 generateBoardThumbnail={(els) => generateBoardThumbnail(els, canvasBackgroundColor)}
                 elements={elements}
                 selectedElementIds={selectedElementIds}
-                onSelectElement={id => setSelectedElementIds(id ? [id] : [])}
+                onSelectElement={(id, additive) => {
+                    if (!id) {
+                        setSelectedElementIds([]);
+                        return;
+                    }
+                    setSelectedElementIds(prev => additive
+                        ? (prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id])
+                        : [id]);
+                }}
                 onToggleVisibility={id => handlePropertyChange(id, { isVisible: !(elements.find(el => el.id === id)?.isVisible ?? true) })}
                 onToggleLock={id => handlePropertyChange(id, { isLocked: !(elements.find(el => el.id === id)?.isLocked ?? false) })}
                 onRenameElement={(id, name) => handlePropertyChange(id, { name })}
@@ -2470,7 +2556,7 @@ const App: React.FC = () => {
                 setActiveTool={setActiveTool}
                 drawingOptions={drawingOptions}
                 setDrawingOptions={setDrawingOptions}
-                onUpload={handleAddImageElement}
+                onUpload={handleAddMediaElement}
                 isCropping={!!croppingState}
                 onConfirmCrop={handleConfirmCrop}
                 onCancelCrop={handleCancelCrop}
@@ -2845,6 +2931,7 @@ const App: React.FC = () => {
                                 getSelectionBounds={getSelectionBounds}
                                 getElementBounds={getElementBounds}
                                 handleAlignSelection={handleAlignSelection}
+                                handleGroupSelection={handleGroup}
                                 handleCopyElement={handleCopyElement}
                                 handleDownloadImage={handleDownloadImage}
                                 handleDeleteElement={handleDeleteElement}
@@ -3116,6 +3203,7 @@ const App: React.FC = () => {
                         onUploadFiles={handleAddPromptAttachmentFiles}
                         onDropCanvasImage={handleAddPromptAttachmentFromCanvas}
                         userApiKeys={userApiKeys}
+                        language={language}
                         onPlaceWorkflowValue={handlePlaceWorkflowValue}
                         onSaveWorkflowValueToAssets={handleSaveWorkflowValueToAssets}
                     />

@@ -3,6 +3,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { NodeWorkflowPanel } from '../components/NodeWorkflowPanel';
+import { parseWorkflowTemplatePackageJson } from '../utils/workflowTemplatePackage';
+
+function readBlobText(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Failed to read blob'));
+    reader.readAsText(blob);
+  });
+}
 
 describe('NodeWorkflowPanel smoke', () => {
   afterEach(() => {
@@ -54,8 +64,8 @@ describe('NodeWorkflowPanel smoke', () => {
     );
 
     expect(container.querySelectorAll('.workflow-node-card')).toHaveLength(2);
-    expect(screen.getAllByText('图片节点 2').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('视频节点 2').length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('.workflow-media-frame')).toHaveLength(2);
+    expect(container.querySelectorAll('.workflow-node-caption')).toHaveLength(0);
     expect(screen.queryByText('Prompt')).toBeNull();
     expect(screen.queryByText('Prompt Enhance')).toBeNull();
   });
@@ -79,8 +89,9 @@ describe('NodeWorkflowPanel smoke', () => {
       />,
     );
 
-    const uploadButton = screen.getByTitle('Upload media to Image');
-    fireEvent.click(uploadButton);
+    const mediaFrame = container.querySelector('.workflow-media-frame');
+    expect(mediaFrame).toBeTruthy();
+    fireEvent.doubleClick(mediaFrame!);
 
     const mediaInput = container.querySelector('input[data-testid="workflow-node-media-input"]');
     expect(mediaInput).toBeTruthy();
@@ -99,7 +110,7 @@ describe('NodeWorkflowPanel smoke', () => {
       groups: [{ id: 'group_legacy', title: 'Old Group', x: 0, y: 0, width: 200, height: 120, nodeIds: ['old_1'] }],
     }));
 
-    render(
+    const { container } = render(
       <NodeWorkflowPanel
         prompt=""
         setPrompt={() => undefined}
@@ -117,7 +128,7 @@ describe('NodeWorkflowPanel smoke', () => {
       />,
     );
 
-    expect(screen.getAllByText('图片节点 2').length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('.workflow-node-card')).toHaveLength(2);
     expect(screen.queryByText('legacyNode')).toBeNull();
   });
 
@@ -153,9 +164,9 @@ describe('NodeWorkflowPanel smoke', () => {
     fireEvent.doubleClick(firstNode!);
     expect(container.querySelectorAll('.workflow-node-card')).toHaveLength(initialCount);
 
-    const firstHeader = firstNode!.querySelector('.workflow-node-header');
-    expect(firstHeader).toBeTruthy();
-    fireEvent.mouseDown(firstHeader!, { clientX: 160, clientY: 160, button: 0 });
+    const firstMediaFrame = firstNode!.querySelector('.workflow-media-frame');
+    expect(firstMediaFrame).toBeTruthy();
+    fireEvent.mouseDown(firstMediaFrame!, { clientX: 160, clientY: 160, button: 0 });
     fireEvent.mouseMove(canvas!, { clientX: 260, clientY: 220 });
     expect(container.querySelectorAll('.workflow-node-card')).toHaveLength(initialCount);
     fireEvent.mouseUp(canvas!, { clientX: 260, clientY: 220 });
@@ -304,6 +315,276 @@ describe('NodeWorkflowPanel smoke', () => {
     expect(composer?.textContent).not.toContain('摄像机');
     expect(composer?.textContent).not.toContain('文A');
     expect(composer?.querySelector('.workflow-composer-energy')).toBeNull();
+  });
+
+  it('uses an explicit readable textarea class for the workflow node prompt composer', () => {
+    const { container } = render(
+      <NodeWorkflowPanel
+        prompt=""
+        setPrompt={() => undefined}
+        generationMode="image"
+        setGenerationMode={() => undefined}
+        selectedImageModel="gemini-3.1-flash-image-preview"
+        selectedVideoModel="veo-3.1-generate-preview"
+        imageModelOptions={['gemini-3.1-flash-image-preview']}
+        videoModelOptions={['veo-3.1-generate-preview']}
+        attachments={[]}
+        canvasImages={[]}
+        canvasVideos={[]}
+        onRemoveAttachment={() => undefined}
+        onUploadFiles={() => undefined}
+        onDropCanvasImage={() => undefined}
+        userApiKeys={[]}
+        onPlaceWorkflowValue={() => undefined}
+        onSaveWorkflowValueToAssets={() => undefined}
+      />,
+    );
+
+    const firstNode = container.querySelector('.workflow-node-card') as HTMLElement | null;
+    expect(firstNode).toBeTruthy();
+    fireEvent.click(firstNode!);
+
+    const textarea = screen.getByLabelText('Node prompt') as HTMLTextAreaElement;
+    expect(textarea.className).toContain('workflow-composer-textarea');
+    expect(textarea.className).not.toContain('text-black');
+  });
+
+  it('uses Notion-style icon actions on selected workflow nodes and removes media upload chrome', () => {
+    const { container } = render(
+      <NodeWorkflowPanel
+        prompt=""
+        setPrompt={() => undefined}
+        generationMode="image"
+        setGenerationMode={() => undefined}
+        selectedImageModel="gemini-3.1-flash-image-preview"
+        selectedVideoModel="veo-3.1-generate-preview"
+        imageModelOptions={['gemini-3.1-flash-image-preview']}
+        videoModelOptions={['veo-3.1-generate-preview']}
+        attachments={[]}
+        canvasImages={[]}
+        canvasVideos={[]}
+        onRemoveAttachment={() => undefined}
+        onUploadFiles={() => undefined}
+        onDropCanvasImage={() => undefined}
+        userApiKeys={[]}
+        onPlaceWorkflowValue={() => undefined}
+        onSaveWorkflowValueToAssets={() => undefined}
+      />,
+    );
+
+    const firstNode = container.querySelector('.workflow-node-card') as HTMLElement | null;
+    expect(firstNode).toBeTruthy();
+    fireEvent.click(firstNode!);
+
+    expect(container.querySelector('.workflow-node-action-menu')).toBeTruthy();
+    expect(screen.getByLabelText('Run selected workflow node')).toBeTruthy();
+    expect(screen.getByLabelText('Copy selected workflow node')).toBeTruthy();
+    expect(screen.getByLabelText('Delete selected workflow node')).toBeTruthy();
+    expect(container.querySelector('.workflow-node-upload-bubble')).toBeNull();
+    expect(container.querySelector('.workflow-node-caption')).toBeNull();
+  });
+
+  it('opens the node media picker by double-clicking the media area', () => {
+    const { container } = render(
+      <NodeWorkflowPanel
+        prompt=""
+        setPrompt={() => undefined}
+        generationMode="image"
+        setGenerationMode={() => undefined}
+        selectedImageModel="gemini-3.1-flash-image-preview"
+        selectedVideoModel="veo-3.1-generate-preview"
+        imageModelOptions={['gemini-3.1-flash-image-preview']}
+        videoModelOptions={['veo-3.1-generate-preview']}
+        attachments={[]}
+        canvasImages={[]}
+        canvasVideos={[]}
+        onRemoveAttachment={() => undefined}
+        onUploadFiles={() => undefined}
+        onDropCanvasImage={() => undefined}
+        userApiKeys={[]}
+        onPlaceWorkflowValue={() => undefined}
+        onSaveWorkflowValueToAssets={() => undefined}
+      />,
+    );
+
+    const input = container.querySelector('input[data-testid="workflow-node-media-input"]') as HTMLInputElement | null;
+    const clickSpy = vi.spyOn(input!, 'click').mockImplementation(() => undefined);
+    const mediaFrame = container.querySelector('.workflow-media-frame') as HTMLElement | null;
+    expect(mediaFrame).toBeTruthy();
+
+    fireEvent.doubleClick(mediaFrame!);
+    expect(clickSpy).toHaveBeenCalled();
+    clickSpy.mockRestore();
+  });
+
+  it('uses the global language setting for workflow labels and prompt placeholder', () => {
+    const { container } = render(
+      <NodeWorkflowPanel
+        prompt=""
+        setPrompt={() => undefined}
+        generationMode="image"
+        setGenerationMode={() => undefined}
+        language="zho"
+        selectedImageModel="gemini-3.1-flash-image-preview"
+        selectedVideoModel="veo-3.1-generate-preview"
+        imageModelOptions={['gemini-3.1-flash-image-preview']}
+        videoModelOptions={['veo-3.1-generate-preview']}
+        attachments={[]}
+        canvasImages={[]}
+        canvasVideos={[]}
+        onRemoveAttachment={() => undefined}
+        onUploadFiles={() => undefined}
+        onDropCanvasImage={() => undefined}
+        userApiKeys={[]}
+        onPlaceWorkflowValue={() => undefined}
+        onSaveWorkflowValueToAssets={() => undefined}
+      />,
+    );
+
+    fireEvent.click(container.querySelector('.workflow-node-card')!);
+    expect(screen.getByLabelText('节点提示词')).toBeTruthy();
+    expect(screen.getByPlaceholderText('描述你想生成的画面内容，按 / 呼出指令，@ 引用节点')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('打开工作流节点记录'));
+    expect(screen.getByText('工作流节点')).toBeTruthy();
+  });
+
+  it('filters workflow node references while typing @ and inserts the selected node mention', () => {
+    const { container } = render(
+      <NodeWorkflowPanel
+        prompt=""
+        setPrompt={() => undefined}
+        generationMode="image"
+        setGenerationMode={() => undefined}
+        selectedImageModel="gemini-3.1-flash-image-preview"
+        selectedVideoModel="veo-3.1-generate-preview"
+        imageModelOptions={['gemini-3.1-flash-image-preview']}
+        videoModelOptions={['veo-3.1-generate-preview']}
+        attachments={[]}
+        canvasImages={[]}
+        canvasVideos={[]}
+        onRemoveAttachment={() => undefined}
+        onUploadFiles={() => undefined}
+        onDropCanvasImage={() => undefined}
+        userApiKeys={[]}
+        onPlaceWorkflowValue={() => undefined}
+        onSaveWorkflowValueToAssets={() => undefined}
+      />,
+    );
+
+    const firstNode = container.querySelector('.workflow-node-card') as HTMLElement | null;
+    expect(firstNode).toBeTruthy();
+    fireEvent.click(firstNode!);
+
+    const textarea = screen.getByLabelText('Node prompt') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: '@vid' } });
+
+    expect(screen.getByText('@Video #1')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Reference workflow node Video #1'));
+    expect(textarea.value).toBe('@[Video #1](workflow-node:video_1) ');
+  });
+
+  it('shows readable context menus and only offers image and video nodes from canvas right click', () => {
+    const { container } = render(
+      <NodeWorkflowPanel
+        prompt=""
+        setPrompt={() => undefined}
+        generationMode="image"
+        setGenerationMode={() => undefined}
+        selectedImageModel="gemini-3.1-flash-image-preview"
+        selectedVideoModel="veo-3.1-generate-preview"
+        imageModelOptions={['gemini-3.1-flash-image-preview']}
+        videoModelOptions={['veo-3.1-generate-preview']}
+        attachments={[]}
+        canvasImages={[]}
+        canvasVideos={[]}
+        onRemoveAttachment={() => undefined}
+        onUploadFiles={() => undefined}
+        onDropCanvasImage={() => undefined}
+        userApiKeys={[]}
+        onPlaceWorkflowValue={() => undefined}
+        onSaveWorkflowValueToAssets={() => undefined}
+      />,
+    );
+
+    const canvas = container.querySelector('.workflow-canvas');
+    expect(canvas).toBeTruthy();
+    fireEvent.contextMenu(canvas!, { clientX: 320, clientY: 220 });
+
+    const menu = container.querySelector('.workflow-context-menu') as HTMLElement | null;
+    expect(menu).toBeTruthy();
+    expect(menu?.className).not.toContain('bg-white');
+    expect(screen.getByText('+ Image')).toBeTruthy();
+    expect(screen.getByText('+ Video')).toBeTruthy();
+    expect(screen.queryByText('+ Text Prompt')).toBeNull();
+    expect(screen.queryByText('+ HTTP Request')).toBeNull();
+  });
+
+  it('renders a layer-style workflow node record list with unique node identities', () => {
+    render(
+      <NodeWorkflowPanel
+        prompt=""
+        setPrompt={() => undefined}
+        generationMode="image"
+        setGenerationMode={() => undefined}
+        selectedImageModel="gemini-3.1-flash-image-preview"
+        selectedVideoModel="veo-3.1-generate-preview"
+        imageModelOptions={['gemini-3.1-flash-image-preview']}
+        videoModelOptions={['veo-3.1-generate-preview']}
+        attachments={[]}
+        canvasImages={[]}
+        canvasVideos={[]}
+        onRemoveAttachment={() => undefined}
+        onUploadFiles={() => undefined}
+        onDropCanvasImage={() => undefined}
+        userApiKeys={[]}
+        onPlaceWorkflowValue={() => undefined}
+        onSaveWorkflowValueToAssets={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Open workflow node records'));
+    expect(screen.getByText('Workflow nodes')).toBeTruthy();
+    expect(screen.getByText('Image #1')).toBeTruthy();
+    expect(screen.getByText('Video #1')).toBeTruthy();
+    expect(screen.getByText('image_1')).toBeTruthy();
+    expect(screen.getByText('video_1')).toBeTruthy();
+  });
+
+  it('box-selects multiple nodes with left drag and groups them from the selection controls', () => {
+    const { container } = render(
+      <NodeWorkflowPanel
+        prompt=""
+        setPrompt={() => undefined}
+        generationMode="image"
+        setGenerationMode={() => undefined}
+        selectedImageModel="gemini-3.1-flash-image-preview"
+        selectedVideoModel="veo-3.1-generate-preview"
+        imageModelOptions={['gemini-3.1-flash-image-preview']}
+        videoModelOptions={['veo-3.1-generate-preview']}
+        attachments={[]}
+        canvasImages={[]}
+        canvasVideos={[]}
+        onRemoveAttachment={() => undefined}
+        onUploadFiles={() => undefined}
+        onDropCanvasImage={() => undefined}
+        userApiKeys={[]}
+        onPlaceWorkflowValue={() => undefined}
+        onSaveWorkflowValueToAssets={() => undefined}
+      />,
+    );
+
+    const canvas = container.querySelector('.workflow-canvas') as HTMLElement | null;
+    const graphLayer = container.querySelector('.workflow-canvas > div[style*="transform"]') as HTMLElement | null;
+    expect(canvas).toBeTruthy();
+    expect(graphLayer).toBeTruthy();
+
+    fireEvent.mouseDown(graphLayer!, { clientX: 60, clientY: 60, button: 0 });
+    fireEvent.mouseMove(canvas!, { clientX: 860, clientY: 360 });
+    fireEvent.mouseUp(canvas!, { clientX: 860, clientY: 360 });
+
+    expect(screen.getByText('Selected nodes: 2')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Group selected workflow nodes'));
+    expect(screen.getByText('Group 1')).toBeTruthy();
   });
 
   it('replicates the corrected left rail and bottom-left controls with dedicated actions', () => {
@@ -455,12 +736,68 @@ describe('NodeWorkflowPanel smoke', () => {
     expect(screen.getByText('Untitled Flow')).toBeTruthy();
 
     fireEvent.click(screen.getByLabelText('Add node'));
-    fireEvent.click(screen.getByText('Text Prompt'));
+    fireEvent.click(screen.getByText('Image'));
     expect(container.querySelectorAll('.workflow-node-card')).toHaveLength(3);
 
     fireEvent.click(screen.getByLabelText('Open saved workflows'));
     fireEvent.click(screen.getByLabelText('Reuse workflow Untitled Flow'));
     expect(container.querySelectorAll('.workflow-node-card')).toHaveLength(2);
+  });
+
+  it('exports saved workflows as sanitized template packages', async () => {
+    const capturedBlobs: Blob[] = [];
+    const createObjectUrl = vi.fn((blob: Blob) => {
+      capturedBlobs.push(blob);
+      return 'blob:workflow-template';
+    });
+    const revokeObjectUrl = vi.fn();
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: createObjectUrl,
+      revokeObjectURL: revokeObjectUrl,
+    });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    render(
+      <NodeWorkflowPanel
+        prompt=""
+        setPrompt={() => undefined}
+        generationMode="image"
+        setGenerationMode={() => undefined}
+        attachments={[]}
+        canvasImages={[]}
+        canvasVideos={[]}
+        onRemoveAttachment={() => undefined}
+        onUploadFiles={() => undefined}
+        onDropCanvasImage={() => undefined}
+        userApiKeys={[]}
+        onPlaceWorkflowValue={() => undefined}
+        onSaveWorkflowValueToAssets={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Open saved workflows'));
+    fireEvent.click(screen.getByLabelText('Save current workflow'));
+    fireEvent.click(screen.getByLabelText('Export template Untitled Flow'));
+
+    expect(clickSpy).toHaveBeenCalled();
+    expect(capturedBlobs).toHaveLength(1);
+    const exported = parseWorkflowTemplatePackageJson(await readBlobText(capturedBlobs[0]));
+    expect(exported).toMatchObject({
+      version: 1,
+      metadata: { name: 'Untitled Flow' },
+      workflow: {
+        nodes: [
+          expect.objectContaining({ kind: 'imageGen' }),
+          expect.objectContaining({ kind: 'videoGen' }),
+        ],
+      },
+    });
+    expect(JSON.stringify(exported)).not.toContain('apiKeyRef');
+    expect(JSON.stringify(exported)).not.toContain('pinnedOutputs');
+
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
   });
 
   it('can save a single node media value to the shared asset library from the canvas menu', () => {
@@ -541,7 +878,7 @@ describe('NodeWorkflowPanel smoke', () => {
     const firstNode = container.querySelector('.workflow-node-card') as HTMLElement | null;
     expect(firstNode).toBeTruthy();
     expect(firstNode?.className).toContain('workflow-node-card-compact');
-    expect(container.querySelectorAll('.workflow-node-caption')).toHaveLength(2);
+    expect(container.querySelectorAll('.workflow-node-caption')).toHaveLength(0);
     expect(container.querySelectorAll('.workflow-port-label')).toHaveLength(0);
     expect(screen.queryByText('drag')).toBeNull();
     expect(screen.queryByText('Upload')).toBeNull();

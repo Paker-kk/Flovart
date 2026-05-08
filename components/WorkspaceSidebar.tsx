@@ -16,7 +16,7 @@ interface WorkspaceSidebarProps {
     generateBoardThumbnail: (elements: Board['elements']) => string;
     elements: Element[];
     selectedElementIds: string[];
-    onSelectElement: (id: string | null) => void;
+    onSelectElement: (id: string | null, additive?: boolean) => void;
     onToggleVisibility: (id: string) => void;
     onToggleLock: (id: string) => void;
     onRenameElement: (id: string, name: string) => void;
@@ -235,7 +235,10 @@ const LayerRow: React.FC<{
     element: Element;
     level: number;
     isSelected: boolean;
-    onSelect: () => void;
+    hasChildren: boolean;
+    isExpanded: boolean;
+    onSelect: (event: React.MouseEvent<HTMLDivElement>) => void;
+    onToggleExpanded: () => void;
     onToggleVisibility: () => void;
     onToggleLock: () => void;
     onRename: (name: string) => void;
@@ -243,7 +246,19 @@ const LayerRow: React.FC<{
     onDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
     onDrop: (event: React.DragEvent<HTMLDivElement>) => void;
     onDragLeave: (event: React.DragEvent<HTMLDivElement>) => void;
-}> = ({ element, level, isSelected, onSelect, onToggleVisibility, onToggleLock, onRename, ...dragProps }) => {
+}> = ({
+    element,
+    level,
+    isSelected,
+    hasChildren,
+    isExpanded,
+    onSelect,
+    onToggleExpanded,
+    onToggleVisibility,
+    onToggleLock,
+    onRename,
+    ...dragProps
+}) => {
     const [isEditing, setIsEditing] = useState(false);
     const [name, setName] = useState(getElementLabel(element));
     const inputRef = useRef<HTMLInputElement>(null);
@@ -280,6 +295,26 @@ const LayerRow: React.FC<{
             } ${element.isVisible === false ? 'opacity-55' : ''}`}
             style={{ paddingLeft: `${12 + level * 18}px` }}
         >
+            <button
+                type="button"
+                aria-label={isExpanded ? 'Collapse group layer' : 'Expand group layer'}
+                title={isExpanded ? 'Collapse group layer' : 'Expand group layer'}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    if (hasChildren) onToggleExpanded();
+                }}
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition ${
+                    hasChildren ? 'text-neutral-500 hover:bg-white hover:text-neutral-800' : 'text-neutral-300'
+                }`}
+            >
+                {hasChildren ? (
+                    <svg {...iconProps} width={13} height={13} className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+                        <path d="m9 6-4 4-4-4" />
+                    </svg>
+                ) : (
+                    <span className="h-1.5 w-1.5 rounded-full bg-current opacity-40" />
+                )}
+            </button>
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-white text-neutral-500 shadow-sm">
                 {getElementIcon(element)}
             </span>
@@ -306,6 +341,11 @@ const LayerRow: React.FC<{
                     <div className="truncate">{getElementLabel(element)}</div>
                 )}
             </div>
+            {hasChildren && (
+                <span className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-500">
+                    {isExpanded ? 'open' : 'group'}
+                </span>
+            )}
             <div className="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100">
                 <button
                     type="button"
@@ -362,8 +402,16 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     onReorder,
 }) => {
     const [dragOverId, setDragOverId] = useState<string | null>(null);
+    const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(() => new Set());
 
     const orderedElements = useMemo(() => [...elements].reverse(), [elements]);
+    const childCountByParent = useMemo(() => {
+        const counts = new Map<string, number>();
+        elements.forEach((item) => {
+            if (item.parentId) counts.set(item.parentId, (counts.get(item.parentId) ?? 0) + 1);
+        });
+        return counts;
+    }, [elements]);
 
     const handleDragStart = (event: React.DragEvent<HTMLDivElement>, id: string) => {
         event.dataTransfer.setData('text/plain', id);
@@ -395,32 +443,46 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     const renderLayers = (items: Element[], level = 0, parentId?: string): React.ReactNode =>
         items
             .filter(item => item.parentId === parentId)
-            .map(item => (
-                <React.Fragment key={item.id}>
-                    <div
-                        data-id={item.id}
-                        onDragOver={handleDragOver}
-                        onDragLeave={handleDragLeave}
-                        onDrop={(event) => handleDrop(event, item.id)}
-                        className={dragOverId === item.id ? 'rounded-2xl bg-[#EEF4FF]' : ''}
-                    >
-                        <LayerRow
-                            element={item}
-                            level={level}
-                            isSelected={selectedElementIds.includes(item.id)}
-                            onSelect={() => onSelectElement(item.id)}
-                            onToggleVisibility={() => onToggleVisibility(item.id)}
-                            onToggleLock={() => onToggleLock(item.id)}
-                            onRename={(name) => onRenameElement(item.id, name)}
-                            onDragStart={(event) => handleDragStart(event, item.id)}
+            .map(item => {
+                const hasChildren = (childCountByParent.get(item.id) ?? 0) > 0;
+                const isExpanded = expandedGroupIds.has(item.id);
+                return (
+                    <React.Fragment key={item.id}>
+                        <div
+                            data-id={item.id}
                             onDragOver={handleDragOver}
                             onDragLeave={handleDragLeave}
                             onDrop={(event) => handleDrop(event, item.id)}
-                        />
-                    </div>
-                    {renderLayers(items, level + 1, item.id)}
-                </React.Fragment>
-            ));
+                            className={dragOverId === item.id ? 'rounded-2xl bg-[#EEF4FF]' : ''}
+                        >
+                            <LayerRow
+                                element={item}
+                                level={level}
+                                isSelected={selectedElementIds.includes(item.id)}
+                                hasChildren={hasChildren}
+                                isExpanded={isExpanded}
+                                onSelect={(event) => onSelectElement(item.id, event.metaKey || event.ctrlKey || event.shiftKey)}
+                                onToggleExpanded={() => {
+                                    setExpandedGroupIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(item.id)) next.delete(item.id);
+                                        else next.add(item.id);
+                                        return next;
+                                    });
+                                }}
+                                onToggleVisibility={() => onToggleVisibility(item.id)}
+                                onToggleLock={() => onToggleLock(item.id)}
+                                onRename={(name) => onRenameElement(item.id, name)}
+                                onDragStart={(event) => handleDragStart(event, item.id)}
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onDrop={(event) => handleDrop(event, item.id)}
+                            />
+                        </div>
+                        {(!hasChildren || isExpanded) && renderLayers(items, level + 1, item.id)}
+                    </React.Fragment>
+                );
+            });
 
     return (
         <div
