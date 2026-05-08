@@ -176,6 +176,10 @@ export const loadAssetLibraryAsync = async (): Promise<AssetLibrary> => {
  * - 操作后自动保存，确保数据一致性
  */
 export const addAsset = (lib: AssetLibrary, item: AssetItem): AssetLibrary => {
+    if (lib[item.category].some(existing => existing.id === item.id || existing.dataUrl === item.dataUrl)) {
+        return lib;
+    }
+
     // 创建新的素材库对象，将新素材添加到对应分类的开头
     const next: AssetLibrary = { 
         ...lib, 

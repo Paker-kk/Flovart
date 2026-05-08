@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { AssetCategory, AssetItem, AssetLibrary, GenerationHistoryItem, UserApiKey } from '../types';
-import { AgentChatPanel } from './AgentChatPanel';
+import type { AssetCategory, AssetItem, AssetLibrary, GenerationHistoryItem } from '../types';
+import { FlovartCliPanel } from './FlovartCliPanel';
 import { rhGetWebAppNodes, rhRunWebApp, rhUploadWebAppDataUrl, type RHWebAppNodeInfo, type RHWebAppOutputItem, type RHWebAppTaskStatus } from '../services/runningHubService';
 
 type RightPanelTab = 'history' | 'inspiration' | 'agent' | 'runningHub';
@@ -15,18 +15,11 @@ interface RightPanelProps {
     widthCap: number;
     compactMode: boolean;
     library: AssetLibrary;
-    textModel: string;
-    getApiKeyForModel: (model: string) => UserApiKey | undefined;
-    onAgentFinalPrompt?: (prompt: string) => void;
-    onAgentGenerateImage?: (prompt: string) => void;
     generationHistory: GenerationHistoryItem[];
     onRemove: (category: AssetCategory, id: string) => void;
     onRename: (category: AssetCategory, id: string, name: string) => void;
     onWidthChange?: (width: number) => void;
     onReversePrompt?: (imageDataUrl: string, mimeType: string, width?: number, height?: number) => void;
-    agentWarning?: string;
-    discussionSupported?: boolean;
-    onOpenSettings?: () => void;
 }
 
 const CATEGORY_LABELS: Record<AssetCategory, string> = {
@@ -315,14 +308,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
     onRemove,
     onRename,
     onWidthChange,
-    textModel,
-    getApiKeyForModel,
-    onAgentFinalPrompt,
-    onAgentGenerateImage,
     onReversePrompt,
-    agentWarning,
-    discussionSupported,
-    onOpenSettings,
 }) => {
     const isDark = theme === 'dark';
     const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
@@ -495,7 +481,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                 <div className={`flex items-center justify-between border-b ${isDark ? 'border-[#2A3140]' : 'border-neutral-200/60'} ${compactMode ? 'px-3 py-2' : 'px-4 py-2.5'}`}>
                     <div className={`flex items-center gap-3 ${compactMode ? 'text-[12px]' : ''}`}>
                         {([
-                            { key: 'agent' as RightPanelTab, label: 'Agent', icon: '🤖' },
+                            { key: 'agent' as RightPanelTab, label: 'FlovartCli', icon: null },
                             { key: 'history' as RightPanelTab, label: '历史', icon: null },
                             { key: 'inspiration' as RightPanelTab, label: '素材库', icon: null },
                             { key: 'runningHub' as RightPanelTab, label: 'RH', icon: '🚀' },
@@ -683,16 +669,9 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                     )}
 
                     {activeTab === 'agent' && (
-                        <AgentChatPanel
+                        <FlovartCliPanel
                             theme={theme}
                             compactMode={compactMode}
-                            textModel={textModel}
-                            getApiKeyForModel={getApiKeyForModel}
-                            onFinalPrompt={onAgentFinalPrompt || (() => {})}
-                            onGenerateImage={onAgentGenerateImage || (() => {})}
-                            agentWarning={agentWarning}
-                            discussionSupported={discussionSupported}
-                            onOpenSettings={onOpenSettings}
                         />
                     )}
 

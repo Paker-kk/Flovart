@@ -3,6 +3,8 @@ import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, Tex
 import { generateId, getElementBounds, isPointInPolygon, SNAP_THRESHOLD, type Rect, type Guide } from '../utils/canvasHelpers';
 import { createRafBatcher, type RafBatcher } from '../utils/rafBatcher';
 
+const MIN_DRAW_DISTANCE_SCREEN = 3;
+
 export interface UseCanvasInteractionParams {
     // Board state (readonly)
     elements: Element[];
@@ -74,6 +76,37 @@ export function useCanvasInteraction(params: UseCanvasInteractionParams) {
     const spacebarDownTime = useRef<number | null>(null);
     elementsRef.current = elements;
 
+    const getMinimumCanvasDistance = useCallback(() => MIN_DRAW_DISTANCE_SCREEN / Math.max(zoom || 1, 0.1), [zoom]);
+
+    const removeCurrentDrawingElement = useCallback(() => {
+        const elementId = currentDrawingElementId.current;
+        if (!elementId) return;
+        setElements(prev => prev.filter(el => el.id !== elementId), false);
+    }, [setElements]);
+
+    const isCurrentDrawingElementMeaningful = useCallback((): boolean => {
+        const elementId = currentDrawingElementId.current;
+        if (!elementId) return true;
+
+        const element = elementsRef.current.find(el => el.id === elementId);
+        if (!element) return false;
+
+        const minDistance = getMinimumCanvasDistance();
+        if (element.type === 'shape') {
+            return element.width >= minDistance && element.height >= minDistance;
+        }
+        if (element.type === 'arrow' || element.type === 'line') {
+            const [start, end] = element.points;
+            return Math.hypot(end.x - start.x, end.y - start.y) >= minDistance;
+        }
+        if (element.type === 'path') {
+            if (element.points.length < 2) return false;
+            const first = element.points[0];
+            return element.points.some(point => Math.hypot(point.x - first.x, point.y - first.y) >= minDistance);
+        }
+        return true;
+    }, [getMinimumCanvasDistance]);
+
     // --- Helper: screen → canvas coords ---
     const getCanvasPoint = useCallback((screenX: number, screenY: number): Point => {
         if (!svgRef.current) return { x: 0, y: 0 };
@@ -119,6 +152,10 @@ export function useCanvasInteraction(params: UseCanvasInteractionParams) {
             interactionMode.current = 'pan';
             startPoint.current = { x: e.clientX, y: e.clientY };
             e.preventDefault();
+            return;
+        }
+
+        if (e.button !== 0) {
             return;
         }
 
@@ -319,7 +356,9 @@ export function useCanvasInteraction(params: UseCanvasInteractionParams) {
             if (!resizeStartInfo.current) return;
             const { originalElement, handle, startCanvasPoint: resizeStartPoint, shiftKey } = resizeStartInfo.current;
             let { x, y, width, height } = originalElement;
-            const aspectRatio = originalElement.width / originalElement.height;
+            const aspectRatio = originalElement.width > 0 && originalElement.height > 0
+                ? originalElement.width / originalElement.height
+                : 1;
             const dx = point.x - resizeStartPoint.x;
             const dy = point.y - resizeStartPoint.y;
 
@@ -630,10 +669,16 @@ export function useCanvasInteraction(params: UseCanvasInteractionParams) {
                 }).map(el => getSelectableElement(el.id, elements)?.id).filter((id): id is string => !!id);
                 setSelectedElementIds(prev => [...new Set([...prev, ...selectedIds])]);
                 setLassoPath(null);
-            } else if (['draw', 'drawShape', 'drawArrow', 'drawLine', 'dragElements', 'erase'].some(prefix => interactionMode.current?.startsWith(prefix)) || interactionMode.current.startsWith('resize-')) {
-                 // Flush any pending RAF drag before committing to history
-                 if (dragRafBatcher.current) {
-                     dragRafBatcher.current.flush();
+            } else if (['draw', 'drawShape', 'drawArrow', 'drawLine'].some(prefix => interactionMode.current?.startsWith(prefix))) {
+                 if (isCurrentDrawingElementMeaningful()) {
+                     commitAction(els => els);
+                 } else {
+                     removeCurrentDrawingElement();
+                 }
+            } else if (['dragElements', 'erase'].some(prefix => interactionMode.current?.startsWith(prefix)) || interactionMode.current.startsWith('resize-')) {
+                  // Flush any pending RAF drag before committing to history
+                  if (dragRafBatcher.current) {
+                      dragRafBatcher.current.flush();
                  }
                  commitAction(els => els); // This effectively commits the current state to history
             }
@@ -663,11 +708,14 @@ export function useCanvasInteraction(params: UseCanvasInteractionParams) {
 
         if (ctrlKey || wheelAction === 'zoom') {
             const zoomFactor = 1.05;
-            const oldZoom = zoom;
+            const oldZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
             const newZoom = deltaY < 0 ? oldZoom * zoomFactor : oldZoom / zoomFactor;
             const clampedZoom = Math.max(0.1, Math.min(newZoom, 10));
 
-            const mousePoint = { x: clientX, y: clientY };
+            const svgBounds = svgRef.current?.getBoundingClientRect();
+            const mousePoint = svgBounds
+                ? { x: clientX - svgBounds.left, y: clientY - svgBounds.top }
+                : { x: clientX, y: clientY };
             const newPanX = mousePoint.x - (mousePoint.x - panOffset.x) * (clampedZoom / oldZoom);
             const newPanY = mousePoint.y - (mousePoint.y - panOffset.y) * (clampedZoom / oldZoom);
 

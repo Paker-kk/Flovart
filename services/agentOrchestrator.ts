@@ -6,7 +6,7 @@
  */
 
 import type { AgentRole, AgentRoleId, AgentConfig, AgentMessage, AgentSession, AgentBudget, AIProvider, UserApiKey } from '../types';
-import { inferProviderFromModel } from './aiGateway';
+import { generateTextWithProvider, inferProviderFromModel } from './aiGateway';
 import { normalizeProviderBaseUrl } from './baseUrl';
 
 // ── Preset Agent Roles ──────────────────────────────────────────────
@@ -113,6 +113,7 @@ interface LLMCallOptions {
     apiKey: string;
     baseUrl: string;
     provider: AIProvider;
+    key?: UserApiKey;
     signal?: AbortSignal;
 }
 
@@ -126,7 +127,7 @@ const DEFAULT_BASE_URLS: Partial<Record<AIProvider, string>> = {
 };
 
 async function callLLM(opts: LLMCallOptions): Promise<string> {
-    const { model, systemPrompt, messages, apiKey, baseUrl, provider, signal: externalSignal } = opts;
+    const { model, systemPrompt, messages, apiKey, baseUrl, provider, key, signal: externalSignal } = opts;
 
     // 60s 超时，同时尊重外部 abort signal
     const controller = new AbortController();
@@ -136,6 +137,16 @@ async function callLLM(opts: LLMCallOptions): Promise<string> {
     const signal = controller.signal;
 
     try {
+
+    if (key) {
+        const prompt = messages.map(message => message.content).join('\n\n');
+        return await generateTextWithProvider(prompt, model, key, {
+            systemPrompt,
+            temperature: 0.7,
+            maxTokens: 512,
+            signal,
+        });
+    }
 
     if (provider === 'anthropic') {
         const response = await fetch(`${baseUrl}/messages`, {
@@ -327,6 +338,7 @@ export class AgentOrchestrator {
                             apiKey: key.key,
                             baseUrl,
                             provider,
+                            key,
                             signal: this.abortController?.signal,
                         });
 

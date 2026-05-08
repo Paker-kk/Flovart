@@ -38,7 +38,7 @@ import { appendHistorySnapshot } from './utils/historyState';
 import termsRaw from './TERMS_OF_SERVICE.md?raw';
 import privacyRaw from './PRIVACY_POLICY.md?raw';
 import { generateId, getElementBounds, isPointInPolygon, rasterizeElement, rasterizeElements, rasterizeMask, createNewBoard, THEME_PALETTES, SNAP_THRESHOLD, type Rect, type Guide } from './utils/canvasHelpers';
-import { useApiKeys, DEFAULT_MODEL_PREFS, normalizeApiKeyEntry, buildAgentRuntimeSummary } from './hooks/useApiKeys';
+import { useApiKeys, DEFAULT_MODEL_PREFS, normalizeApiKeyEntry } from './hooks/useApiKeys';
 import { useCanvasInteraction } from './hooks/useCanvasInteraction';
 import { useGeneration } from './hooks/useGeneration';
 import { useToast } from './hooks/useToast';
@@ -515,13 +515,8 @@ const App: React.FC = () => {
         activeUserKeyId, activeUserModelId, setActiveUserModelId, handleUserKeyChange,
         dynamicModelOptions, usageSummaryMap, getPreferredApiKey,
         handleAddApiKey, handleDeleteApiKey, handleUpdateApiKey, handleSetDefaultApiKey,
-        modelAutoSwitchNotice, agentWarning,
+        modelAutoSwitchNotice,
     } = useApiKeys(isSettingsPanelOpen);
-
-    const agentRuntimeSummary = useMemo(() => buildAgentRuntimeSummary({
-        textModel: modelPreference.textModel,
-        keys: userApiKeys,
-    }), [modelPreference.textModel, userApiKeys]);
 
     useEffect(() => {
         if (!boards.length) return;
@@ -1747,6 +1742,16 @@ const App: React.FC = () => {
         return () => svg.removeEventListener('wheel', onWheel);
     }, [handleWheel]);
 
+    useEffect(() => {
+        const endCanvasInteraction = () => handleMouseUp();
+        window.addEventListener('mouseup', endCanvasInteraction);
+        window.addEventListener('blur', endCanvasInteraction);
+        return () => {
+            window.removeEventListener('mouseup', endCanvasInteraction);
+            window.removeEventListener('blur', endCanvasInteraction);
+        };
+    }, [handleMouseUp]);
+
     // ── Phase 2: Expose runtime API for AI Agent control ──
     useEffect(() => {
         const normalizeApiElement = (partial: Partial<Element>): Element => {
@@ -2370,21 +2375,7 @@ const App: React.FC = () => {
                 onRemove={(cat, id) => setAssetLibrary(prev => removeAsset(prev, cat, id))}
                 onRename={(cat, id, name) => setAssetLibrary(prev => renameAsset(prev, cat, id, name))}
                 onWidthChange={setRightPanelWidth}
-                textModel={modelPreference.textModel}
-                getApiKeyForModel={(model: string) => {
-                    const provider = inferProviderFromModel(model);
-                    return getPreferredApiKey('text', provider);
-                }}
-                onAgentFinalPrompt={(finalPrompt: string) => {
-                    setPrompt(finalPrompt);
-                }}
-                onAgentGenerateImage={(finalPrompt: string) => {
-                    handleGenerate(finalPrompt, 'agent');
-                }}
                 onReversePrompt={handleReversePrompt}
-                agentWarning={agentWarning}
-                discussionSupported={agentRuntimeSummary.discussionSupported}
-                onOpenSettings={() => setIsSettingsPanelOpen(true)}
             />
             </Suspense>
             ) : null}

@@ -2,6 +2,7 @@ import type { AICapability, AIProvider, PromptEnhanceRequest, PromptEnhanceResul
 import { editImage, enhancePromptWithGemini, generateImageFromText, generateVideo, validateGeminiApiKey, getGeminiRestBaseUrl } from './geminiService';
 import { fetchModelsForProvider, type FetchModelsResult } from './modelFetcher';
 import { normalizeProviderBaseUrl } from './baseUrl';
+import { splitImageByBanana, runBananaImageAgent, type BananaAgentTask, type BananaAgentResult, type BananaImageInput, type BananaSplitLayer } from './bananaService';
 
 type ImageInput = { href: string; mimeType: string };
 
@@ -89,6 +90,8 @@ export interface ApiKeyValidationResult {
     effectiveBaseUrl?: string;
 }
 
+type CustomProviderExtraConfig = Record<string, string> | undefined;
+
 type VideoAspectRatio = '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';
 
 /**
@@ -118,8 +121,24 @@ export function getSupportedRatios(model: string, key?: UserApiKey): VideoAspect
 /**
  * 通用 API Key 验证 — 根据 provider 调用对应的验证逻辑
  */
-export async function validateApiKey(provider: AIProvider, apiKey: string, baseUrl?: string): Promise<ApiKeyValidationResult> {
+export async function validateApiKey(provider: AIProvider, apiKey: string, baseUrl?: string, extraConfig?: CustomProviderExtraConfig): Promise<ApiKeyValidationResult> {
     const normalizedInputBaseUrl = baseUrl ? normalizeProviderBaseUrl(provider, baseUrl) : undefined;
+
+    if (provider === 'custom' && extraConfig?.requestFormat === 'anthropic') {
+        try {
+            const url = normalizeProviderBaseUrl(provider, baseUrl || '').replace(/\/$/, '');
+            const res = await fetch(`${url}/messages`, {
+                method: 'POST',
+                headers: buildProviderHeaders(apiKey, { id: 'validation', provider, capabilities: ['text'], key: apiKey, extraConfig, createdAt: 0, updatedAt: 0 }, { anthropic: true }),
+                body: JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
+            });
+            if (res.ok || res.status === 200) return { ok: true, capabilitySummary: ['text'], effectiveBaseUrl: url };
+            if (res.status === 401 || res.status === 403) return { ok: false, message: 'API Key 无效或权限不足' };
+            return { ok: true, capabilitySummary: ['text'], effectiveBaseUrl: url };
+        } catch (err) {
+            return { ok: false, message: err instanceof Error ? err.message : '网络错误' };
+        }
+    }
 
     if (provider === 'google') {
         const result = await fetchModelsForProvider(provider, apiKey, baseUrl);
@@ -282,6 +301,44 @@ function requireApiKey(provider: AIProvider, key?: UserApiKey) {
     return key.key;
 }
 
+function parseModelMappings(config: CustomProviderExtraConfig): Record<string, string> {
+    const raw = config?.modelMappingsJson;
+    if (!raw) return {};
+    try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function mapProviderModel(model: string, key?: UserApiKey): string {
+    if (key?.provider !== 'custom') return model;
+    return parseModelMappings(key.extraConfig)[model] || model;
+}
+
+function buildProviderHeaders(
+    apiKey: string,
+    key?: UserApiKey,
+    options: { contentType?: boolean; anthropic?: boolean } = { contentType: true },
+): Record<string, string> {
+    const headers: Record<string, string> = {};
+    if (options.contentType !== false) headers['Content-Type'] = 'application/json';
+
+    const headerName = key?.provider === 'custom' ? key.extraConfig?.authHeaderName || 'Authorization' : 'Authorization';
+    const authScheme = key?.provider === 'custom' ? key.extraConfig?.authScheme : 'Bearer';
+    headers[headerName] = authScheme === '' ? apiKey : `${authScheme || 'Bearer'} ${apiKey}`;
+
+    if (options.anthropic) {
+        headers['anthropic-version'] = '2023-06-01';
+    }
+    return headers;
+}
+
+function usesAnthropicRequestFormat(key?: UserApiKey): boolean {
+    return key?.provider === 'custom' && key.extraConfig?.requestFormat === 'anthropic';
+}
+
 function normalizeModelName(model: string): string {
     return model.trim().toLowerCase();
 }
@@ -301,6 +358,86 @@ export function inferCapabilityFromModel(model: string): AICapability | undefine
     if (/^gemini/.test(normalized)) return normalized.includes('image') ? 'image' : 'text';
     if (/^(gpt|o\d|claude|qwen|deepseek|llama|command|mistral|doubao|abab|minimax)/.test(normalized)) return 'text';
     return undefined;
+}
+
+function parseTextResponseContent(json: any): string {
+    const anthropicContent = Array.isArray(json?.content)
+        ? json.content.map((item: { text?: string }) => item.text || '').join('\n').trim()
+        : '';
+    if (anthropicContent) return anthropicContent;
+
+    const openAIContent = json?.choices?.[0]?.message?.content;
+    if (typeof openAIContent === 'string') return openAIContent.trim();
+
+    if (typeof json?.text === 'string') return json.text.trim();
+    return '';
+}
+
+export async function generateTextWithProvider(
+    prompt: string,
+    model: string,
+    key?: UserApiKey,
+    options?: {
+        systemPrompt?: string;
+        temperature?: number;
+        maxTokens?: number;
+        signal?: AbortSignal;
+    },
+): Promise<string> {
+    const provider = resolveGenerationProvider(model, key);
+    const apiKey = requireApiKey(provider, key);
+    const baseUrl = getBaseUrl(provider, key);
+    const mappedModel = mapProviderModel(model, key);
+
+    if (provider === 'google') {
+        const googleBase = key?.baseUrl ? normalizeProviderBaseUrl('google', key.baseUrl) : getGeminiRestBaseUrl();
+        const response = await fetch(`${googleBase}/models/${encodeURIComponent(mappedModel)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: options?.signal,
+            body: JSON.stringify({
+                systemInstruction: options?.systemPrompt ? { parts: [{ text: options.systemPrompt }] } : undefined,
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: { temperature: options?.temperature ?? 0.7, maxOutputTokens: options?.maxTokens ?? 4096 },
+            }),
+        });
+        if (!response.ok) throw new Error(await readErrorResponse(response, 'Google LLM 请求失败'));
+        const json = await readJsonResponse<any>(response, 'Google LLM 响应');
+        return json?.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || '').join('\n').trim() || '';
+    }
+
+    if (provider === 'anthropic' || usesAnthropicRequestFormat(key)) {
+        const response = await fetch(`${baseUrl}/messages`, {
+            method: 'POST',
+            headers: buildProviderHeaders(apiKey, key, { anthropic: true }),
+            signal: options?.signal,
+            body: JSON.stringify({
+                model: mappedModel,
+                max_tokens: options?.maxTokens ?? 4096,
+                system: options?.systemPrompt,
+                messages: [{ role: 'user', content: prompt }],
+            }),
+        });
+        if (!response.ok) throw new Error(await readErrorResponse(response, 'Anthropic LLM 请求失败'));
+        return parseTextResponseContent(await readJsonResponse<any>(response, 'Anthropic LLM 响应'));
+    }
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: provider === 'openrouter' ? buildOpenRouterHeaders(apiKey) : buildProviderHeaders(apiKey, key),
+        signal: options?.signal,
+        body: JSON.stringify({
+            model: mappedModel,
+            temperature: options?.temperature ?? 0.7,
+            max_tokens: options?.maxTokens ?? 4096,
+            messages: [
+                ...(options?.systemPrompt ? [{ role: 'system', content: options.systemPrompt }] : []),
+                { role: 'user', content: prompt },
+            ],
+        }),
+    });
+    if (!response.ok) throw new Error(await readErrorResponse(response, `${PROVIDER_LABELS[provider] || provider} LLM 请求失败`));
+    return parseTextResponseContent(await readJsonResponse<any>(response, `${PROVIDER_LABELS[provider] || provider} LLM 响应`));
 }
 
 export function isGoogleImageEditModel(model: string): boolean {
@@ -451,12 +588,15 @@ function looksLikeHtmlResponse(text: string) {
 }
 
 async function readJsonResponse<T>(response: Response, requestLabel: string): Promise<T> {
-    const contentLength = Number(response.headers.get('content-length') || 0);
+    const contentLength = Number(response.headers?.get?.('content-length') || 0);
     if (contentLength > 50 * 1024 * 1024) {
         throw new Error(`${requestLabel} 响应体过大 (${(contentLength / 1024 / 1024).toFixed(1)} MB)，已跳过解析。`);
     }
     const text = await response.text().catch(() => '');
-    if (!text) return {} as T;
+    if (!text) {
+        const json = await response.json?.().catch(() => undefined);
+        return (json ?? {}) as T;
+    }
 
     if (looksLikeHtmlResponse(text)) {
         throw new Error(`${requestLabel} 返回了 HTML 页面，请检查 Base URL 是否指向 API 接口而不是网站首页。`);
@@ -465,7 +605,7 @@ async function readJsonResponse<T>(response: Response, requestLabel: string): Pr
     try {
         return JSON.parse(text) as T;
     } catch {
-        const contentType = response.headers.get('Content-Type') || 'unknown';
+        const contentType = response.headers?.get?.('Content-Type') || 'unknown';
         throw new Error(`${requestLabel} 返回了非 JSON 响应 (${contentType})：${truncateResponseSnippet(text)}`);
     }
 }
@@ -928,12 +1068,40 @@ export async function reversePromptWithProvider(
         return (json?.content || []).map((b: { text?: string }) => b.text || '').join('\n').trim();
     }
 
+    if (usesAnthropicRequestFormat(key)) {
+        const apiKey = requireApiKey(provider, key);
+        const baseUrl = getBaseUrl(provider, key);
+        const base64Data = imageHref.includes(',') ? imageHref.split(',')[1] : imageHref;
+        const mediaType = mimeType || 'image/png';
+        const response = await fetch(`${baseUrl}/messages`, {
+            method: 'POST',
+            headers: buildProviderHeaders(apiKey, key, { anthropic: true }),
+            body: JSON.stringify({
+                model: mapProviderModel(model, key),
+                max_tokens: 1024,
+                messages: [{
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: instruction },
+                        { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+                    ],
+                }],
+            }),
+        });
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(`Anthropic Vision 请求失败 (${response.status}): ${text || response.statusText}`);
+        }
+        const json = await response.json();
+        return (json?.content || []).map((b: { text?: string }) => b.text || '').join('\n').trim();
+    }
+
     // OpenAI / OpenRouter / Custom / DeepSeek / Qwen / etc. (OpenAI-compatible vision)
     const apiKey = requireApiKey(provider, key);
     const baseUrl = getBaseUrl(provider, key);
     const headers: Record<string, string> = provider === 'openrouter'
         ? buildOpenRouterHeaders(apiKey)
-        : { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` };
+        : buildProviderHeaders(apiKey, key);
 
     const imageContent = imageHref.startsWith('data:')
         ? { type: 'image_url' as const, image_url: { url: imageHref } }
@@ -943,7 +1111,7 @@ export async function reversePromptWithProvider(
         method: 'POST',
         headers,
         body: JSON.stringify({
-            model: model || 'gpt-5.4-mini',
+            model: mapProviderModel(model || 'gpt-5.4-mini', key),
             max_tokens: 1024,
             messages: [{
                 role: 'user',
@@ -1091,7 +1259,7 @@ export async function reversePromptStreamWithProvider(
     const baseUrl = getBaseUrl(provider, key);
     const headers: Record<string, string> = provider === 'openrouter'
         ? buildOpenRouterHeaders(apiKey)
-        : { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` };
+        : buildProviderHeaders(apiKey, key);
 
     const imageContent = imageHref.startsWith('data:')
         ? { type: 'image_url' as const, image_url: { url: imageHref } }
@@ -1102,7 +1270,7 @@ export async function reversePromptStreamWithProvider(
         headers,
         signal,
         body: JSON.stringify({
-            model: model || 'gpt-5.4-mini',
+            model: mapProviderModel(model || 'gpt-5.4-mini', key),
             max_tokens: 1024,
             stream: true,
             messages: [{
@@ -1198,6 +1366,7 @@ export async function generateImageWithProvider(
     if (provider === 'openai' || provider === 'custom') {
         const apiKey = requireApiKey(provider, key);
         const baseUrl = getBaseUrl(provider, key);
+        const mappedModel = mapProviderModel(model, key);
 
         // 先尝试标准 /images/generations 端点
         // custom provider 请求 url 格式（代理/聚合端点对大图片 b64_json 响应可能断连），
@@ -1206,12 +1375,9 @@ export async function generateImageWithProvider(
         try {
             const response = await fetch(`${baseUrl}/images/generations`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${apiKey}`,
-                },
+                headers: buildProviderHeaders(apiKey, key),
                 body: JSON.stringify({
-                    model,
+                    model: mappedModel,
                     prompt,
                     size: '1024x1024',
                     response_format: preferredFormat,
@@ -1237,12 +1403,9 @@ export async function generateImageWithProvider(
         if (provider === 'custom') {
             const chatResponse = await fetch(`${baseUrl}/chat/completions`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${apiKey}`,
-                },
+                headers: buildProviderHeaders(apiKey, key),
                 body: JSON.stringify({
-                    model,
+                    model: mappedModel,
                     messages: [{ role: 'user', content: prompt }],
                     stream: false,
                 }),
@@ -1334,8 +1497,9 @@ export async function editImageWithProvider(
 
         const apiKey = requireApiKey(provider, key);
         const baseUrl = getBaseUrl(provider, key);
+        const mappedModel = mapProviderModel(model, key);
         const formData = new FormData();
-        formData.append('model', model);
+        formData.append('model', mappedModel);
         formData.append('prompt', prompt);
         formData.append('response_format', provider === 'custom' ? 'url' : 'b64_json');
 
@@ -1361,9 +1525,7 @@ export async function editImageWithProvider(
         try {
             const response = await fetch(`${baseUrl}/images/edits`, {
                 method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${apiKey}`,
-                },
+                headers: buildProviderHeaders(apiKey, key, { contentType: false }),
                 body: formData,
             });
 
@@ -1392,12 +1554,9 @@ export async function editImageWithProvider(
 
             const chatResponse = await fetch(`${baseUrl}/chat/completions`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${apiKey}`,
-                },
+                headers: buildProviderHeaders(apiKey, key),
                 body: JSON.stringify({
-                    model,
+                    model: mappedModel,
                     messages: [{ role: 'user', content }],
                     stream: false,
                 }),
@@ -1633,6 +1792,98 @@ export async function generateVideoWithProvider(
         `当前暂不支持使用 ${PROVIDER_LABELS[provider] || provider} 进行视频生成。` +
         `请切换到 Google Veo、MiniMax video-01 或 Keling 视频模型。`
     );
+}
+
+function getAgentBaseUrl(provider: AIProvider, key?: UserApiKey): string {
+    return getBaseUrl(provider, key).replace(/\/$/, '');
+}
+
+function dataUrlFromMaybeBase64(value: unknown, mimeType: string): string | null {
+    if (typeof value !== 'string' || !value) return null;
+    return value.startsWith('data:') ? value : `data:${mimeType};base64,${value}`;
+}
+
+export async function splitImageLayersWithProvider(
+    image: BananaImageInput,
+    model: string,
+    key?: UserApiKey,
+): Promise<BananaSplitLayer[]> {
+    const provider = resolveGenerationProvider(model, key);
+    if (provider === 'banana') {
+        return splitImageByBanana(image);
+    }
+    if (provider !== 'custom') {
+        throw new Error(`当前暂不支持使用 ${PROVIDER_LABELS[provider] || provider} 进行图层拆分。`);
+    }
+
+    const apiKey = requireApiKey(provider, key);
+    const base64Payload = image.href.includes(',') ? image.href.split(',')[1] : image.href;
+    const response = await fetch(`${getAgentBaseUrl(provider, key)}/split-layers`, {
+        method: 'POST',
+        headers: buildProviderHeaders(apiKey, key),
+        body: JSON.stringify({
+            model: mapProviderModel(model, key),
+            task: 'layer-segmentation',
+            image: { data: base64Payload, mimeType: image.mimeType },
+        }),
+    });
+    if (!response.ok) throw new Error(await readErrorResponse(response, '图层拆分请求失败'));
+    const json = await readJsonResponse<any>(response, '图层拆分响应');
+    const rawLayers = (json.layers || json.results || json.data || []) as Array<Record<string, any>>;
+    return rawLayers.map((layer, index) => {
+        const mimeType = layer.mimeType || layer.mime_type || image.mimeType || 'image/png';
+        const dataUrl = dataUrlFromMaybeBase64(layer.imageBase64 || layer.base64 || layer.image_data || layer.dataUrl || layer.image_url, mimeType);
+        if (!dataUrl) return null;
+        return {
+            name: layer.name || layer.label || `Layer ${index + 1}`,
+            dataUrl,
+            width: Number(layer.width || layer.bbox?.width || layer.box?.width || layer.bounds?.width || 0),
+            height: Number(layer.height || layer.bbox?.height || layer.box?.height || layer.bounds?.height || 0),
+            offsetX: Number(layer.x || layer.bbox?.x || layer.box?.x || layer.bounds?.x || 0),
+            offsetY: Number(layer.y || layer.bbox?.y || layer.box?.y || layer.bounds?.y || 0),
+        };
+    }).filter((layer): layer is BananaSplitLayer => !!layer);
+}
+
+export async function runImageAgentWithProvider(
+    image: BananaImageInput,
+    task: BananaAgentTask,
+    model: string,
+    key?: UserApiKey,
+    options?: Record<string, unknown>,
+): Promise<BananaAgentResult> {
+    const provider = resolveGenerationProvider(model, key);
+    if (provider === 'banana') {
+        return runBananaImageAgent(image, task, options);
+    }
+    if (provider !== 'custom') {
+        throw new Error(`当前暂不支持使用 ${PROVIDER_LABELS[provider] || provider} 运行图片代理任务。`);
+    }
+
+    const apiKey = requireApiKey(provider, key);
+    const base64Payload = image.href.includes(',') ? image.href.split(',')[1] : image.href;
+    const response = await fetch(`${getAgentBaseUrl(provider, key)}/agent`, {
+        method: 'POST',
+        headers: buildProviderHeaders(apiKey, key),
+        body: JSON.stringify({
+            model: mapProviderModel(model, key),
+            task,
+            image: { data: base64Payload, mimeType: image.mimeType },
+            options: options || {},
+        }),
+    });
+    if (!response.ok) throw new Error(await readErrorResponse(response, '图片代理请求失败'));
+    const json = await readJsonResponse<any>(response, '图片代理响应');
+    const raw = json.result || json.image || json.data || json;
+    const mimeType = raw.mimeType || raw.mime_type || image.mimeType || 'image/png';
+    const dataUrl = dataUrlFromMaybeBase64(raw.imageBase64 || raw.base64 || raw.image_data || raw.dataUrl || raw.image_url, mimeType);
+    if (!dataUrl) throw new Error('图片代理未返回可用图片数据。');
+    return {
+        dataUrl,
+        mimeType,
+        width: Number(raw.width || 0),
+        height: Number(raw.height || 0),
+    };
 }
 
 /**
