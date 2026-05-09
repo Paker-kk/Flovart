@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { planFlovartInput, createLine, formatValue, QUICK_COMMANDS, HELP_TEXT, SETUP_TEXT, createFlovartSession } from '../tools/flovart/core.js';
 
 interface FlovartCliPanelProps {
     theme: 'light' | 'dark';
@@ -25,56 +26,7 @@ const STARTER_LINES: CliLine[] = [
     },
 ];
 
-const QUICK_COMMANDS = [
-    'status',
-    'canvas.list',
-    'canvas.add-text FlovartCli ready',
-    'canvas.add-shape',
-    'generate.image cinematic AI canvas control room',
-    'jobs.list',
-];
-
-const HELP_TEXT = [
-    'Available commands:',
-    'help                         Show this help',
-    'status                       Inspect window.__flovartAPI',
-    'session.create [name]         Create a runtime session',
-    'canvas.list                  List current canvas elements',
-    'canvas.add-text <text>        Add a text element to canvas',
-    'canvas.add-shape              Add a rectangle test element',
-    'canvas.clear                 Clear canvas elements',
-    'generate.image <prompt>       Trigger image generation',
-    'jobs.list                    List runtime jobs',
-    'setup                       Show external CLI setup commands',
-].join('\n');
-
-const SETUP_TEXT = [
-    'External CLI setup:',
-    '1. npm run dev',
-    '2. chrome --remote-debugging-port=9222',
-    '3. node skills/flovart/scripts/flovart-client.js canvas.getElements',
-    '4. node skills/flovart/scripts/flovart-client.js canvas.addElement "{\"type\":\"text\",\"text\":\"Hello from CLI\"}"',
-].join('\n');
-
-const makeLine = (kind: CliLineKind, content: string, meta?: string): CliLine => ({
-    id: `${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    kind,
-    content,
-    meta,
-    timestamp: Date.now(),
-});
-
 const getRuntimeApi = () => (window as any).__flovartAPI;
-
-const formatValue = (value: unknown) => {
-    if (typeof value === 'string') return value;
-    try {
-        const json = JSON.stringify(value, null, 2);
-        return json.length > 2200 ? `${json.slice(0, 2200)}\n...truncated` : json;
-    } catch {
-        return String(value);
-    }
-};
 
 export const FlovartCliPanel: React.FC<FlovartCliPanelProps> = ({ theme, compactMode }) => {
     const isDark = theme === 'dark';
@@ -83,7 +35,7 @@ export const FlovartCliPanel: React.FC<FlovartCliPanelProps> = ({ theme, compact
     const [isRunning, setIsRunning] = useState(false);
     const [history, setHistory] = useState<string[]>([]);
     const [historyIndex, setHistoryIndex] = useState<number | null>(null);
-    const [sessionId, setSessionId] = useState<string | null>(null);
+    const [session, setSession] = useState(() => createFlovartSession({ isDark }));
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -104,104 +56,24 @@ export const FlovartCliPanel: React.FC<FlovartCliPanelProps> = ({ theme, compact
         setLines(prev => [...prev, line]);
     }, []);
 
-    const runRuntimeCommand = useCallback(async (command: string) => {
+    const runCommand = useCallback(async (command: string) => {
         const api = getRuntimeApi();
-        const trimmed = command.trim();
-        const [head, ...rest] = trimmed.split(/\s+/);
-        const tail = rest.join(' ').trim();
+        const plan = planFlovartInput(command, session);
+        if (!plan) return;
 
-        if (!head) return;
-        if (head === 'help' || head === '/help') {
-            pushLine(makeLine('output', HELP_TEXT));
-            return;
-        }
-        if (head === 'setup') {
-            pushLine(makeLine('output', SETUP_TEXT));
-            return;
-        }
-        if (!api) {
-            pushLine(makeLine('error', 'Runtime unavailable. Open Flovart canvas in this page first.'));
+        if (!api && !/^help|setup$/i.test(command.trim())) {
+            pushLine(createLine('error', 'Runtime unavailable. Open Flovart canvas in this page first.'));
             return;
         }
 
-        switch (head) {
-            case 'status': {
-                const elements = api.canvas?.getElements?.() || [];
-                const jobs = api.command?.list?.() || [];
-                pushLine(makeLine('output', formatValue({
-                    runtime: api._version || 'unknown',
-                    sessionId,
-                    elements: elements.length,
-                    jobs: jobs.length,
-                    providers: api.config?.getProviders?.() || [],
-                })));
-                return;
-            }
-            case 'session.create': {
-                const created = api.session?.create?.(tail || 'flovart-cli');
-                setSessionId(created?.sessionId || null);
-                pushLine(makeLine('tool', formatValue(created), 'session.create'));
-                return;
-            }
-            case 'canvas.list': {
-                const elements = api.canvas?.getElements?.() || [];
-                pushLine(makeLine('tool', formatValue(elements), 'canvas.getElements'));
-                return;
-            }
-            case 'canvas.add-text': {
-                const text = tail || 'FlovartCli ready';
-                const id = api.canvas?.addElement?.({
-                    type: 'text',
-                    text,
-                    x: 120,
-                    y: 120,
-                    width: 280,
-                    height: 96,
-                    fontSize: 28,
-                    fontColor: isDark ? '#F3F4F6' : '#111827',
-                });
-                pushLine(makeLine('tool', formatValue({ id, text }), 'canvas.addElement'));
-                return;
-            }
-            case 'canvas.add-shape': {
-                const id = api.canvas?.addElement?.({
-                    type: 'shape',
-                    x: 160,
-                    y: 160,
-                    width: 220,
-                    height: 140,
-                    shapeType: 'rectangle',
-                    fillColor: '#2563EB',
-                    strokeColor: '#93C5FD',
-                    strokeWidth: 2,
-                    borderRadius: 20,
-                });
-                pushLine(makeLine('tool', formatValue({ id }), 'canvas.addElement'));
-                return;
-            }
-            case 'canvas.clear': {
-                api.canvas?.clear?.();
-                pushLine(makeLine('tool', formatValue({ ok: true }), 'canvas.clear'));
-                return;
-            }
-            case 'generate.image': {
-                if (!tail) {
-                    pushLine(makeLine('error', 'Usage: generate.image <prompt>'));
-                    return;
-                }
-                const result = await api.generate?.image?.(tail, 'agent');
-                pushLine(makeLine('tool', formatValue(result || { ok: true, prompt: tail }), 'generate.image'));
-                return;
-            }
-            case 'jobs.list': {
-                const jobs = api.command?.list?.() || [];
-                pushLine(makeLine('tool', formatValue(jobs), 'command.list'));
-                return;
-            }
-            default:
-                pushLine(makeLine('error', `Unknown command: ${head}. Type help.`));
+        const ctx = { sessionId: session.id, isDark };
+        pushLine(createLine('output', `Plan:\n${plan.steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}`));
+        const result = await plan.run({ runtime: api || {}, emit: (kind, content, meta) => pushLine(createLine(kind, content, meta)), ctx });
+        if (ctx.sessionId !== session.id || session.isDark !== isDark) {
+            setSession({ ...session, id: ctx.sessionId || session.id, isDark });
         }
-    }, [HELP_TEXT, SETUP_TEXT, isDark, pushLine, sessionId]);
+        pushLine(createLine('output', formatValue(result)));
+    }, [isDark, pushLine, session]);
 
     const submitCommand = useCallback(async (commandOverride?: string) => {
         const command = (commandOverride ?? input).trim();
@@ -209,16 +81,16 @@ export const FlovartCliPanel: React.FC<FlovartCliPanelProps> = ({ theme, compact
         setInput('');
         setHistory(prev => [...prev, command]);
         setHistoryIndex(null);
-        pushLine(makeLine('input', command, sessionId ? `session ${sessionId.slice(0, 8)}` : undefined));
-        setIsRunning(true);
-        try {
-            await runRuntimeCommand(command);
-        } catch (error) {
-            pushLine(makeLine('error', error instanceof Error ? error.message : String(error)));
-        } finally {
-            setIsRunning(false);
-        }
-    }, [input, isRunning, pushLine, runRuntimeCommand, sessionId]);
+            pushLine(createLine('input', command, session.id ? `session ${session.id.slice(0, 8)}` : undefined));
+            setIsRunning(true);
+            try {
+            await runCommand(command);
+            } catch (error) {
+            pushLine(createLine('error', error instanceof Error ? error.message : String(error)));
+            } finally {
+                setIsRunning(false);
+            }
+    }, [input, isRunning, pushLine, runCommand, session]);
 
     const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
         if (event.key === 'Enter') {

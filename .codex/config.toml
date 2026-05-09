@@ -1,0 +1,3 @@
+[mcp_servers.flovart]
+command = "node"
+args = ["tools/flovart/mcp-server.js"]
