@@ -168,6 +168,9 @@ export function useNodeWorkflowStore() {
   const hydratedPinnedUrlsRef = useRef<Set<string>>(new Set());
 
   const nodeMap = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node])), [graph.nodes]);
+  const [gridSnapEnabled, setGridSnapEnabled] = useState(true);
+
+  const snap = (position: XYPosition) => (gridSnapEnabled ? snapPosition(position) : position);
 
   const canUndo = historyPastRef.current.length > 0;
   const canRedo = historyFutureRef.current.length > 0;
@@ -261,9 +264,9 @@ export function useNodeWorkflowStore() {
     );
   };
 
-  const addNode = (kind: NodeKind, worldPosition: XYPosition) => {
-    const position = snapPosition(worldPosition);
-    const created: WorkflowNode = { id: makeId(kind), kind, x: position.x, y: position.y };
+  const addNode = (kind: NodeKind, worldPosition: XYPosition, config?: WorkflowNode['config']) => {
+    const position = snap(worldPosition);
+    const created: WorkflowNode = { id: makeId(kind), kind, x: position.x, y: position.y, ...(config ? { config } : {}) };
     commitGraph((prev) => ({ ...prev, nodes: [...prev.nodes, created] }), true);
     setSelectedNodeIds([created.id]);
     setSelectedGroupId(null);
@@ -275,7 +278,7 @@ export function useNodeWorkflowStore() {
     worldPosition: XYPosition,
     connection: PendingConnection,
   ) => {
-    const position = snapPosition(worldPosition);
+    const position = snap(worldPosition);
     const created: WorkflowNode = { id: makeId(kind), kind, x: position.x, y: position.y };
     const targetPort = NODE_DEFS[kind].inputs.find((port) => {
       const source = graph.nodes.find((node) => node.id === connection.fromNode);
@@ -417,7 +420,7 @@ export function useNodeWorkflowStore() {
           const origin = ds.origin[node.id];
           return {
             ...node,
-            ...snapPosition({ x: origin.x + dx, y: origin.y + dy }),
+            ...snap({ x: origin.x + dx, y: origin.y + dy }),
           };
         });
         return {
@@ -603,8 +606,8 @@ export function useNodeWorkflowStore() {
       return {
         ...node,
         id,
-        x: snapPosition({ x: node.x + offset.x, y: node.y + offset.y }).x,
-        y: snapPosition({ x: node.x + offset.x, y: node.y + offset.y }).y,
+        x: snap({ x: node.x + offset.x, y: node.y + offset.y }).x,
+        y: snap({ x: node.x + offset.x, y: node.y + offset.y }).y,
       };
     });
 
@@ -663,12 +666,12 @@ export function useNodeWorkflowStore() {
         if (!idSet.has(node.id)) return node;
         const width = NODE_DEFS[node.kind].width;
         const height = NODE_DEFS[node.kind].height;
-        if (mode === 'left') return { ...node, x: snapPosition({ x: left, y: node.y }).x };
-        if (mode === 'center') return { ...node, x: snapPosition({ x: center - width / 2, y: node.y }).x };
-        if (mode === 'right') return { ...node, x: snapPosition({ x: right - width, y: node.y }).x };
-        if (mode === 'top') return { ...node, y: snapPosition({ x: node.x, y: top }).y };
-        if (mode === 'middle') return { ...node, y: snapPosition({ x: node.x, y: middle - height / 2 }).y };
-        return { ...node, y: snapPosition({ x: node.x, y: bottom - height }).y };
+        if (mode === 'left') return { ...node, x: snap({ x: left, y: node.y }).x };
+        if (mode === 'center') return { ...node, x: snap({ x: center - width / 2, y: node.y }).x };
+        if (mode === 'right') return { ...node, x: snap({ x: right - width, y: node.y }).x };
+        if (mode === 'top') return { ...node, y: snap({ x: node.x, y: top }).y };
+        if (mode === 'middle') return { ...node, y: snap({ x: node.x, y: middle - height / 2 }).y };
+        return { ...node, y: snap({ x: node.x, y: bottom - height }).y };
       });
       return {
         ...prev,
@@ -697,7 +700,7 @@ export function useNodeWorkflowStore() {
         const nextNodes = prev.nodes.map((node) => {
           const tx = targetX.get(node.id);
           if (tx == null) return node;
-          return { ...node, x: snapPosition({ x: tx, y: node.y }).x };
+          return { ...node, x: snap({ x: tx, y: node.y }).x };
         });
         return { ...prev, nodes: nextNodes, groups: updateGroupsWithNodes(prev.groups, nextNodes) };
       });
@@ -716,7 +719,7 @@ export function useNodeWorkflowStore() {
       const nextNodes = prev.nodes.map((node) => {
         const ty = targetY.get(node.id);
         if (ty == null) return node;
-        return { ...node, y: snapPosition({ x: node.x, y: ty }).y };
+        return { ...node, y: snap({ x: node.x, y: ty }).y };
       });
       return { ...prev, nodes: nextNodes, groups: updateGroupsWithNodes(prev.groups, nextNodes) };
     });
@@ -776,7 +779,7 @@ export function useNodeWorkflowStore() {
         nodes
           .sort((a, b) => (nodeOrder.get(a.id) ?? 0) - (nodeOrder.get(b.id) ?? 0))
           .forEach((node, index) => {
-            arranged.set(node.id, snapPosition({
+            arranged.set(node.id, snap({
               x: origin.x + layer * columnGap,
               y: origin.y + index * rowGap,
             }));
@@ -869,10 +872,12 @@ export function useNodeWorkflowStore() {
     selectionBox,
     activeNodeId,
     nodeMap,
+    gridSnapEnabled,
     canUndo,
     canRedo,
     canPaste,
     setViewport,
+    setGridSnapEnabled,
     setActiveNodeId,
     addNode,
     addNodeFromConnection,

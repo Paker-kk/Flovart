@@ -603,6 +603,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const connectionMenuRef = useRef<HTMLDivElement>(null);
   const connectionMenuOpenRef = useRef(false);
+  const importWorkflowInputRef = useRef<HTMLInputElement>(null);
   const store = useNodeWorkflowStore();
 
   const [isExecuting, setIsExecuting] = useState(false);
@@ -624,6 +625,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
   const [assetPanelFilter, setAssetPanelFilter] = useState<AssetPanelFilter>('all');
   const [showMiniMap, setShowMiniMap] = useState(false);
   const [showInspector, setShowInspector] = useState(false);
+  const [isSpacePanning, setIsSpacePanning] = useState(false);
   const [savedWorkflows, setSavedWorkflows] = useState<SavedWorkflow[]>(() => loadSavedWorkflows());
   const [workflowTitle, setWorkflowTitle] = useState('Untitled Flow');
   const [activeTraceMeta, setActiveTraceMeta] = useState<{ sessionId: string; jobId: string; eventCount: number } | null>(null);
@@ -1985,6 +1987,32 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
     }
   };
 
+  const createSourceNodesFromFiles = async (files: FileList | File[], world: { x: number; y: number }) => {
+    const mediaFiles = Array.from(files).filter(file => file.type.startsWith('image/') || file.type.startsWith('video/'));
+    if (mediaFiles.length === 0) return false;
+
+    for (const [index, file] of mediaFiles.entries()) {
+      const isVideo = file.type.startsWith('video/');
+      const href = await readFileAsDataUrl(file);
+      const mediaMeta = isVideo ? await readVideoMetadata(href) : await readImageDimensions(href);
+      store.addNode(isVideo ? 'loadVideo' : 'loadImage', {
+        x: world.x + index * 320,
+        y: world.y + (index % 2) * 180,
+      }, {
+        label: file.name || (isVideo ? 'Video Input' : 'Image Input'),
+        mediaKind: isVideo ? 'video' : 'image',
+        mediaHref: href,
+        mediaMimeType: file.type || (isVideo ? 'video/mp4' : 'image/png'),
+        mediaName: file.name,
+        mediaWidth: mediaMeta.width,
+        mediaHeight: mediaMeta.height,
+        mediaDurationSec: isVideo ? mediaMeta.durationSec : undefined,
+      });
+    }
+    setRunMessage(`Created ${mediaFiles.length} source node${mediaFiles.length > 1 ? 's' : ''} from dropped media.`);
+    return true;
+  };
+
   const handleDropPayload = (e: React.DragEvent) => {
     const raw = e.dataTransfer.getData('application/x-canvas-image');
     if (raw) {
@@ -1997,6 +2025,35 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
     }
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       onUploadFiles(e.dataTransfer.files);
+    }
+  };
+
+  const importWorkflowFromFile = async (file: File) => {
+    const text = await file.text();
+    const parsed = JSON.parse(text) as Partial<SavedWorkflow> | { workflow?: Partial<SavedWorkflow> };
+    const candidate = 'workflow' in parsed && parsed.workflow ? parsed.workflow : parsed;
+    const sanitized = sanitizeSavedWorkflow({
+      id: candidate.id || `imported_${Date.now()}`,
+      name: candidate.name || file.name.replace(/\.json$/i, '') || 'Imported Workflow',
+      createdAt: candidate.createdAt || Date.now(),
+      updatedAt: Date.now(),
+      nodes: candidate.nodes || [],
+      edges: candidate.edges || [],
+      groups: candidate.groups || [],
+      viewport: candidate.viewport,
+    });
+    if (!sanitized) throw new Error('Invalid workflow JSON. Expected nodes and edges.');
+    reuseSavedWorkflow(sanitized);
+  };
+
+  const handleImportWorkflowFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      await importWorkflowFromFile(file);
+    } catch (error) {
+      setRunError(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -2255,6 +2312,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
         setContextMenu(null);
         updateConnectionMenu(null);
         store.cancelConnection();
+        setIsSpacePanning(false);
         return;
       }
 
@@ -2270,6 +2328,12 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
         return;
       }
       if (isTyping) return;
+
+      if (event.code === 'Space') {
+        event.preventDefault();
+        setIsSpacePanning(true);
+        return;
+      }
 
       if (meta && key === 'c') {
         event.preventDefault();
@@ -2289,10 +2353,27 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
       } else if ((event.key === 'Delete' || event.key === 'Backspace') && !isExecuting) {
         event.preventDefault();
         store.removeSelected();
+      } else if (key === 'f') {
+        event.preventDefault();
+        fitWorkflowView();
+      } else if (key === 'm') {
+        event.preventDefault();
+        setShowMiniMap(value => !value);
+      } else if (key === 'l') {
+        event.preventDefault();
+        store.setGridSnapEnabled(value => !value);
+        setRunMessage(`Grid snap ${store.gridSnapEnabled ? 'disabled' : 'enabled'}.`);
       }
     };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code === 'Space') setIsSpacePanning(false);
+    };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
   }, [isExecuting, store]);
 
   const minimap = useMemo(() => {
@@ -2340,7 +2421,14 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
   }, [store.groups, store.nodes, store.viewport.scale, store.viewport.x, store.viewport.y]);
 
   return (
-    <div className="workflow-libtv absolute inset-0 overflow-hidden">
+      <div className="workflow-libtv absolute inset-0 overflow-hidden">
+      <input
+        ref={importWorkflowInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={handleImportWorkflowFile}
+      />
       <div className="pointer-events-none absolute inset-0 workflow-libtv-grid" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-28 workflow-libtv-top-fade" />
 
@@ -2578,6 +2666,15 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                   >
                     Starter
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => importWorkflowInputRef.current?.click()}
+                    className="workflow-chip"
+                    title="Import workflow JSON"
+                    aria-label="Import workflow JSON"
+                  >
+                    Import JSON
+                  </button>
                 </div>
                 {savedWorkflows.length === 0 ? (
                   <div className="workflow-empty-state flex h-32 items-center justify-center rounded-xl border border-dashed text-sm">
@@ -2718,7 +2815,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
         onContextMenu={(e) => openContextMenu(e, 'canvas')}
         onMouseDownCapture={(e) => {
           if (isWorkflowCanvasControl(e.target)) return;
-          if (e.button === 1 || e.shiftKey) {
+          if (e.button === 1 || e.shiftKey || isSpacePanning) {
             e.preventDefault();
             store.startPan({ x: e.clientX, y: e.clientY });
             return;
@@ -2743,6 +2840,15 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
           if (store.pendingConnection) openConnectionMenu(e);
           setIsMiniMapDragging(false);
         }}
+        onDragOver={(e) => {
+          if (e.dataTransfer.files && e.dataTransfer.files.length > 0) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
+          e.preventDefault();
+          const world = toWorld(e.clientX, e.clientY);
+          void createSourceNodesFromFiles(e.dataTransfer.files, world);
+        }}
         onMouseLeave={() => {
           if (connectionMenuOpenRef.current) return;
           store.endDrag();
@@ -2763,7 +2869,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
           onMouseDown={(e) => {
             const target = e.target as HTMLElement;
             if (target.dataset.graphbg !== '1') return;
-            if (e.button === 1 || e.shiftKey) {
+            if (e.button === 1 || e.shiftKey || isSpacePanning) {
               store.startPan({ x: e.clientX, y: e.clientY });
             } else if (e.button === 0) {
               const world = toWorld(e.clientX, e.clientY);
@@ -3346,6 +3452,17 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M5 7h5M5 12h11M5 17h8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
             <path d="M18 6v12M15.5 8.5 18 6l2.5 2.5M15.5 15.5 18 18l2.5-2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className={joinClasses('workflow-bottom-button h-9 w-9 rounded-xl', store.gridSnapEnabled && 'is-active')}
+          onClick={() => store.setGridSnapEnabled((value) => !value)}
+          title="Toggle grid snap hint"
+          aria-label="Toggle grid snap hint"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 8h16M4 16h16M8 4v16M16 4v16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
         </button>
         <button
