@@ -81,9 +81,20 @@ export class FlovartRuntimeClient {
 export function createRuntimeFacade(client) {
   return {
     _version: 'external-cdp',
+    status: () => client.execute('status'),
+    provider: {
+      status: () => client.execute('provider.status'),
+      beginSetup: input => client.execute('provider.beginSetup', input),
+      selectModel: input => client.execute('provider.selectModel', input),
+      test: input => client.execute('provider.test', input),
+    },
     canvas: {
       getElements: () => client.execute('canvas.getElements'),
       addElement: partial => client.execute('canvas.addElement', partial),
+      listMedia: () => client.execute('canvas.listMedia'),
+      addImage: input => client.execute('canvas.addImage', input),
+      addVideo: input => client.execute('canvas.addVideo', input),
+      clearMedia: () => client.execute('canvas.clearMedia'),
       clear: () => client.execute('canvas.clear'),
     },
     session: {
@@ -93,7 +104,16 @@ export function createRuntimeFacade(client) {
       list: sessionId => client.execute('command.list', sessionId),
     },
     generate: {
-      image: (prompt, source) => client.execute('generate.image', prompt, source),
+      image: input => client.execute('generate.image', input),
+      imagesBatch: input => client.execute('generate.imagesBatch', input),
+      video: input => client.execute('generate.video', input),
+      videoStatus: input => client.execute('generate.videoStatus', input),
+    },
+    assets: {
+      list: () => client.execute('assets.list'),
+    },
+    export: {
+      project: input => client.execute('export.project', input),
     },
     config: {
       getProviders: () => client.execute('config.getProviders'),

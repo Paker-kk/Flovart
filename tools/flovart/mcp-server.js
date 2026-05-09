@@ -1,156 +1,180 @@
 #!/usr/bin/env node
-import { McpServer } from '@modelcontextprotocol/server';
-import { StdioServerTransport } from '@modelcontextprotocol/server';
+import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
 import { z } from 'zod';
-import { createFlovartSession, planFlovartInput, formatValue } from './core.js';
+import { executeFlovartCommand } from './core.js';
+import { FlovartRuntimeClient, createRuntimeFacade } from './runtime-client.js';
 
-const server = new McpServer({ name: 'flovart', version: '0.1.0' });
-const session = createFlovartSession();
+const server = new McpServer({ name: 'flovart', version: '0.2.0' });
 
-async function connectRuntime() {
-  const client = new (await import('./runtime-client.js')).FlovartRuntimeClient();
-  await client.connect();
-  return client;
-}
-
-async function run(input, isDark = false) {
-  const plan = planFlovartInput(input, session);
-  if (!plan) return { ok: false, error: 'empty input' };
-
-  const transcript = [];
-  const emit = (kind, content, meta) => transcript.push({ kind, content, meta });
-  const ctx = { sessionId: session.id, isDark };
-  emit('output', `Plan:\n${plan.steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}`);
-  const client = await connectRuntime();
+async function withRuntime(command, args = {}) {
+  const client = new FlovartRuntimeClient();
   try {
-    const runtime = {
-      _version: 'external-cdp',
-      canvas: {
-        getElements: () => client.execute('canvas.getElements'),
-        addElement: partial => client.execute('canvas.addElement', partial),
-        clear: () => client.execute('canvas.clear'),
-      },
-      session: {
-        create: name => client.execute('session.create', name),
-      },
-      command: {
-        list: sessionId => client.execute('command.list', sessionId),
-      },
-      generate: {
-        image: (prompt, source) => client.execute('generate.image', prompt, source),
-      },
-      config: {
-        getProviders: () => client.execute('config.getProviders'),
-      },
-    };
-    const result = await plan.run({ runtime, emit, ctx });
-    emit('output', formatValue(result));
-    return { ok: true, sessionId: session.id, transcript, result };
+    await client.connect();
+    const runtime = createRuntimeFacade(client);
+    const result = await executeFlovartCommand(command, args, runtime);
+    return { ok: true, result };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
   } finally {
     await client.disconnect();
   }
 }
 
-server.registerTool(
-  'flovart.run',
-  {
-    description: 'Run a Flovart natural language or command task against the current runtime.',
-    inputSchema: z.object({
-      input: z.string(),
-      isDark: z.boolean().optional(),
-    }),
-  },
-  async ({ input, isDark }) => ({
-    content: [{ type: 'text', text: JSON.stringify(await run(input, isDark), null, 2) }],
-  }),
-);
+function textResult(value) {
+  return { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] };
+}
 
 server.registerTool(
   'flovart.status',
   {
-    description: 'Inspect Flovart runtime status and current session context.',
+    description: 'Inspect the running Flovart runtime. Use this before any media generation task.',
     inputSchema: z.object({}),
   },
-  async () => {
-    const runtime = getRuntime() || {};
-    const elements = runtime.canvas?.getElements?.() || [];
-    const jobs = runtime.command?.list?.() || [];
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          ok: true,
-          runtime: runtime._version || 'unknown',
-          sessionId: session.id,
-          elements: elements.length,
-          jobs: jobs.length,
-          providers: runtime.config?.getProviders?.() || [],
-          lastMode: session.lastMode,
-          lastTool: session.lastTool,
-          lastImagePrompt: session.lastImagePrompt,
-        }, null, 2),
-      }],
-    };
-  },
+  async () => textResult(await withRuntime('status')),
 );
 
 server.registerTool(
-  'flovart.canvas_list',
+  'flovart.provider_status',
   {
-    description: 'List current canvas elements from the running Flovart runtime.',
+    description: 'Inspect configured Flovart providers and selected image/video models. Does not expose API keys.',
     inputSchema: z.object({}),
   },
-  async () => {
-    const runtime = getRuntime() || {};
-    const elements = runtime.canvas?.getElements?.() || [];
-    return { content: [{ type: 'text', text: JSON.stringify(elements, null, 2) }] };
-  },
+  async () => textResult(await withRuntime('provider.status')),
 );
 
 server.registerTool(
-  'flovart.canvas_add_text',
+  'flovart.provider_begin_setup',
   {
-    description: 'Add a text element to the current Flovart canvas.',
+    description: 'Open Flovart browser settings so the user can enter API keys safely in the UI.',
     inputSchema: z.object({
-      text: z.string(),
-      x: z.number().optional(),
-      y: z.number().optional(),
+      provider: z.string().optional(),
+      purpose: z.enum(['image', 'video', 'both']).optional(),
     }),
   },
-  async ({ text, x, y }) => {
-    const runtime = getRuntime() || {};
-    const id = runtime.canvas?.addElement?.({
-      type: 'text',
-      text,
-      x: x ?? 120,
-      y: y ?? 120,
-      width: 300,
-      height: 100,
-      fontSize: 28,
-      fontColor: '#111827',
-    });
-    return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id, text }, null, 2) }] };
+  async (args) => textResult(await withRuntime('provider.begin-setup', args)),
+);
+
+server.registerTool(
+  'flovart.provider_select_model',
+  {
+    description: 'Select image/video/text model IDs already configured in Flovart.',
+    inputSchema: z.object({
+      imageModel: z.string().optional(),
+      videoModel: z.string().optional(),
+      textModel: z.string().optional(),
+    }),
   },
+  async (args) => textResult(await withRuntime('provider.select-model', args)),
+);
+
+server.registerTool(
+  'flovart.provider_test',
+  {
+    description: 'Check whether Flovart has configured models for image/video generation.',
+    inputSchema: z.object({ purpose: z.enum(['image', 'video', 'both']).optional() }),
+  },
+  async (args) => textResult(await withRuntime('provider.test', args)),
+);
+
+server.registerTool(
+  'flovart.canvas_list_media',
+  {
+    description: 'List only image and video elements on the Flovart canvas.',
+    inputSchema: z.object({}),
+  },
+  async () => textResult(await withRuntime('canvas.list-media')),
+);
+
+server.registerTool(
+  'flovart.canvas_add_image',
+  {
+    description: 'Add an image element to the media-only Flovart canvas. Do not use this for text.',
+    inputSchema: z.object({
+      href: z.string(),
+      mimeType: z.string().optional(),
+      name: z.string().optional(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+      width: z.number().optional(),
+      height: z.number().optional(),
+    }),
+  },
+  async (args) => textResult(await withRuntime('canvas.add-image', args)),
+);
+
+server.registerTool(
+  'flovart.canvas_add_video',
+  {
+    description: 'Add a video element to the media-only Flovart canvas. Do not use this for text.',
+    inputSchema: z.object({
+      href: z.string(),
+      mimeType: z.string().optional(),
+      name: z.string().optional(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+      width: z.number().optional(),
+      height: z.number().optional(),
+    }),
+  },
+  async (args) => textResult(await withRuntime('canvas.add-video', args)),
 );
 
 server.registerTool(
   'flovart.generate_image',
   {
-    description: 'Generate an image through Flovart runtime.',
+    description: 'Generate one image from an explicit prompt. Claude Code should write the prompt; Flovart only executes it.',
     inputSchema: z.object({
       prompt: z.string(),
+      aspectRatio: z.string().optional(),
+      placeOnCanvas: z.boolean().optional(),
     }),
   },
-  async ({ prompt }) => {
-    const runtime = getRuntime() || {};
-    const result = await runtime.generate?.image?.(prompt, 'agent');
-    return { content: [{ type: 'text', text: JSON.stringify(result || { ok: true, prompt }, null, 2) }] };
+  async (args) => textResult(await withRuntime('generate.image', args)),
+);
+
+server.registerTool(
+  'flovart.generate_images_batch',
+  {
+    description: 'Generate storyboard images from explicit per-shot prompts produced by Claude Code.',
+    inputSchema: z.object({
+      items: z.array(z.object({
+        clientShotId: z.string().optional(),
+        prompt: z.string(),
+        negativePrompt: z.string().optional(),
+        aspectRatio: z.string().optional(),
+      })),
+      placeOnCanvas: z.boolean().optional(),
+      layout: z.string().optional(),
+    }),
   },
+  async (args) => textResult(await withRuntime('generate.images-batch', args)),
+);
+
+server.registerTool(
+  'flovart.generate_video',
+  {
+    description: 'Generate a video from explicit prompt and optional source image canvas element IDs. No video editing timeline is exposed.',
+    inputSchema: z.object({
+      prompt: z.string(),
+      sourceImageIds: z.array(z.string()).optional(),
+      durationSec: z.number().optional(),
+      aspectRatio: z.string().optional(),
+    }),
+  },
+  async (args) => textResult(await withRuntime('generate.video', args)),
+);
+
+server.registerTool(
+  'flovart.video_status',
+  {
+    description: 'Query a Flovart video generation job status.',
+    inputSchema: z.object({ jobId: z.string() }),
+  },
+  async (args) => textResult(await withRuntime('video.status', args)),
 );
 
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  await server.connect(new StdioServerTransport());
 }
 
 main().catch(error => {

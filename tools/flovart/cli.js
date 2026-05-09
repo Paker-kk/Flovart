@@ -1,56 +1,51 @@
 #!/usr/bin/env node
-import { planFlovartInput, createLine, formatValue } from './core.js';
+import { executeFlovartCommand, formatValue, parseCliArgs, SETUP_TEXT } from './core.js';
 import { FlovartRuntimeClient, createRuntimeFacade } from './runtime-client.js';
+import { readFile } from 'node:fs/promises';
 
-const args = process.argv.slice(2);
-const input = args.join(' ');
+const argv = process.argv.slice(2);
+const command = argv[0];
+const args = parseCliArgs(argv.slice(1));
 
-async function main() {
-  if (!input) {
-    console.log(formatValue({ ok: true, usage: 'node tools/flovart/cli.js "帮我画一个猫咪吃汉堡的"' }));
-    process.exit(0);
-  }
-
-  const plan = planFlovartInput(input);
-  if (!plan) {
-    console.log(formatValue({ ok: false, error: 'empty input' }));
+if (args.file) {
+  try {
+    const payload = JSON.parse(await readFile(args.file, 'utf8'));
+    args.items = payload.items || payload;
+  } catch (error) {
+    console.error(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }, null, 2));
     process.exit(1);
   }
+}
 
-  const transcript = [];
-  const emit = (kind, content, meta) => {
-    transcript.push(createLine(kind, content, meta));
-  };
-
-  const trimmed = input.trim();
-  const useExternal = !/^help|setup$/i.test(trimmed);
-  let runtime = {};
-  const ctx = { sessionId: null, isDark: false };
-
-  emit('input', input);
-  emit('output', `Plan:\n${plan.steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}`);
-
-  if (useExternal) {
-    const client = new FlovartRuntimeClient();
-    try {
-      await client.connect();
-      runtime = createRuntimeFacade(client);
-      const result = await plan.run({ runtime, emit, ctx });
-      emit('output', formatValue(result));
-      console.log(JSON.stringify({ ok: true, transcript, result }, null, 2));
-    } catch (error) {
-      emit('error', error instanceof Error ? error.message : String(error));
-      console.log(JSON.stringify({ ok: false, transcript }, null, 2));
-      process.exitCode = 1;
-    } finally {
-      await client.disconnect();
-    }
+async function main() {
+  if (!command) {
+    console.log(JSON.stringify({ ok: true, usage: 'node tools/flovart/cli.js status --json' }, null, 2));
     return;
   }
 
-  const result = await plan.run({ runtime, emit, ctx });
-  emit('output', formatValue(result));
-  console.log(JSON.stringify({ ok: true, transcript, result }, null, 2));
+  if (command === 'help' || command === 'setup') {
+    const result = await executeFlovartCommand(command, args, {});
+    console.log(args.json ? JSON.stringify(result, null, 2) : formatValue(result.text || result));
+    return;
+  }
+
+  const client = new FlovartRuntimeClient();
+  try {
+    await client.connect();
+    const runtime = createRuntimeFacade(client);
+    const result = await executeFlovartCommand(command, args, runtime);
+    console.log(JSON.stringify({ ok: true, command, result }, null, 2));
+  } catch (error) {
+    console.log(JSON.stringify({
+      ok: false,
+      command,
+      error: error instanceof Error ? error.message : String(error),
+      setup: SETUP_TEXT,
+    }, null, 2));
+    process.exitCode = 1;
+  } finally {
+    await client.disconnect();
+  }
 }
 
 main().catch(error => {

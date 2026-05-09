@@ -25,7 +25,7 @@ const ABCompareOverlay = React.lazy(() => import('./components/ABCompareOverlay'
 const NodeWorkflowPanel = React.lazy(() => import('./components/NodeWorkflowPanel').then(m => ({ default: m.NodeWorkflowPanel })));
 import { loadAssetLibrary, addAsset, removeAsset, renameAsset, loadAssetLibraryAsync, saveAssetLibraryAsync } from './utils/assetStorage';
 import { loadGenerationHistory, addGenerationHistoryItem } from './utils/generationHistory';
-import { inferProviderFromModel, reversePromptStreamWithProvider, DEFAULT_PROVIDER_MODELS } from './services/aiGateway';
+import { inferProviderFromModel, reversePromptStreamWithProvider, DEFAULT_PROVIDER_MODELS, generateImageWithProvider, generateVideoWithProvider } from './services/aiGateway';
 import { fileToDataUrl, validateAndResizeImage } from './utils/fileUtils';
 import { translations } from './translations';
 // keyVault imports moved to hooks/useApiKeys.ts
@@ -1900,12 +1900,171 @@ const App: React.FC = () => {
             command: job.command,
         });
 
+        const getRuntimeProviderStatus = () => ({
+            ok: true,
+            configured: {
+                image: !!getPreferredApiKey('image'),
+                video: !!getPreferredApiKey('video'),
+                text: !!getPreferredApiKey('text'),
+            },
+            selectedModels: {
+                image: modelPreference.imageModel,
+                video: modelPreference.videoModel,
+                text: modelPreference.textModel,
+            },
+            availableModels: dynamicModelOptions,
+            providers: userApiKeys.map(key => ({
+                id: key.id,
+                name: key.name,
+                provider: key.provider,
+                capabilities: key.capabilities,
+                isDefault: key.isDefault,
+                hasKey: !!key.key,
+            })),
+        });
+
+        const listMediaElements = () => api.canvas.getElements().filter((el: any) => el.type === 'image' || el.type === 'video');
+
+        const getCanvasCenter = () => {
+            if (!svgRef.current) return { x: -300, y: -200 };
+            const bounds = svgRef.current.getBoundingClientRect();
+            return getCanvasPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+        };
+
+        const addMediaElement = (partial: Partial<ImageElement | VideoElement>, type: 'image' | 'video') => {
+            const center = getCanvasCenter();
+            const width = Number(partial.width) || (type === 'image' ? 1024 : 960);
+            const height = Number(partial.height) || (type === 'image' ? 576 : 540);
+            const next = {
+                ...partial,
+                id: generateId(),
+                type,
+                name: partial.name || (type === 'image' ? 'Agent Image' : 'Agent Video'),
+                x: typeof partial.x === 'number' ? partial.x : center.x - width / 2,
+                y: typeof partial.y === 'number' ? partial.y : center.y - height / 2,
+                width,
+                height,
+                mimeType: partial.mimeType || (type === 'image' ? 'image/png' : 'video/mp4'),
+            } as ImageElement | VideoElement;
+            commitAction(prev => [...prev, next]);
+            setSelectedElementIds([next.id]);
+            return { ok: true, id: next.id, element: next };
+        };
+
+        const resolveRuntimeModelKey = (capability: 'image' | 'video') => {
+            const model = capability === 'image' ? modelPreference.imageModel : modelPreference.videoModel;
+            const provider = inferProviderFromModel(model);
+            const key = getPreferredApiKey(capability, provider);
+            if (!key) {
+                setIsSettingsPanelOpen(true);
+                throw new Error(`UNCONFIGURED_PROVIDER: missing ${capability} API key/model`);
+            }
+            return { model, key };
+        };
+
+        const loadImageSize = (href: string, fallbackWidth = 1024, fallbackHeight = 576) => new Promise<{ width: number; height: number }>((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve({ width: img.naturalWidth || fallbackWidth, height: img.naturalHeight || fallbackHeight });
+            img.onerror = () => resolve({ width: fallbackWidth, height: fallbackHeight });
+            img.src = href;
+        });
+
+        const placeGeneratedImage = async (input: { prompt: string; name?: string; x?: number; y?: number }) => {
+            const { model, key } = resolveRuntimeModelKey('image');
+            setIsLoading(true);
+            setError(null);
+            setProgressMessage('Agent image generation...');
+            try {
+                const result = await generateImageWithProvider(input.prompt, model, key);
+                if (!result.newImageBase64 || !result.newImageMimeType) {
+                    throw new Error(result.textResponse || 'Image provider did not return an image.');
+                }
+                const href = `data:${result.newImageMimeType};base64,${result.newImageBase64}`;
+                const size = await loadImageSize(href);
+                const placed = addMediaElement({
+                    type: 'image',
+                    href,
+                    mimeType: result.newImageMimeType,
+                    width: size.width,
+                    height: size.height,
+                    name: input.name || 'Agent Image',
+                    x: input.x,
+                    y: input.y,
+                }, 'image');
+                saveGenerationToHistory({
+                    name: input.name || 'Agent Image',
+                    dataUrl: href,
+                    mimeType: result.newImageMimeType,
+                    width: size.width,
+                    height: size.height,
+                    prompt: input.prompt,
+                });
+                return { ...placed, prompt: input.prompt, model };
+            } finally {
+                setIsLoading(false);
+                setTimeout(() => setProgressMessage(''), 1500);
+            }
+        };
+
+        const loadVideoSize = (href: string, fallbackWidth = 960, fallbackHeight = 540) => new Promise<{ width: number; height: number; durationSec?: number }>((resolve) => {
+            const video = document.createElement('video');
+            video.preload = 'metadata';
+            video.onloadedmetadata = () => resolve({
+                width: video.videoWidth || fallbackWidth,
+                height: video.videoHeight || fallbackHeight,
+                durationSec: Number.isFinite(video.duration) ? video.duration : undefined,
+            });
+            video.onerror = () => resolve({ width: fallbackWidth, height: fallbackHeight });
+            video.src = href;
+        });
+
+        const placeGeneratedVideo = async (input: { prompt: string; sourceImageIds?: string[]; aspectRatio?: string }) => {
+            const { model, key } = resolveRuntimeModelKey('video');
+            const sourceImage = input.sourceImageIds?.length
+                ? elementsRef.current.find(el => el.id === input.sourceImageIds?.[0] && el.type === 'image') as ImageElement | undefined
+                : undefined;
+            setIsLoading(true);
+            setError(null);
+            setProgressMessage('Agent video generation...');
+            try {
+                const result = await generateVideoWithProvider(input.prompt, model, key, {
+                    aspectRatio: (input.aspectRatio || videoAspectRatio) as typeof videoAspectRatio,
+                    onProgress: message => setProgressMessage(message),
+                    image: sourceImage ? { href: sourceImage.href, mimeType: sourceImage.mimeType } : undefined,
+                });
+                const href = URL.createObjectURL(result.videoBlob);
+                const size = await loadVideoSize(href);
+                const placed = addMediaElement({
+                    type: 'video',
+                    href,
+                    mimeType: result.mimeType,
+                    width: size.width,
+                    height: size.height,
+                    durationSec: size.durationSec,
+                    name: 'Agent Video',
+                    sourceKind: 'generation',
+                }, 'video');
+                return { ...placed, prompt: input.prompt, model, sourceImageId: sourceImage?.id };
+            } finally {
+                setIsLoading(false);
+                setTimeout(() => setProgressMessage(''), 1500);
+            }
+        };
+
         const executeRuntimeCommand = async (command: string, args: any): Promise<unknown> => {
             switch (command) {
                 case 'canvas.addElement':
                     return api.canvas.addElement(args as Partial<Element>);
                 case 'canvas.getElements':
                     return api.canvas.getElements();
+                case 'canvas.listMedia':
+                    return api.canvas.listMedia();
+                case 'canvas.addImage':
+                    return api.canvas.addImage(args as Partial<ImageElement>);
+                case 'canvas.addVideo':
+                    return api.canvas.addVideo(args as Partial<VideoElement>);
+                case 'canvas.clearMedia':
+                    return api.canvas.clearMedia();
                 case 'canvas.removeElement':
                     api.canvas.removeElement(args?.id as string);
                     return { ok: true };
@@ -1916,8 +2075,11 @@ const App: React.FC = () => {
                     api.canvas.clear();
                     return { ok: true };
                 case 'generate.image':
-                    await handleGenerate(args?.prompt as string, (args?.source || 'agent') as 'prompt' | 'right' | 'agent');
-                    return { ok: true };
+                    return api.generate.image(args);
+                case 'generate.imagesBatch':
+                    return api.generate.imagesBatch(args);
+                case 'generate.video':
+                    return api.generate.video(args);
                 default:
                     throw new Error(`BAD_REQUEST: unknown command ${command}`);
             }
@@ -1990,6 +2152,49 @@ const App: React.FC = () => {
         };
 
         const api = {
+            status: () => ({
+                ok: true,
+                runtime: 'flovart-browser',
+                version: '2.2.0',
+                mediaElements: listMediaElements().length,
+                jobs: Object.keys(runtimeJobsRef.current).length,
+                provider: getRuntimeProviderStatus(),
+            }),
+            provider: {
+                status: getRuntimeProviderStatus,
+                beginSetup: (input?: { provider?: string; purpose?: 'image' | 'video' | 'both' }) => {
+                    setIsSettingsPanelOpen(true);
+                    return {
+                        ok: true,
+                        status: 'waiting_for_user',
+                        provider: input?.provider || 'custom',
+                        purpose: input?.purpose || 'both',
+                        message: 'Provider setup opened in Flovart. API keys are entered only in the browser UI.',
+                    };
+                },
+                selectModel: (input?: { imageModel?: string; videoModel?: string; textModel?: string }) => {
+                    setModelPreference(prev => ({
+                        ...prev,
+                        imageModel: input?.imageModel || prev.imageModel,
+                        videoModel: input?.videoModel || prev.videoModel,
+                        textModel: input?.textModel || prev.textModel,
+                    }));
+                    return { ok: true, selectedModels: input || {} };
+                },
+                test: (input?: { purpose?: 'image' | 'video' | 'both' }) => {
+                    const status = getRuntimeProviderStatus();
+                    const purpose = input?.purpose || 'both';
+                    const checks = {
+                        image: status.configured.image,
+                        video: status.configured.video,
+                    };
+                    return {
+                        ok: purpose === 'both' ? checks.image && checks.video : checks[purpose],
+                        purpose,
+                        checks,
+                    };
+                },
+            },
             session: {
                 create: (name?: string) => {
                     const now = Date.now();
@@ -2071,9 +2276,17 @@ const App: React.FC = () => {
                         isVisible: el.isVisible ?? true,
                         isLocked: el.isLocked ?? false,
                         ...(el.type === 'text' ? { text: el.text } : {}),
-                        ...(el.type === 'image' ? { name: el.name, mimeType: el.mimeType } : {}),
+                        ...(el.type === 'image' ? { name: el.name, href: el.href, mimeType: el.mimeType } : {}),
+                        ...(el.type === 'video' ? { name: el.name, href: el.href, mimeType: el.mimeType, durationSec: el.durationSec } : {}),
                     };
                 }),
+                listMedia: listMediaElements,
+                addImage: (partial: Partial<ImageElement>) => addMediaElement(partial, 'image'),
+                addVideo: (partial: Partial<VideoElement>) => addMediaElement(partial, 'video'),
+                clearMedia: () => {
+                    commitAction(prev => prev.filter(el => el.type !== 'image' && el.type !== 'video'));
+                    return { ok: true };
+                },
                 removeElement: (id: string) => { commitAction(prev => prev.filter(e => e.id !== id)); },
                 updateElement: (id: string, updates: Record<string, unknown>) => {
                     commitAction(prev => prev.map(e => e.id === id ? ({ ...e, ...updates } as Element) : e));
@@ -2083,7 +2296,53 @@ const App: React.FC = () => {
                 select: (ids: string[]) => { setSelectedElementIds(ids); },
             },
             generate: {
-                image: async (p: string, source?: 'prompt' | 'agent' | 'right') => { await handleGenerate(p, source || 'agent'); },
+                image: async (input: string | { prompt: string }) => {
+                    const prompt = typeof input === 'string' ? input : input.prompt;
+                    return placeGeneratedImage({ prompt });
+                },
+                imagesBatch: async (input: { items?: Array<{ clientShotId?: string; prompt: string; negativePrompt?: string }> }) => {
+                    const items = Array.isArray(input?.items) ? input.items : [];
+                    const results: Array<{ clientShotId?: string; ok: boolean; prompt: string; canvasElementId?: string; error?: string }> = [];
+                    for (const [index, item] of items.entries()) {
+                        const prompt = [item.prompt, item.negativePrompt ? `Negative prompt: ${item.negativePrompt}` : ''].filter(Boolean).join('\n');
+                        try {
+                            const center = getCanvasCenter();
+                            const placed = await placeGeneratedImage({
+                                prompt,
+                                name: item.clientShotId ? `Shot ${item.clientShotId}` : `Shot ${index + 1}`,
+                                x: center.x + (index % 3) * 340,
+                                y: center.y + Math.floor(index / 3) * 240,
+                            });
+                            results.push({ clientShotId: item.clientShotId, ok: true, prompt: item.prompt, canvasElementId: placed.id });
+                        } catch (error) {
+                            results.push({ clientShotId: item.clientShotId, ok: false, prompt: item.prompt, error: error instanceof Error ? error.message : String(error) });
+                        }
+                    }
+                    return { ok: results.every(item => item.ok), items: results };
+                },
+                video: async (input: { prompt: string; sourceImageIds?: string[]; aspectRatio?: string }) => {
+                    return placeGeneratedVideo(input);
+                },
+                videoStatus: (input: { jobId: string }) => api.command.get(input.jobId),
+            },
+            assets: {
+                list: () => generationHistory.map(item => ({
+                    id: item.id,
+                    name: item.name,
+                    mimeType: item.mimeType,
+                    width: item.width,
+                    height: item.height,
+                    prompt: item.prompt,
+                    mediaType: item.mediaType || 'image',
+                    createdAt: item.createdAt,
+                })),
+            },
+            export: {
+                project: () => ({
+                    ok: true,
+                    mediaElements: listMediaElements(),
+                    assets: generationHistory.map(item => ({ id: item.id, name: item.name, mediaType: item.mediaType || 'image', prompt: item.prompt })),
+                }),
             },
             view: {
                 getZoom: () => zoom,

@@ -1,38 +1,48 @@
 ---
 name: flovart
-description: Use when operating or extending Flovart AI Canvas Studio, including natural-language canvas operations, FlovartCli, MCP integration, external Codex/Claude/OpenCode control, runtime tools, provider routing, and canvas workflow automation.
+description: Use when operating Flovart as an agent-native image/video runtime through MCP or deterministic CLI tools. External agents handle natural language planning.
 ---
 
 # Flovart Skill
 
-Use this skill for Flovart agent operations and code changes.
-
-## Preferred Interfaces
-
-- In-app shell: right panel `FlovartCli`
-- External one-shot CLI: `npm run flovart:cli -- "<natural language task>"`
-- MCP server: `node tools/flovart/mcp-server.js`
-- Shared planner/router: `tools/flovart/core.js`
-- External browser runtime client: `tools/flovart/runtime-client.js`
-
-## Runtime Setup
-
-1. Run `npm run dev`.
-2. Launch Chrome with `chrome --remote-debugging-port=9222`.
-3. Open Flovart in that Chrome window.
-4. Verify with `npm run flovart:cli -- status`.
-
-## MCP Tools
-
-- `flovart.run`: natural-language or explicit Flovart task
-- `flovart.status`: runtime and session status
-- `flovart.canvas_list`: list canvas elements
-- `flovart.canvas_add_text`: add text to canvas
-- `flovart.generate_image`: generate image from prompt
+Flovart is not the planner. The external agent is responsible for scripts, storyboard text, prompts, retries, and final summaries.
 
 ## Rules
 
-- Do not duplicate command-routing logic. Update `tools/flovart/core.js` first.
-- Keep external CLI/MCP outputs JSON-safe and secret-free.
-- Treat the browser runtime as the action boundary. Do not expose raw API keys.
-- Run `npm run build` after changing UI, runtime, CLI, or MCP code.
+- Use MCP first; use CLI fallback only when MCP is unavailable.
+- Never expose API keys in tool output or chat transcripts.
+- Trigger `provider_begin_setup` when keys/models are missing; the user enters secrets in Flovart UI.
+- Canvas is media-only: images and videos. Do not create canvas text elements.
+- Send explicit prompts and structured JSON to tools.
+
+## Setup
+
+1. `npm run dev`
+2. `chrome --remote-debugging-port=9222`
+3. Open Flovart in that Chrome window.
+4. `npm run flovart:cli -- status --json`
+5. `npm run flovart:mcp`
+
+## MCP Tools
+
+- `flovart.status`
+- `flovart.provider_status`
+- `flovart.provider_begin_setup`
+- `flovart.provider_select_model`
+- `flovart.provider_test`
+- `flovart.canvas_list_media`
+- `flovart.canvas_add_image`
+- `flovart.canvas_add_video`
+- `flovart.generate_image`
+- `flovart.generate_images_batch`
+- `flovart.generate_video`
+- `flovart.video_status`
+
+## One-Sentence User Workflow
+
+1. Inspect runtime/provider state.
+2. Open safe provider setup if needed.
+3. Derive storyboard prompts in the agent UI.
+4. Generate storyboard images through Flovart.
+5. Generate video through Flovart.
+6. Report results in the agent UI.
