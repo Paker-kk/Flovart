@@ -85,6 +85,7 @@ export function createRuntimeFacade(client) {
     provider: {
       status: () => client.execute('provider.status'),
       beginSetup: input => client.execute('provider.beginSetup', input),
+      setApiKey: input => client.execute('provider.setApiKey', input),
       selectModel: input => client.execute('provider.selectModel', input),
       test: input => client.execute('provider.test', input),
     },

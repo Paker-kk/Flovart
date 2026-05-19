@@ -209,8 +209,9 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
                     const modelList = providerModels[capability];
                     if (modelList && modelList.length > 0) return modelList[0];
                 }
-                if (key.customModels?.length) return key.customModels[0];
-                if (key.defaultModel) return key.defaultModel;
+                const customCandidate = key.customModels?.find(m => inferCapabilityFromModel(m) === capability);
+                if (customCandidate) return customCandidate;
+                if (key.defaultModel && inferCapabilityFromModel(key.defaultModel) === capability) return key.defaultModel;
             }
             return null;
         };

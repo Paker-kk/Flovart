@@ -15,11 +15,41 @@ Flovart is a React 19 + TypeScript + Vite AI Canvas Studio. It exposes a local r
 
 ## Flovart Agent Interface
 
+### CLI Module (OpenCLI-inspired)
+
+```
+tools/flovart/
+├── cli.js              # Entry point with --format support
+├── core.js             # Command execution (backward compatible)
+├── formatter.js        # Output: table/json/yaml/csv/md/plain
+├── runtime-client.js   # CDP runtime client (unchanged)
+├── mcp-server.js       # MCP server (unchanged)
+└── commands/           # Split command definitions
+    ├── index.js        # Registry loader
+    ├── help.js         # help command
+    ├── status.js       # status, setup
+    ├── provider.js     # provider.* commands
+    ├── canvas.js       # canvas.* commands
+    ├── asset.js        # asset.list
+    ├── generate.js     # generate.* commands
+    ├── video.js        # video.status
+    └── export.js       # export.project
+```
+
 Use `tools/flovart/core.js` as the shared deterministic command registry. Do not add natural-language planning here; external agents handle planning.
 
 Use `tools/flovart/runtime-client.js` for external clients. It connects to Chrome DevTools Protocol on port `9222` and calls the active page's `window.__flovartAPI`.
 
-Use `tools/flovart/cli.js` for deterministic fallback commands from Codex, Claude Code, OpenCode, or shell scripts.
+Use `tools/flovart/cli.js` for deterministic fallback commands with format output support.
+
+   The CLI now supports OpenCLI-inspired features:
+   - `--format table|json|yaml|csv|md|plain` for output formatting
+   - `--json` / `--yaml` shorthand flags
+   - Auto-generated help: `node tools/flovart/cli.js --help`
+   - Per-command help: `node tools/flovart/cli.js generate.image --help`
+   - Commands organized in `tools/flovart/commands/` (one file per domain)
+   - Output formatting via `tools/flovart/formatter.js`
+   - Quick scripts: `npm run flovart:help`, `npm run flovart:status`
 
 Use `tools/flovart/mcp-server.js` for MCP hosts. It exposes these tools:
 

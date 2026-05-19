@@ -8,7 +8,7 @@ import { generateId, getElementBounds, rasterizeElement, rasterizeMask } from '.
 import { splitImageByBanana, runBananaImageAgent } from '../services/bananaService';
 import {
     editImageWithProvider, enhancePromptWithProvider, generateImageWithProvider, generateVideoWithProvider,
-    inferProviderFromModel, inferCapabilitiesByProvider, PROVIDER_LABELS, supportsMaskImageEditing, supportsReferenceImageEditing,
+    inferProviderFromModel, inferCapabilitiesByProvider, inferCapabilityFromModel, PROVIDER_LABELS, supportsMaskImageEditing, supportsReferenceImageEditing,
     DEFAULT_PROVIDER_MODELS,
 } from '../services/aiGateway';
 import { addGenerationHistoryItem, createThumbnailDataUrl } from '../utils/generationHistory';
@@ -104,23 +104,25 @@ export function useGeneration(params: UseGenerationParams) {
     }, []);
 
     /** 智能解析模型+Key：如果当前模型的 Provider 没有健康 Key，自动降级到任意可用 Key */
-    const resolveModelKey = useCallback((capability: 'image' | 'video' | 'text', currentModel: string) => {
-        const provider = inferProviderFromModel(currentModel);
-        const healthyKeys = userApiKeys.filter(k => k.status !== 'error');
-        const directKey = healthyKeys.find(k => {
-            const caps = k.capabilities?.length ? k.capabilities : inferCapabilitiesByProvider(k.provider);
-            return caps.includes(capability) && (k.provider === provider || (k.provider === 'custom' && keyOwnsModel(k, currentModel)));
-        });
-        if (directKey) return { model: currentModel, provider, key: directKey };
-        for (const key of healthyKeys) {
-            const caps = key.capabilities?.length ? key.capabilities : inferCapabilitiesByProvider(key.provider);
-            if (!caps.includes(capability)) continue;
-            const models = DEFAULT_PROVIDER_MODELS[key.provider]?.[capability];
-            const fallbackModel = models?.[0] || key.customModels?.[0] || key.defaultModel;
-            if (fallbackModel) return { model: fallbackModel, provider: key.provider, key };
-        }
-        return null;
-    }, [keyOwnsModel, userApiKeys]);
+        const resolveModelKey = useCallback((capability: 'image' | 'video' | 'text', currentModel: string) => {
+            const provider = inferProviderFromModel(currentModel);
+            const healthyKeys = userApiKeys.filter(k => k.status !== 'error');
+            const directKey = healthyKeys.find(k => {
+                const caps = k.capabilities?.length ? k.capabilities : inferCapabilitiesByProvider(k.provider);
+                return caps.includes(capability) && (k.provider === provider || (k.provider === 'custom' && keyOwnsModel(k, currentModel)));
+            });
+            if (directKey) return { model: currentModel, provider, key: directKey };
+            for (const key of healthyKeys) {
+                const caps = key.capabilities?.length ? key.capabilities : inferCapabilitiesByProvider(key.provider);
+                if (!caps.includes(capability)) continue;
+                const models = DEFAULT_PROVIDER_MODELS[key.provider]?.[capability];
+                const candidate = models?.[0]
+                    || key.customModels?.find(m => inferCapabilityFromModel(m) === capability)
+                    || (key.defaultModel && inferCapabilityFromModel(key.defaultModel) === capability ? key.defaultModel : undefined);
+                if (candidate) return { model: candidate, provider: key.provider, key };
+            }
+            return null;
+        }, [keyOwnsModel, userApiKeys]);
 
     const handleEnhancePrompt = useCallback(async (payload: {
         prompt: string;
@@ -590,6 +592,12 @@ export function useGeneration(params: UseGenerationParams) {
         if (!activeResolved) {
             const capLabel = neededCapability === 'video' ? '视频' : '图片';
             setError(`未配置${capLabel}生成所需的 API Key。点击右上角 ⚙️ 设置添加。`);
+            setIsSettingsPanelOpen(true);
+            return;
+        }
+
+        if (generationMode === 'keyframe' && !videoResolved) {
+            setError('首尾帧模式需要视频生成 API Key。点击右上角 ⚙️ 设置添加。');
             setIsSettingsPanelOpen(true);
             return;
         }

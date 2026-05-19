@@ -262,7 +262,7 @@ export function inferProviderFromKey(apiKey: string): AIProvider | null {
  */
 export function inferCapabilitiesByProvider(provider: AIProvider): import('../types').AICapability[] {
     const caps = DEFAULT_PROVIDER_MODELS[provider];
-    if (!caps) return ['text', 'image'];
+    if (!caps) return ['text', 'image', 'video'];
     const result: import('../types').AICapability[] = [];
     if (caps.text?.length) result.push('text');
     if (caps.image?.length) result.push('image');
@@ -1781,6 +1781,11 @@ export async function generateVideoWithProvider(
         return { videoBlob, mimeType };
     }
 
+    if (provider === 'openrouter') {
+        if (!key) throw new Error('未配置 OpenRouter 视频端点的 API Key。');
+        return generateVideoWithUnifiedAsyncApi(prompt, model, key, options);
+    }
+
     if (provider === 'custom') {
         if (!key) {
             throw new Error('未配置自定义视频端点的 API Key。');
@@ -1812,13 +1817,13 @@ export async function splitImageLayersWithProvider(
     if (provider === 'banana') {
         return splitImageByBanana(image);
     }
-    if (provider !== 'custom') {
+    if (provider !== 'banana' && provider !== 'openrouter' && provider !== 'custom') {
         throw new Error(`当前暂不支持使用 ${PROVIDER_LABELS[provider] || provider} 进行图层拆分。`);
     }
 
-    const apiKey = requireApiKey(provider, key);
+    const apiKey = requireApiKey(provider === 'openrouter' ? 'custom' : provider, key);
     const base64Payload = image.href.includes(',') ? image.href.split(',')[1] : image.href;
-    const response = await fetch(`${getAgentBaseUrl(provider, key)}/split-layers`, {
+    const response = await fetch(`${getAgentBaseUrl(provider === 'openrouter' ? 'custom' : provider, key)}/split-layers`, {
         method: 'POST',
         headers: buildProviderHeaders(apiKey, key),
         body: JSON.stringify({
@@ -1856,11 +1861,11 @@ export async function runImageAgentWithProvider(
     if (provider === 'banana') {
         return runBananaImageAgent(image, task, options);
     }
-    if (provider !== 'custom') {
+    if (provider !== 'openrouter' && provider !== 'custom') {
         throw new Error(`当前暂不支持使用 ${PROVIDER_LABELS[provider] || provider} 运行图片代理任务。`);
     }
 
-    const apiKey = requireApiKey(provider, key);
+    const apiKey = requireApiKey(provider === 'openrouter' ? 'custom' : provider, key);
     const base64Payload = image.href.includes(',') ? image.href.split(',')[1] : image.href;
     const response = await fetch(`${getAgentBaseUrl(provider, key)}/agent`, {
         method: 'POST',

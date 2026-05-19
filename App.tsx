@@ -2172,6 +2172,18 @@ const App: React.FC = () => {
                         message: 'Provider setup opened in Flovart. API keys are entered only in the browser UI.',
                     };
                 },
+                setApiKey: (input: { provider: string; key: string; capabilities?: string[]; baseUrl?: string; name?: string; isDefault?: boolean }) => {
+                    handleAddApiKey({
+                        provider: input.provider as any,
+                        key: input.key,
+                        capabilities: (input.capabilities || ['image', 'video', 'text']) as any[],
+                        baseUrl: input.baseUrl,
+                        name: input.name || input.provider,
+                        isDefault: input.isDefault ?? true,
+                    });
+                    setIsSettingsPanelOpen(false);
+                    return { ok: true, provider: input.provider, message: `API key set for ${input.provider}` };
+                },
                 selectModel: (input?: { imageModel?: string; videoModel?: string; textModel?: string }) => {
                     setModelPreference(prev => ({
                         ...prev,
@@ -2561,15 +2573,7 @@ const App: React.FC = () => {
             themeBackground={themePalette.appBackground}
             onDragOver={activeView === 'canvas' ? handleDragOver : undefined}
             onDrop={activeView === 'canvas' ? handleDrop : undefined}
-            topBar={
-                <TopWorkspaceBar
-                    activeView={activeView}
-                    onChangeView={setActiveView}
-                    theme={resolvedTheme}
-                    onOpenSettings={() => setIsSettingsPanelOpen(true)}
-                    appVersionLabel={appVersionLabel}
-                />
-            }
+            topBar={<TopWorkspaceBar activeView={activeView} onChangeView={setActiveView} theme={resolvedTheme} appVersionLabel="v0.2.0-beta" />}
             leftSidebar={activeView === 'canvas' ? (
                 <WorkspaceSidebar
                 isOpen={!isLayerMinimized}

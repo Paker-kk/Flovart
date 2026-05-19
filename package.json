@@ -14,7 +14,10 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "ext:build": "node extension/build.mjs"
+    "ext:build": "node extension/build.mjs",
+    "flovart:help": "node tools/flovart/cli.js --help",
+    "flovart:status": "node tools/flovart/cli.js status",
+    "flovart:json": "node tools/flovart/cli.js status --json"
   },
   "dependencies": {
     "@cfworker/json-schema": "^4.1.1",
@@ -47,5 +50,11 @@
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
     "vitest": "^4.1.0"
-  }
+  },
+  "bin": {
+    "flovart": "tools/flovart/cli.js"
+  },
+  "files": [
+    "tools/"
+  ]
 }

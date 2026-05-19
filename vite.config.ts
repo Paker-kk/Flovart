@@ -11,9 +11,9 @@ export default defineConfig(() => {
       // Cloudflare Pages 使用绝对路径，Tauri 使用相对路径
       base: process.env.CF_PAGES ? '/' : './',
       server: {
-        port: 11451,
-        host: host || '0.0.0.0',
-        strictPort: true,
+        port: 2077,
+        host: host || '127.0.0.1',
+        strictPort: false,
       },
       plugins: [tailwindcss(), react()],
       // 排除独立 HTML 文件，避免 esbuild 扫描其内联脚本报错

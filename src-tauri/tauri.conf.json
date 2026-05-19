@@ -5,7 +5,7 @@
   "identifier": "com.flovart.desktop",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:3217",
+    "devUrl": "http://localhost:2077",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
