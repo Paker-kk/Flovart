@@ -22,13 +22,18 @@
     --primary-bg: #111827;
     --primary-text: #ffffff;
     --input-bg: rgba(255, 255, 255, 0.92);
-    --canvas-bg: #f7f8fb;
+    --canvas-bg: #f8fafc;
     --shadow-panel: 0 30px 70px rgba(15, 23, 42, 0.16);
     --shadow-soft: 0 16px 40px rgba(15, 23, 42, 0.08);
     --accent-bg: #eef4ff;
     --accent-text: #175cd3;
     --ui-bg-color: rgba(255, 255, 255, 0.92);
     --button-bg-color: #111827;
+    /* PRD Chapter 6 — Full Color Chromatography */
+    --node-surface: #ffffff;
+    --edge-active: #3b82f6;
+    --text-main: #0f172a;
+    --border-glow: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 :root[data-theme='dark'] {
@@ -52,13 +57,18 @@
     --primary-bg: #f3f4f6;
     --primary-text: #111827;
     --input-bg: rgba(22, 26, 34, 0.92);
-    --canvas-bg: #11151c;
+    --canvas-bg: #111318;
     --shadow-panel: 0 30px 70px rgba(0, 0, 0, 0.34);
     --shadow-soft: 0 16px 40px rgba(0, 0, 0, 0.24);
     --accent-bg: rgba(47, 128, 237, 0.18);
     --accent-text: #7cb4ff;
     --ui-bg-color: rgba(18, 21, 27, 0.94);
     --button-bg-color: #f3f4f6;
+    /* PRD Chapter 6 — Full Color Chromatography */
+    --node-surface: #1a1d24;
+    --edge-active: #10b981;
+    --text-main: #f8fafc;
+    --border-glow: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 html,

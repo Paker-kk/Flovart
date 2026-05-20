@@ -16,6 +16,15 @@ export const COMMANDS = [
   'generate.video',
   'video.status',
   'export.project',
+  'node.create',
+  'node.list',
+  'node.update',
+  'node.upscale',
+  'node.gacha',
+  'node.promote-candidate',
+  'job.start',
+  'job.status',
+  'row.retry',
 ];
 
 export const QUICK_COMMANDS = [
@@ -221,6 +230,38 @@ export async function executeFlovartCommand(commandName, args = {}, runtime = {}
       return await runtime.generate?.videoStatus?.({ jobId: required(args['job-id'] || args.jobId, 'job-id') });
     case 'export.project':
       return await runtime.export?.project?.({ format: args.format || 'json' });
+    case 'node.create':
+      return await runtime.node?.create?.(args);
+    case 'node.list':
+      return await runtime.node?.list?.();
+    case 'job.start':
+      return await runtime.job?.start?.(args);
+    case 'job.status':
+      return await runtime.job?.status?.(args);
+    case 'node.update':
+      return await runtime.node?.update?.({
+        id: required(args.id || args['node-id'], 'id'),
+        textPrompt: args.prompt || args['text-prompt'],
+        parameters: args.parameters || args.params,
+      });
+    case 'node.upscale':
+      return await runtime.node?.upscale?.({ nodeId: required(args.nodeId || args['node-id'], 'nodeId') });
+    case 'node.gacha':
+      return await runtime.node?.gacha?.({
+        nodeId: required(args.nodeId || args['node-id'], 'nodeId'),
+        count: Number(args.count) || 4,
+      });
+    case 'node.promote.candidate':
+    case 'node.promote-candidate':
+      return await runtime.node?.promoteCandidate?.({
+        nodeId: required(args.nodeId || args['node-id'], 'nodeId'),
+        candidateIndex: Number(required(args.candidateIndex, 'candidateIndex')),
+      });
+    case 'row.retry':
+      return await runtime.row?.retry?.({
+        nodeId: required(args.nodeId || args['node-id'], 'nodeId'),
+        rowId: required(args.rowId || args['row-id'], 'rowId'),
+      });
     default:
       throw new Error(`Unknown Flovart command: ${commandName}`);
   }
@@ -237,4 +278,50 @@ export function planFlovartInput(rawInput, session = createFlovartSession()) {
     steps: [`Run deterministic Flovart tool: ${command}`],
     run: async ({ runtime }) => executeFlovartCommand(command, args, runtime),
   };
+}
+
+/**
+ * PRD 7.3 — Self-Healing prompt sanitizer.
+ * Detects and fixes common NSFW/violation triggers in prompts.
+ */
+const NSFW_TRIGGERS = [
+  /\bexplosion\s+(causing|causes)\s+body\s+fragmentation\b/gi,
+  /\bhuman\s+(body|flesh)\s+(explod|shatter|tear|rip|dismember)\b/gi,
+  /\bblood\s+(spray|gush|splatter|pool)\b/gi,
+  /\b(gore|gruesome|mutilat|decapitat)\b/gi,
+  /\bexplicit\s+(violence|gore|sexual|nudity)\b/gi,
+];
+
+export function sanitizePrompt(prompt) {
+  let sanitized = prompt;
+  let fixed = false;
+  for (const trigger of NSFW_TRIGGERS) {
+    if (trigger.test(sanitized)) {
+      sanitized = sanitized.replace(trigger, (match) => {
+        fixed = true;
+        return match
+          .replace(/explosion\s+causing\s+body\s+fragmentation/gi, 'golden light particle dispersion')
+          .replace(/body\s+fragmentation/gi, 'energy dispersion')
+          .replace(/explod/gi, 'bursting with light')
+          .replace(/shatter/gi, 'dissolve into particles')
+          .replace(/tear/gi, 'glow')
+          .replace(/rip/gi, 'shift')
+          .replace(/dismember/gi, 'transform')
+          .replace(/blood\s+spray/gi, 'golden mist')
+          .replace(/blood\s+gush/gi, 'radiant flow')
+          .replace(/blood\s+splatter/gi, 'energy scatter')
+          .replace(/blood\s+pool/gi, 'light pool')
+          .replace(/gore/gi, 'dramatic effect')
+          .replace(/gruesome/gi, 'intense')
+          .replace(/mutilat/gi, 'dramatic')
+          .replace(/decapitat/gi, 'stylized')
+          .replace(/explicit\s+violence/gi, 'action scene')
+          .replace(/explicit\s+gore/gi, 'dramatic visuals')
+          .replace(/explicit\s+sexual/gi, 'romantic')
+          .replace(/explicit\s+nudity/gi, 'elegant fashion');
+      });
+      trigger.lastIndex = 0; // reset regex state
+    }
+  }
+  return { prompt: sanitized, fixed };
 }

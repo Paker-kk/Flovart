@@ -331,3 +331,165 @@ export interface ChatAttachment {
   mimeType: string;
   source: 'canvas' | 'upload';
 }
+
+// ──────────────────────────────────────────────
+// Spatial Node Architecture — ADR-003 Isolation Protocol
+// ──────────────────────────────────────────────
+
+export type SpatialNodeType =
+  | 'STATIC_ASSET'
+  | 'PROMPT_TEXT'
+  | 'GENERATE_IMAGE'
+  | 'GENERATE_VIDEO'
+  | 'STORYBOARD_TABLE';
+
+export type RowStepStatus = 'idle' | 'queued' | 'running' | 'success' | 'error';
+export type NodeExecutionStatus = 'idle' | 'queued' | 'running' | 'success' | 'error';
+
+export interface BaseSpatialNode {
+  id: string;
+  type: SpatialNodeType;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  dependencies: string[];
+}
+
+/** 1. Static asset node */
+export interface StaticAssetNode extends BaseSpatialNode {
+  type: 'STATIC_ASSET';
+  inputs: {
+    src: string;
+    fileName?: string;
+  };
+  outputs: {
+    blobId: string;
+  };
+}
+
+/** 2. Prompt / text script node */
+export interface PromptTextNode extends BaseSpatialNode {
+  type: 'PROMPT_TEXT';
+  inputs: {
+    text: string;
+    rawTiptapJSON?: unknown;
+  };
+  outputs: {
+    text: string;
+  };
+}
+
+/** 3. Image generation compute node */
+export interface GenerateImageNode extends BaseSpatialNode {
+  type: 'GENERATE_IMAGE';
+  inputs: {
+    prompt: string;
+    aspectRatio: '16:9' | '9:16' | '1:1' | '21:9';
+    negativePrompt?: string;
+    model?: string;
+    maskData?: string;
+  };
+  outputs: {
+    blobId?: string;
+    mediaHref?: string;
+    mediaMimeType?: string;
+    width?: number;
+    height?: number;
+    candidates: string[];
+    activeCandidateIndex?: number;
+  };
+  execution: {
+    status: NodeExecutionStatus;
+    error?: string;
+    jobId?: string;
+    startedAt?: number;
+    finishedAt?: number;
+    progressPercent?: number;
+  };
+}
+
+/** 4. Video generation compute node */
+export interface GenerateVideoNode extends BaseSpatialNode {
+  type: 'GENERATE_VIDEO';
+  inputs: {
+    prompt: string;
+    durationSec: number;
+    aspectRatio?: '16:9' | '9:16' | '1:1' | '21:9';
+    model?: string;
+    motionVector?: { pan: number; zoom: number; orbit: number };
+  };
+  outputs: {
+    blobId?: string;
+    mediaHref?: string;
+    mediaMimeType?: string;
+    candidates: string[];
+    activeCandidateIndex?: number;
+  };
+  execution: {
+    status: NodeExecutionStatus;
+    error?: string;
+    jobId?: string;
+    startedAt?: number;
+    finishedAt?: number;
+    progressPercent?: number;
+  };
+}
+
+/** Row-level state machine for STORYBOARD_TABLE */
+export interface RowExecution {
+  rowIndex: number;
+  rowId: string;
+  status: RowStepStatus;
+  errorMessage?: string;
+  errorCode?: 'nsfw_blocked' | 'api_timeout' | 'rate_limited' | 'unknown';
+  substeps: {
+    imageGen: { status: RowStepStatus; jobId?: string; startedAt?: number };
+    videoGen: { status: RowStepStatus; jobId?: string; startedAt?: number };
+  };
+  outputs: {
+    imageBlobId?: string;
+    videoBlobId?: string;
+    thumbnailDataUrl?: string;
+  };
+  retryCount: number;
+  maxRetries: number;
+}
+
+/** 5. Storyboard table batch-processing node */
+export interface StoryboardTableNode extends BaseSpatialNode {
+  type: 'STORYBOARD_TABLE';
+  inputs: {
+    csvFileMeta?: { name: string; size: number; rowCount: number };
+    templatePrompt: string;
+  };
+  runtimePayload?: {
+    columns: string[];
+    rows: Record<string, string>[];
+    rowExecutions: RowExecution[];
+  };
+  execution: {
+    status: NodeExecutionStatus;
+    progressPercent: number;
+    summary: string;
+    errorSummary?: string;
+  };
+}
+
+export type SpatialNode =
+  | StaticAssetNode
+  | PromptTextNode
+  | GenerateImageNode
+  | GenerateVideoNode
+  | StoryboardTableNode;
+
+export interface SpatialEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string;
+  targetHandle?: string;
+}
+
+/** Keep NodeType as a compatibility alias */
+export type NodeType = SpatialNodeType;

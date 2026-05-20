@@ -115,6 +115,21 @@ export function createRuntimeFacade(client) {
     export: {
       project: input => client.execute('export.project', input),
     },
+    node: {
+      create: input => client.execute('node.create', input),
+      list: () => client.execute('node.list'),
+      update: input => client.execute('node.update', input),
+      upscale: input => client.execute('node.upscale', input),
+      gacha: input => client.execute('node.gacha', input),
+      promoteCandidate: input => client.execute('node.promoteCandidate', input),
+    },
+    job: {
+      start: input => client.execute('job.start', input),
+      status: input => client.execute('job.status', input),
+    },
+    row: {
+      retry: input => client.execute('row.retry', input),
+    },
     config: {
       getProviders: () => client.execute('config.getProviders'),
     },

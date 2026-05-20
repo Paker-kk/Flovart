@@ -331,3 +331,42 @@
     return div.innerHTML;
   }
 })();
+
+// ─── Flovart PRD 7.1: Right-Click Asset Capture ───
+
+let flovartContextTarget = null;
+
+document.addEventListener('contextmenu', (e) => {
+  const img = e.target.closest('img');
+  const video = e.target.closest('video');
+  if (img && img.src && img.src.startsWith('http')) {
+    flovartContextTarget = { type: 'image', src: img.src, alt: img.alt || '' };
+  } else if (video && video.src && video.src.startsWith('http')) {
+    flovartContextTarget = { type: 'video', src: video.src, poster: video.poster || '' };
+  } else if (e.target instanceof HTMLImageElement && e.target.src && e.target.src.startsWith('http')) {
+    flovartContextTarget = { type: 'image', src: e.target.src, alt: e.target.alt || '' };
+  } else {
+    flovartContextTarget = null;
+  }
+}, true);
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type === 'FLOVART_GET_CONTEXT_TARGET') {
+    sendResponse(flovartContextTarget);
+  } else if (msg.type === 'FLOVART_REVERSE_PROMPT') {
+    // AI Reverse Prompt: send image to background for analysis
+    if (flovartContextTarget && flovartContextTarget.type === 'image') {
+      chrome.runtime.sendMessage({
+        type: 'FLOVART_REVERSE_PROMPT_REQUEST',
+        imageUrl: flovartContextTarget.src,
+        alt: flovartContextTarget.alt,
+      }, (result) => {
+        sendResponse(result || { ok: false, error: 'No response from background' });
+      });
+      return true; // async
+    } else {
+      sendResponse({ ok: false, error: 'No image selected' });
+    }
+  }
+  return true;
+});

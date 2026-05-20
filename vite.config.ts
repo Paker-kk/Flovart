@@ -40,6 +40,13 @@ export default defineConfig(() => {
         globals: true,
         environment: 'jsdom',
         setupFiles: ['./tests/setup.ts'],
+        exclude: [
+          '.chrome-cdp/**',
+          '.chrome-cdp2/**',
+          '.cdp-temp/**',
+          'node_modules/**',
+          'dist/**',
+        ],
       },
     };
 });

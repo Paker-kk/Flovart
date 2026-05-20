@@ -4,5 +4,9 @@
       "Bash(gh repo *)",
       "Bash(echo \"exit: $?\")"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "flovart"
+  ],
+  "enableAllProjectMcpServers": true
 }

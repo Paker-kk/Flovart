@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { AssetCategory, AssetItem, AssetLibrary, GenerationHistoryItem } from '../types';
 import { AgentBridgePanel } from './AgentBridgePanel';
 import { rhGetWebAppNodes, rhRunWebApp, rhUploadWebAppDataUrl, type RHWebAppNodeInfo, type RHWebAppOutputItem, type RHWebAppTaskStatus } from '../services/runningHubService';
@@ -481,7 +481,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                 <div className={`flex items-center justify-between border-b ${isDark ? 'border-[#2A3140]' : 'border-neutral-200/60'} ${compactMode ? 'px-3 py-2' : 'px-4 py-2.5'}`}>
                     <div className={`flex items-center gap-3 ${compactMode ? 'text-[12px]' : ''}`}>
                         {([
-                            { key: 'agent' as RightPanelTab, label: 'Agent Bridge', icon: null },
+                            { key: 'agent' as RightPanelTab, label: 'Agent', icon: null },
                             { key: 'history' as RightPanelTab, label: '历史', icon: null },
                             { key: 'inspiration' as RightPanelTab, label: '素材库', icon: null },
                             { key: 'runningHub' as RightPanelTab, label: 'RH', icon: '🚀' },

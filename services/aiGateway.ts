@@ -2,7 +2,10 @@ import type { AICapability, AIProvider, PromptEnhanceRequest, PromptEnhanceResul
 import { editImage, enhancePromptWithGemini, generateImageFromText, generateVideo, validateGeminiApiKey, getGeminiRestBaseUrl } from './geminiService';
 import { fetchModelsForProvider, type FetchModelsResult } from './modelFetcher';
 import { normalizeProviderBaseUrl } from './baseUrl';
-import { splitImageByBanana, runBananaImageAgent, type BananaAgentTask, type BananaAgentResult, type BananaImageInput, type BananaSplitLayer } from './bananaService';
+import { splitImageByBanana, runBananaImageAgent, setBananaRuntimeConfig, type BananaAgentTask, type BananaAgentResult, type BananaImageInput, type BananaSplitLayer } from './bananaService';
+
+// Re-export banana functions for hooks that need direct access (ADR-003: single gateway surface)
+export { splitImageByBanana, runBananaImageAgent, setBananaRuntimeConfig, type BananaAgentTask, type BananaAgentResult, type BananaImageInput, type BananaSplitLayer };
 
 type ImageInput = { href: string; mimeType: string };
 

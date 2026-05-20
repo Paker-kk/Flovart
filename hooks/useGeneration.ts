@@ -5,7 +5,7 @@ import type {
     CharacterLockProfile, ChatAttachment, AICapability, AIProvider,
 } from '../types';
 import { generateId, getElementBounds, rasterizeElement, rasterizeMask } from '../utils/canvasHelpers';
-import { splitImageByBanana, runBananaImageAgent } from '../services/bananaService';
+import { splitImageByBanana, runBananaImageAgent } from '../services/aiGateway';
 import {
     editImageWithProvider, enhancePromptWithProvider, generateImageWithProvider, generateVideoWithProvider,
     inferProviderFromModel, inferCapabilitiesByProvider, PROVIDER_LABELS, supportsMaskImageEditing, supportsReferenceImageEditing,

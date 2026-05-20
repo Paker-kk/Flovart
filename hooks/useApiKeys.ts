@@ -13,7 +13,7 @@ import {
     PROVIDER_LABELS,
 } from '../services/aiGateway';
 import { setGeminiRuntimeConfig } from '../services/geminiService';
-import { setBananaRuntimeConfig } from '../services/bananaService';
+import { setBananaRuntimeConfig } from '../services/aiGateway';
 import { refreshAllProviderModels, type FetchedModel } from '../services/modelFetcher';
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;

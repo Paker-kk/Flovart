@@ -173,6 +173,110 @@ server.registerTool(
   async (args) => textResult(await withRuntime('video.status', args)),
 );
 
+// ─── Node DAG Tools ─────────────────────────
+
+server.registerTool(
+  'flovart_node_create',
+  {
+    description: 'Create an execution node on the Flovart canvas with an independent Prompt. CRITICAL: If you want this node to reference or modify the result of an existing node, you MUST use @node_id syntax in textPrompt (e.g. "@node_1 apply cyberpunk filter").',
+    inputSchema: z.object({
+      id: z.string().describe('Must be a globally unique node identifier. Suggested format: node_img_01 or node_vid_01.'),
+      type: z.enum(['imageGen', 'videoGen', 'textPrompt', 'inpaint']).describe('Node engine type. imageGen (generate image), videoGen (generate/image-to-video), textPrompt (text-only script node), inpaint (localized inpainting). Do NOT invent types beyond this enum.'),
+      textPrompt: z.string().describe('Core generation instruction. REQUIRED: If there are dependencies on other nodes, you MUST include @targetNodeId in the prompt.'),
+      parameters: z.object({
+        aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9']).optional(),
+      }).optional().describe('Optional. Generation physical parameters.'),
+    }),
+  },
+  async (args) => textResult(await withRuntime('node.create', args)),
+);
+
+server.registerTool(
+  'flovart_job_start',
+  {
+    description: 'Submit the current canvas node DAG and trigger the parallel execution engine. This tool is asynchronous and will immediately return a job_id. It will NOT return the final result directly.',
+    inputSchema: z.object({
+      targetNodeId: z.string().describe('The leaf node ID whose final result you want to obtain. The engine will automatically compute and execute all upstream nodes it depends on.'),
+    }),
+  },
+  async (args) => textResult(await withRuntime('job.start', args)),
+);
+
+server.registerTool(
+  'flovart_job_status',
+  {
+    description: 'Poll the progress of a job created by flovart_job_start. IMPORTANT: If status is "running" or "queued", you MUST wait a few seconds and call this tool again, until status becomes "success" or "error".',
+    inputSchema: z.object({
+      job_id: z.string().describe('The job ticket ID returned by the engine.'),
+    }),
+  },
+  async (args) => textResult(await withRuntime('job.status', args)),
+);
+
+server.registerTool(
+  'flovart_node_update',
+  {
+    description: 'Update a node\'s prompt text. Used by the self-healing loop to fix prompts that trigger content violations, then retry execution.',
+    inputSchema: z.object({
+      id: z.string().describe('The node ID to update'),
+      textPrompt: z.string().optional().describe('New prompt text for the node'),
+      parameters: z.object({
+        aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9']).optional(),
+      }).optional(),
+    }),
+  },
+  async (args) => textResult(await withRuntime('node.update', args)),
+);
+
+// ─── ADR-003 New Tools: Upscale, Gacha, Promote, Row Retry ───
+
+server.registerTool(
+  'flovart_node_upscale',
+  {
+    description: 'Trigger 4x-UltraSharp upscale on a node\'s output result. Only applicable to GENERATE_IMAGE nodes.',
+    inputSchema: z.object({
+      nodeId: z.string().describe('The node ID whose output should be upscaled'),
+    }),
+  },
+  async (args) => textResult(await withRuntime('node.upscale', args)),
+);
+
+server.registerTool(
+  'flovart_node_gacha',
+  {
+    description: 'Trigger batch generation for a node, producing multiple candidate results stored in the node\'s candidates array. Count limited to 1-8.',
+    inputSchema: z.object({
+      nodeId: z.string().describe('The node ID to run batch gacha on'),
+      count: z.number().min(1).max(8).describe('Number of candidates to generate (1-8)'),
+    }),
+  },
+  async (args) => textResult(await withRuntime('node.gacha', args)),
+);
+
+server.registerTool(
+  'flovart_node_promote_candidate',
+  {
+    description: 'Promote a specific candidate (by index) from a node\'s gacha results into an independent SpatialNode on the canvas. Does NOT duplicate the DAG — the new node is linked via a SpatialEdge.',
+    inputSchema: z.object({
+      nodeId: z.string().describe('The source node ID containing the candidates array'),
+      candidateIndex: z.number().min(0).describe('Zero-based index into the candidates array'),
+    }),
+  },
+  async (args) => textResult(await withRuntime('node.promote-candidate', args)),
+);
+
+server.registerTool(
+  'flovart_row_retry',
+  {
+    description: 'Surgically retry a single failed row in a STORYBOARD_TABLE node. Clears the row state and re-submits only that row to the generation pool. Other rows are unaffected.',
+    inputSchema: z.object({
+      nodeId: z.string().describe('The STORYBOARD_TABLE node ID'),
+      rowId: z.string().describe('The specific row ID to retry'),
+    }),
+  },
+  async (args) => textResult(await withRuntime('row.retry', args)),
+);
+
 async function main() {
   await server.connect(new StdioServerTransport());
 }

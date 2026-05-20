@@ -1,4 +1,4 @@
-
+﻿
 
 
 
@@ -22,7 +22,6 @@ const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard'
 const RightPanel = React.lazy(() => import('./components/RightPanel').then(m => ({ default: m.RightPanel })));
 const AssetAddModal = React.lazy(() => import('./components/AssetAddModal').then(m => ({ default: m.AssetAddModal })));
 const ABCompareOverlay = React.lazy(() => import('./components/ABCompareOverlay').then(m => ({ default: m.ABCompareOverlay })));
-const NodeWorkflowPanel = React.lazy(() => import('./components/NodeWorkflowPanel').then(m => ({ default: m.NodeWorkflowPanel })));
 import { loadAssetLibrary, addAsset, removeAsset, renameAsset, loadAssetLibraryAsync, saveAssetLibraryAsync } from './utils/assetStorage';
 import { loadGenerationHistory, addGenerationHistoryItem } from './utils/generationHistory';
 import { inferProviderFromModel, reversePromptStreamWithProvider, DEFAULT_PROVIDER_MODELS, generateImageWithProvider, generateVideoWithProvider } from './services/aiGateway';
@@ -45,8 +44,8 @@ import { useToast } from './hooks/useToast';
 import ToastStack from './components/Toast';
 import { AppShell } from './components/AppShell';
 import { CanvasWorkspace } from './components/workspaces/CanvasWorkspace';
-import { WorkflowWorkspace } from './components/workspaces/WorkflowWorkspace';
-import type { WorkflowNode, WorkflowValue } from './components/nodeflow/types';
+import { useBoardStore } from './stores/useBoardStore';
+import { NodeFlowWorkspace } from './components/workspaces/NodeFlowWorkspace';
 import { useWorkspaceStore } from './stores/useWorkspaceStore';
 import type { WorkspaceView } from './types';
 
@@ -432,6 +431,7 @@ const App: React.FC = () => {
 
     // ── Zustand store: shell-level state ──
     const language = useWorkspaceStore(s => s.language);
+    const boardNodes = useBoardStore(s => s.nodes);
     const setLanguage = useWorkspaceStore(s => s.setLanguage);
     const themeMode = useWorkspaceStore(s => s.themeMode);
     const setThemeMode = useWorkspaceStore(s => s.setThemeMode);
@@ -2646,6 +2646,7 @@ const App: React.FC = () => {
                 )}
             </>}
             main={<>
+            {boardNodes.length > 0 && <NodeFlowWorkspace />}
             <Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"><div className="rounded-xl bg-neutral-800 px-6 py-4 text-sm text-white/60">Loading Settings…</div></div>}>
             <CanvasSettings
                 isOpen={isSettingsPanelOpen} 
@@ -3415,7 +3416,7 @@ const App: React.FC = () => {
                         <span>·</span>
                         <button className="underline-offset-2 hover:underline cursor-pointer bg-transparent border-none p-0 text-inherit text-[10px]" onClick={() => openLegalModal('terms')}>使用条款</button>
                         <span>·</span>
-                        <button className="underline-offset-2 hover:underline cursor-pointer bg-transparent border-none p-0 text-inherit text-[10px]" onClick={() => openLegalModal('privacy')}>隐私政策</button>
+                        <button className="underline-offset-2 hover:underline cursor-pointer bg-transparent border-none p-0 text-inherit text-[10px]" onClick={() => openLegalModal('privacy')}>隐私政策</button><span>·</span><span className="text-[9px] opacity-40 select-none">合规声明：本站仅限合规技术研发及学术测试使用。用户须严格遵守《生成式人工智能服务管理暂行办法》，严禁利用本平台生成或传播违法违规内容。本平台不对用户行为承担连带法律责任。</span>
                     </div>
                 </div>
             )}
