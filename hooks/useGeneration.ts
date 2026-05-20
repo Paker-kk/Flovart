@@ -562,12 +562,22 @@ export function useGeneration(params: UseGenerationParams) {
 
     /* ---- Main generate ---- */
 
-    const handleGenerate = async (promptOverride?: string, source: 'prompt' | 'right' | 'agent' = 'prompt') => {
+    const handleGenerate = async (
+        promptOverride?: string,
+        source: 'prompt' | 'right' | 'agent' = 'prompt',
+        modeOverride?: 'image' | 'video' | 'keyframe',
+        selectedElementIdsOverride?: string[],
+        mentionedElementIdsOverride?: string[],
+    ) => {
         let rawPrompt = (promptOverride ?? prompt).trim();
         if (!rawPrompt) {
             setError('请输入提示词。');
             return;
         }
+
+        const effectiveGenerationMode = modeOverride ?? generationMode;
+        const activeSelectedElementIds = selectedElementIdsOverride ?? selectedElementIds;
+        const activeMentionedElementIds = mentionedElementIdsOverride ?? mentionedElementIds;
 
         if (isAutoEnhanceEnabled && !promptOverride) {
             try {
@@ -581,7 +591,7 @@ export function useGeneration(params: UseGenerationParams) {
             }
         }
 
-        const neededCapability: 'image' | 'video' = generationMode === 'video' ? 'video' : 'image';
+        const neededCapability: 'image' | 'video' = effectiveGenerationMode === 'video' ? 'video' : 'image';
 
         const imageResolved = resolveModelKey('image', modelPreference.imageModel);
         const videoResolved = resolveModelKey('video', modelPreference.videoModel);
@@ -618,15 +628,15 @@ export function useGeneration(params: UseGenerationParams) {
         const resolvedVideoKey = videoResolved?.key || getPreferredApiKey('video', videoProvider);
         const supportsReferenceEditing = supportsReferenceImageEditing(resolvedImageModel);
         const supportsMaskEditing = supportsMaskImageEditing(resolvedImageModel);
-        const imageOutputName = generationMode === 'keyframe' ? 'Keyframe' : 'Generated Image';
+        const imageOutputName = effectiveGenerationMode === 'keyframe' ? 'Keyframe' : 'Generated Image';
 
-        if (generationMode === 'keyframe') {
+        if (effectiveGenerationMode === 'keyframe') {
             try {
-                const mentionedImages = mentionedElementIds
+                const mentionedImages = activeMentionedElementIds
                     .map(id => elements.find(el => el.id === id))
                     .filter((el): el is ImageElement => !!el && el.type === 'image');
                 const selectedImages = elements
-                    .filter(el => selectedElementIds.includes(el.id) && el.type === 'image') as ImageElement[];
+                    .filter(el => activeSelectedElementIds.includes(el.id) && el.type === 'image') as ImageElement[];
                 const allFrameRefs = [...selectedImages, ...mentionedImages];
 
                 if (allFrameRefs.length < 1) {
@@ -714,13 +724,13 @@ export function useGeneration(params: UseGenerationParams) {
             return;
         }
 
-        if (generationMode === 'video') {
+        if (effectiveGenerationMode === 'video') {
             try {
-                const selectedElements = elements.filter(el => selectedElementIds.includes(el.id));
+                const selectedElements = elements.filter(el => activeSelectedElementIds.includes(el.id));
                 const imageElement = selectedElements.find(el => el.type === 'image') as ImageElement | undefined;
                 const attachmentImage = activeAttachments[0];
 
-                const mentionedImages = mentionedElementIds
+                const mentionedImages = activeMentionedElementIds
                     .map(id => elements.find(el => el.id === id))
                     .filter((el): el is ImageElement => !!el && el.type === 'image');
 
@@ -732,7 +742,7 @@ export function useGeneration(params: UseGenerationParams) {
                             ? { href: attachmentImage.href, mimeType: attachmentImage.mimeType }
                             : undefined;
 
-                if (selectedElementIds.length > 1 || (selectedElementIds.length === 1 && !imageElement)) {
+                if (activeSelectedElementIds.length > 1 || (activeSelectedElementIds.length === 1 && !imageElement)) {
                     setError('For video generation, please select a single image or no elements.');
                     setIsLoading(false);
                     return;
@@ -824,18 +834,18 @@ export function useGeneration(params: UseGenerationParams) {
 
         // IMAGE GENERATION LOGIC
         try {
-            const isEditing = selectedElementIds.length > 0;
+            const isEditing = activeSelectedElementIds.length > 0;
 
-            const mentionedImageElements = mentionedElementIds
+            const mentionedImageElements = activeMentionedElementIds
                 .map(id => elements.find(el => el.id === id))
-                .filter((el): el is ImageElement => !!el && el.type === 'image' && !selectedElementIds.includes(el.id));
+                .filter((el): el is ImageElement => !!el && el.type === 'image' && !activeSelectedElementIds.includes(el.id));
 
             if (isEditing) {
                 if (!supportsReferenceEditing) {
                     setError('当前图片模型不支持白板编辑或多图合成。请切换到支持参考图编辑的 Gemini、GPT Image 或 OpenRouter 图像模型。');
                     return;
                 }
-                const selectedElements = elements.filter(el => selectedElementIds.includes(el.id));
+                const selectedElements = elements.filter(el => activeSelectedElementIds.includes(el.id));
                 const imageElements = selectedElements.filter(el => el.type === 'image') as ImageElement[];
                 const maskPaths = selectedElements.filter(el => el.type === 'path' && el.strokeOpacity && el.strokeOpacity < 1) as PathElement[];
 

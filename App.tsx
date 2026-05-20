@@ -15,6 +15,7 @@ import { DEFAULT_IMAGE_FILTERS } from './types';
 import { AssetLibraryPanel } from './components/AssetLibraryPanel';
 import { ImageFilterPanel, buildCssFilter, temperatureMatrix, sharpenKernel } from './components/ImageFilterPanel';
 import { ElementToolbar } from './components/ElementToolbar';
+import { InlinePromptBar } from './components/canvas-ui/InlinePromptBar';
 
 // Lazy-loaded components (not needed for first paint)
 const CanvasSettings = React.lazy(() => import('./components/CanvasSettings').then(m => ({ default: m.CanvasSettings })));
@@ -48,7 +49,7 @@ import { CanvasWorkspace } from './components/workspaces/CanvasWorkspace';
 import { WorkflowWorkspace } from './components/workspaces/WorkflowWorkspace';
 import type { WorkflowNode, WorkflowValue } from './components/nodeflow/types';
 import { useWorkspaceStore } from './stores/useWorkspaceStore';
-import type { WorkspaceView } from './types';
+import type { CanvasElement, ElementGenerationState, WorkspaceView } from './types';
 
 
 
@@ -573,6 +574,12 @@ const App: React.FC = () => {
         return selected && selected.type === 'image' ? selected : null;
     }, [elements, selectedElementIds]);
 
+    const selectedInlinePromptElement = useMemo<CanvasElement | null>(() => {
+        if (selectedElementIds.length !== 1) return null;
+        const selected = elements.find(el => el.id === selectedElementIds[0]);
+        return selected && (selected.type === 'image' || selected.type === 'video') ? selected : null;
+    }, [elements, selectedElementIds]);
+
     const activeCharacterLock = useMemo(() => {
         if (!activeCharacterLockId) return null;
         return characterLocks.find(lock => lock.id === activeCharacterLockId) || null;
@@ -643,7 +650,33 @@ const App: React.FC = () => {
             }
         });
     };
-    
+
+    const updateElementGenerationState = useCallback((id: string, generationState: ElementGenerationState) => {
+        setElements(prev => prev.map(element => {
+            if (element.id !== id || (element.type !== 'image' && element.type !== 'video')) return element;
+            return {
+                ...element,
+                generationState,
+            };
+        }), false);
+    }, [setElements]);
+
+    const animateViewportToElement = useCallback((targetX: number, targetY: number, targetZoom: number) => {
+        const svgBounds = svgRef.current?.getBoundingClientRect();
+        const viewportWidth = svgBounds?.width || window.innerWidth;
+        const viewportHeight = svgBounds?.height || window.innerHeight;
+        const nextPanOffset = {
+            x: viewportWidth / 2 - targetX * targetZoom,
+            y: viewportHeight / 2 - targetY * targetZoom,
+        };
+
+        updateActiveBoard(board => ({
+            ...board,
+            zoom: targetZoom,
+            panOffset: nextPanOffset,
+        }));
+    }, [activeBoardId]);
+
     const commitAction = useCallback((updater: (prev: Element[]) => Element[]) => {
         updateActiveBoard(board => {
             const newElements = updater(board.elements);
@@ -726,6 +759,24 @@ const App: React.FC = () => {
         setIsSettingsPanelOpen, setGenerationHistory, setInpaintState, setInpaintPrompt,
         commitAction, getPreferredApiKey,
     });
+
+    const handleInlinePromptGenerate = useCallback((elementId: string, inlinePrompt: string) => {
+        const target = elementsRef.current.find(element => element.id === elementId);
+        if (!target || (target.type !== 'image' && target.type !== 'video')) return;
+
+        const inlineMentionedIds = target.generationState?.promptPayload.resolvedReferences.map(reference => reference.targetElementId) || [];
+        const inlineSelectedIds = target.type === 'image' ? [elementId] : [];
+
+        setSelectedElementIds([elementId]);
+        setGenerationMode(target.type === 'video' ? 'video' : 'image');
+        handleGenerate(
+            inlinePrompt,
+            'prompt',
+            target.type === 'video' ? 'video' : 'image',
+            inlineSelectedIds,
+            inlineMentionedIds,
+        );
+    }, [handleGenerate, setSelectedElementIds, setGenerationMode]);
 
     const resolveWorkflowImageSize = useCallback(async (value: Extract<WorkflowValue, { kind: 'image' }>) => (
         new Promise<{ width: number; height: number }>((resolve) => {
@@ -3152,6 +3203,22 @@ const App: React.FC = () => {
                         {alignmentGuides.map((guide, i) => (
                              <line key={i} x1={guide.type === 'v' ? guide.position : guide.start} y1={guide.type === 'h' ? guide.position : guide.start} x2={guide.type === 'v' ? guide.position : guide.end} y2={guide.type === 'h' ? guide.position : guide.end} stroke="red" strokeWidth={1/zoom} strokeDasharray={`${4/zoom} ${2/zoom}`} />
                         ))}
+
+                        {selectedInlinePromptElement && !croppingState && !editingElement && (
+                            <InlinePromptBar
+                                element={selectedInlinePromptElement}
+                                allElements={elements}
+                                canvasZoom={zoom}
+                                canvasPan={panOffset}
+                                modelId={selectedInlinePromptElement.type === 'video' ? modelPreference.videoModel : modelPreference.imageModel}
+                                status={isLoading ? 'running' : selectedInlinePromptElement.generationState?.status || 'idle'}
+                                progress={selectedInlinePromptElement.generationState?.progress}
+                                isLoading={isLoading}
+                                onPromptChange={updateElementGenerationState}
+                                onGenerate={handleInlinePromptGenerate}
+                                animateViewport={animateViewportToElement}
+                            />
+                        )}
 
                         {selectedElementIds.length > 0 && !croppingState && !editingElement && (
                             <ElementToolbar

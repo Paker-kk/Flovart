@@ -8,6 +8,15 @@ type ImageInput = { href: string; mimeType: string };
 
 type ProviderModelMap = { text: string[]; image: string[]; video: string[]; agent?: string[] };
 
+export type ElementMediaCapability = 'image' | 'video';
+
+export interface ModelParamSchema {
+    hasSeed: boolean;
+    hasCfgScale: boolean;
+    hasAspectRatio: boolean;
+    defaultAspectRatio?: VideoAspectRatio;
+}
+
 export const DEFAULT_PROVIDER_MODELS: Partial<Record<AIProvider, ProviderModelMap>> = {
     google: {
         text: ['gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
@@ -365,6 +374,41 @@ export function inferCapabilityFromModel(model: string): AICapability | undefine
     if (/^gemini/.test(normalized)) return normalized.includes('image') ? 'image' : 'text';
     if (/^(gpt|o\d|claude|qwen|deepseek|llama|command|mistral|doubao|abab|minimax)/.test(normalized)) return 'text';
     return undefined;
+}
+
+export function inferCapabilityFromModelName(modelName: string): ElementMediaCapability {
+    const stripped = stripModelProviderPrefix(modelName);
+    const normalized = stripped.includes('/') ? stripped.split('/').pop() || stripped : stripped;
+
+    if (/^(veo([-.\d]|$)|video|wan|seedance|vidu|pika|runway|higgsfield|luma|kling|keling|sora|sdols|hailuo|qwen-video|liveportrait|videoretalk|emo|cogvideo|hunyuan-video)/.test(normalized)) {
+        return 'video';
+    }
+
+    if (normalized.includes('video') || normalized.includes('movie')) {
+        return 'video';
+    }
+
+    return 'image';
+}
+
+export function getDynamicParamSchema(modelName: string): ModelParamSchema {
+    const capability = inferCapabilityFromModelName(modelName);
+    const normalized = normalizeModelName(modelName);
+
+    if (capability === 'video') {
+        return {
+            hasSeed: true,
+            hasCfgScale: false,
+            hasAspectRatio: true,
+            defaultAspectRatio: '16:9',
+        };
+    }
+
+    return {
+        hasSeed: true,
+        hasCfgScale: !normalized.includes('flux'),
+        hasAspectRatio: false,
+    };
 }
 
 function parseTextResponseContent(json: any): string {

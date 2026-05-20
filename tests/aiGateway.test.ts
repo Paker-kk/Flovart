@@ -4,7 +4,7 @@
  * 2026 模型名更新：Gemini 3, GPT-5.4, Claude Opus 4.6, Veo 3.1
  */
 import { describe, it, expect } from 'vitest';
-import { diagnoseKeyCapabilities, explainKeyCapabilities, inferCapabilityFromModel, inferProviderFromModel, isGoogleImageEditModel, isGoogleTextToImageModel, supportsMaskImageEditing, supportsReferenceImageEditing } from '../services/aiGateway';
+import { diagnoseKeyCapabilities, explainKeyCapabilities, getDynamicParamSchema, inferCapabilityFromModel, inferCapabilityFromModelName, inferProviderFromModel, isGoogleImageEditModel, isGoogleTextToImageModel, supportsMaskImageEditing, supportsReferenceImageEditing } from '../services/aiGateway';
 import type { UserApiKey } from '../types';
 
 describe('inferProviderFromModel', () => {
@@ -86,6 +86,29 @@ describe('inferProviderFromModel', () => {
     it('未知模型回退到 custom', () => {
         expect(inferProviderFromModel('some-unknown-model')).toBe('custom');
         expect(inferProviderFromModel('')).toBe('custom');
+    });
+
+    it('为内联控制台动态推断媒体能力和参数 Schema', () => {
+        expect(inferCapabilityFromModelName('openrouter/google/veo-3.1-generate-preview')).toBe('video');
+        expect(inferCapabilityFromModelName('runway-gen4-video')).toBe('video');
+        expect(inferCapabilityFromModelName('luma-ray2')).toBe('video');
+        expect(inferCapabilityFromModelName('flux-kontext-pro')).toBe('image');
+        expect(getDynamicParamSchema('veo-3.1-generate-preview')).toEqual({
+            hasSeed: true,
+            hasCfgScale: false,
+            hasAspectRatio: true,
+            defaultAspectRatio: '16:9',
+        });
+        expect(getDynamicParamSchema('flux-schnell')).toEqual({
+            hasSeed: true,
+            hasCfgScale: false,
+            hasAspectRatio: false,
+        });
+        expect(getDynamicParamSchema('gpt-image-1')).toEqual({
+            hasSeed: true,
+            hasCfgScale: true,
+            hasAspectRatio: false,
+        });
     });
 
     it('Stability 模型已移除 — 回退到 custom', () => {
