@@ -65,7 +65,9 @@ describe('AgentOrchestrator provider routing', () => {
         }),
       }),
     );
-    const [, init] = fetchMock.mock.calls[0];
+    const call = fetchMock.mock.calls[0] as unknown as [unknown, RequestInit] | undefined;
+    if (!call) throw new Error('Expected at least one fetch call');
+    const init = call[1];
     expect(JSON.parse(String(init.body))).toEqual(expect.objectContaining({
       model: 'vendor-claude',
     }));

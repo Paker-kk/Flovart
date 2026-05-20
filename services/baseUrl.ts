@@ -8,6 +8,7 @@ const OPENAI_COMPATIBLE_PROVIDERS = new Set<AIProvider>([
     'qwen',
     'minimax',
     'volcengine',
+    'openai_compatible',
     'custom',
     'keling',
     'flux',

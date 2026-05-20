@@ -144,7 +144,6 @@ describe('Bug fix: validateAndResizeImage', () => {
 
         const result = await validateAndResizeImage(file);
         expect(result).toBeTruthy();
-        expect(typeof result).toBe('string');
-        expect(result.startsWith('data:')).toBe(true);
+        expect(result.dataUrl.startsWith('data:')).toBe(true);
     });
 });

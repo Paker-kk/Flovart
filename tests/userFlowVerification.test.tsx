@@ -14,6 +14,7 @@ import {
   saveStoryboardState,
   STORYBOARD_STORAGE_KEY,
 } from '../utils/storyboardStore';
+import type { WorkspaceView } from '../types';
 
 describe('StoryboardWorkspace — real user flow', () => {
   beforeEach(() => {
@@ -219,7 +220,6 @@ describe('AssetsWorkspace — real user flow', () => {
 // ── TopWorkspaceBar — all tabs render ────────────────────────────
 
 import { TopWorkspaceBar } from '../components/TopWorkspaceBar';
-import type { WorkspaceView } from '../types';
 
 describe('TopWorkspaceBar — tab completeness', () => {
   it('renders Canvas and Workflow tabs centered', () => {
@@ -279,8 +279,6 @@ describe('Build security — no API keys in bundle', () => {
 });
 
 // ── WorkspaceView type — includes new tabs ───────────────────────
-
-import type { WorkspaceView } from '../types';
 
 describe('WorkspaceView type — completeness', () => {
   it('accepts Canvas and Workflow', () => {

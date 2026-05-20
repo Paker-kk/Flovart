@@ -52,6 +52,7 @@ const providerBaseUrl: Record<AIProvider, string> = {
     minimax: 'https://api.minimax.chat/v1',
     volcengine: 'https://ark.cn-beijing.volces.com/api/v3',
     openrouter: 'https://openrouter.ai/api/v1',
+    openai_compatible: '',
     custom: '',
 };
 

@@ -13,7 +13,7 @@ export interface Point {
   y: number;
 }
 
-interface CanvasElementBase {
+export interface CanvasElementBase {
   id: string;
   x: number;
   y: number;
@@ -21,6 +21,37 @@ interface CanvasElementBase {
   isVisible?: boolean;
   isLocked?: boolean;
   parentId?: string;
+  generationState?: ElementGenerationState;
+}
+
+export type GenerationStatus = 'idle' | 'queued' | 'running' | 'success' | 'error';
+
+export type InlineGenerationProvider =
+  | 'openrouter'
+  | 'siliconflow'
+  | 'google'
+  | 'keling'
+  | 'midjourney'
+  | 'openai_compatible';
+
+export interface ResolvedReference {
+  token: string;
+  targetElementId: string;
+  targetType: 'image' | 'video' | 'text';
+}
+
+export interface AdaptivePromptPayload {
+  rawText: string;
+  resolvedReferences: ResolvedReference[];
+}
+
+export interface ElementGenerationState {
+  promptPayload: AdaptivePromptPayload;
+  provider: InlineGenerationProvider;
+  modelId: string;
+  status: GenerationStatus;
+  error?: string;
+  progress?: number;
 }
 
 /** 图片滤镜/调色参数 */
@@ -71,6 +102,11 @@ export interface VideoElement extends CanvasElementBase {
   poster?: string;
   durationSec?: number;
   sourceKind?: 'upload' | 'workflow' | 'generation';
+  generationMeta?: {
+    prompt?: string;
+    provider?: string;
+    model?: string;
+  };
 }
 
 export interface PathElement extends CanvasElementBase {
@@ -123,7 +159,8 @@ export interface GroupElement extends CanvasElementBase {
 }
 
 
-export type Element = ImageElement | PathElement | ShapeElement | TextElement | ArrowElement | LineElement | GroupElement | VideoElement;
+export type CanvasElement = ImageElement | VideoElement | TextElement | ShapeElement;
+export type Element = CanvasElement | PathElement | ArrowElement | LineElement | GroupElement;
 
 export interface UserEffect {
   id: string;
@@ -140,6 +177,33 @@ export interface Board {
   panOffset: Point;
   zoom: number;
   canvasBackgroundColor: string;
+}
+
+export interface StoryboardShot {
+  id: string;
+  title: string;
+  prompt: string;
+  notes: string;
+  aspectRatio: string;
+  durationSec: number;
+  referenceImageIds: string[];
+  referenceVideoIds: string[];
+  outputElementIds: string[];
+  primaryOutputId: string | null;
+  status: 'draft' | 'done' | 'error';
+  error: string | null;
+  workflowId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface StoryboardProject {
+  id: string;
+  name: string;
+  shots: StoryboardShot[];
+  activeShotId: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 // Asset Library

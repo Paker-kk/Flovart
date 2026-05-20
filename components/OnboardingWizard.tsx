@@ -58,6 +58,7 @@ const PROVIDER_CAPABILITIES: Record<AIProvider, AICapability[]> = {
     minimax: ['text', 'image', 'video'],
     volcengine: ['text'],
     openrouter: ['text', 'image'],
+    openai_compatible: ['text', 'image'],
     custom: ['text', 'image'],
 };
 

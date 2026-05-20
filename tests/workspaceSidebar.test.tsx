@@ -11,6 +11,9 @@ const board: Board = {
   elements: [],
   history: [[]],
   historyIndex: 0,
+  panOffset: { x: 0, y: 0 },
+  zoom: 1,
+  canvasBackgroundColor: '#ffffff',
 };
 
 function renderSidebar(elements: Element[]) {

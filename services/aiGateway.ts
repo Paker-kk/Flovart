@@ -80,6 +80,11 @@ export const DEFAULT_PROVIDER_MODELS: Partial<Record<AIProvider, ProviderModelMa
         image: ['openai/gpt-image-1', 'google/imagen-4.0-generate-001'],
         video: [],
     },
+    openai_compatible: {
+        text: [],
+        image: [],
+        video: [],
+    },
 };
 
 export interface ApiKeyValidationResult {
@@ -155,7 +160,7 @@ export async function validateApiKey(provider: AIProvider, apiKey: string, baseU
     }
 
     // OpenAI-compatible: 不仅检查鉴权，还拿到能力摘要和协议类型
-    if (provider === 'openai' || provider === 'qwen' || provider === 'deepseek' || provider === 'siliconflow' || provider === 'minimax' || provider === 'volcengine' || provider === 'openrouter' || provider === 'custom') {
+    if (provider === 'openai' || provider === 'qwen' || provider === 'deepseek' || provider === 'siliconflow' || provider === 'minimax' || provider === 'volcengine' || provider === 'openrouter' || provider === 'openai_compatible' || provider === 'custom') {
         const result = await fetchModelsForProvider(provider, apiKey, baseUrl);
         if (!result.ok) return { ok: false, message: result.error };
         return {
@@ -237,6 +242,7 @@ const DEFAULT_BASE_URLS: Record<AIProvider, string> = {
     minimax: 'https://api.minimax.chat/v1',
     volcengine: 'https://ark.cn-beijing.volces.com/api/v3',
     openrouter: 'https://openrouter.ai/api/v1',
+    openai_compatible: '',
     custom: '',
 };
 
@@ -287,6 +293,7 @@ export const PROVIDER_LABELS: Record<AIProvider, string> = {
     minimax: 'MiniMax',
     volcengine: '火山引擎 (豆包)',
     openrouter: 'OpenRouter',
+    openai_compatible: 'OpenAI Compatible',
     custom: '自定义',
 };
 
