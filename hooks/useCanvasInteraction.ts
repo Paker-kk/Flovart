@@ -715,9 +715,10 @@ export function useCanvasInteraction(params: UseCanvasInteractionParams) {
         const { clientX, clientY, deltaX, deltaY, ctrlKey } = e;
 
         if (ctrlKey || wheelAction === 'zoom') {
-            const zoomFactor = 1.05;
             const oldZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
-            const newZoom = deltaY < 0 ? oldZoom * zoomFactor : oldZoom / zoomFactor;
+            const normalizedDelta = Math.max(-180, Math.min(180, deltaY));
+            const zoomFactor = Math.pow(1.0016, -normalizedDelta);
+            const newZoom = oldZoom * zoomFactor;
             const clampedZoom = Math.max(0.1, Math.min(newZoom, 10));
 
             const svgBounds = svgRef.current?.getBoundingClientRect();
