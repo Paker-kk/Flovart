@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type {
     CanvasElement,
     ChatAttachment,
@@ -77,6 +77,7 @@ export const InlinePromptBar = memo(({
     onMediaGenerated,
 }: InlinePromptBarProps) => {
     const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+    const animationFrameRef = useRef<number | null>(null);
     const generationState = createGenerationState(element, modelId, isLoading ? 'running' : status, progress);
     const effectiveModelId = generationState.modelId || modelId;
     const generationMode: GenerationMode = element.type === 'video' ? 'video' : 'image';
@@ -156,9 +157,38 @@ export const InlinePromptBar = memo(({
         }
     };
 
-    const inverseScale = canvasZoom >= 0.4 ? 1 / canvasZoom : 1;
-    const panelWidth = 540;
+    const targetScale = useMemo(() => {
+        const safeZoom = Math.max(canvasZoom, 0.12);
+        return Math.max(0.92, Math.min(2.35, 1 / safeZoom));
+    }, [canvasZoom]);
+    const [displayScale, setDisplayScale] = useState(targetScale);
+    const panelWidth = 640;
     const capability = inferCapabilityFromModelName(effectiveModelId);
+
+    useEffect(() => {
+        if (animationFrameRef.current !== null) {
+            window.cancelAnimationFrame(animationFrameRef.current);
+        }
+
+        const animate = () => {
+            setDisplayScale(previous => {
+                const delta = targetScale - previous;
+                if (Math.abs(delta) < 0.002) {
+                    return targetScale;
+                }
+                animationFrameRef.current = window.requestAnimationFrame(animate);
+                return previous + delta * 0.18;
+            });
+        };
+
+        animationFrameRef.current = window.requestAnimationFrame(animate);
+        return () => {
+            if (animationFrameRef.current !== null) {
+                window.cancelAnimationFrame(animationFrameRef.current);
+                animationFrameRef.current = null;
+            }
+        };
+    }, [targetScale]);
 
     const addAttachments = async (files: FileList | File[]) => {
         const next = await Promise.all(Array.from(files).map(async (file, index) => ({
@@ -180,24 +210,25 @@ export const InlinePromptBar = memo(({
         <foreignObject
             x={element.x}
             y={element.y + element.height + 8}
-            width={panelWidth * inverseScale}
-            height={360 * inverseScale}
+            width={panelWidth * displayScale}
+            height={460 * displayScale}
             style={{ overflow: 'visible' }}
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
             data-testid="inline-prompt-bar"
         >
             <div
+                className="inline-prompt-bar-motion"
                 style={{
                     width: panelWidth,
-                    transform: `scale(${inverseScale})`,
+                    transform: `scale(${displayScale})`,
                     transformOrigin: 'top left',
+                    willChange: 'transform',
                 }}
             >
                 <PromptBar
                     t={t}
                     theme="dark"
-                    compactMode
                     variant="inline"
                     hideApiStatus
                     className="inline-prompt-bar-surface"
