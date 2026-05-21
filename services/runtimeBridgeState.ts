@@ -51,7 +51,6 @@ export function getKeySyncStatus(input: {
   const activeModel = input.modelPreference.videoModel
     || input.modelPreference.imageModel
     || input.modelPreference.textModel
-    || input.modelPreference.agentModel
     || undefined;
   const activeProvider = activeModel ? inferProviderFromModel(activeModel) : undefined;
   const hasVaultKeys = input.userApiKeys.length > 0;

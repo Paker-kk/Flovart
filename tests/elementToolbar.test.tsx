@@ -54,9 +54,9 @@ function renderToolbar(handleGroupSelection = vi.fn()) {
         handleStartCrop={() => undefined}
         handleReversePrompt={() => undefined}
         cancelReversePrompt={() => undefined}
-        handleSplitImageWithBanana={() => undefined}
-        handleUpscaleImageWithBanana={() => undefined}
-        handleRemoveBackgroundWithBanana={() => undefined}
+        handleSplitImageLayers={() => undefined}
+        handleUpscaleImage={() => undefined}
+        handleRemoveImageBackground={() => undefined}
         handleOutpaint={() => undefined}
         setFilterPanelElementId={() => undefined}
         setOutpaintMenuId={() => undefined}

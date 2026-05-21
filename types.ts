@@ -26,6 +26,8 @@ export interface CanvasElementBase {
 
 export type GenerationStatus = 'idle' | 'queued' | 'running' | 'success' | 'error';
 
+export type AssetSlotRole = 'first_frame' | 'style_ref' | 'control_net' | 'unassigned';
+
 export type InlineGenerationProvider =
   | 'openrouter'
   | 'siliconflow'
@@ -38,6 +40,7 @@ export interface ResolvedReference {
   token: string;
   targetElementId: string;
   targetType: 'image' | 'video' | 'text';
+  slotRole?: AssetSlotRole;
 }
 
 export interface AdaptivePromptPayload {
@@ -274,7 +277,7 @@ export interface RecipePackage {
 
 // API Key & Model Preferences
 export type ThemeMode = 'light' | 'dark' | 'system';
-export type AIProvider = 'openai' | 'anthropic' | 'google' | 'qwen' | 'banana' | 'deepseek' | 'siliconflow' | 'keling' | 'flux' | 'midjourney' | 'runningHub' | 'minimax' | 'volcengine' | 'openrouter' | 'custom';
+export type AIProvider = 'openai' | 'anthropic' | 'google' | 'qwen' | 'deepseek' | 'siliconflow' | 'keling' | 'flux' | 'midjourney' | 'runningHub' | 'minimax' | 'volcengine' | 'openrouter' | 'custom';
 export type AICapability = 'text' | 'image' | 'video' | 'agent';
 
 /** 模型条目（用于结构化展示） */
@@ -308,7 +311,6 @@ export interface ModelPreference {
   textModel: string;
   imageModel: string;
   videoModel: string;
-  agentModel: string;
 }
 
 // Agent / Workflow

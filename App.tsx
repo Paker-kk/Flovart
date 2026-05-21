@@ -746,7 +746,7 @@ const App: React.FC = () => {
     const {
         isEnhancingPrompt, batchResults, setBatchResults,
         handleEnhancePrompt, saveGenerationToHistory,
-        handleSplitImageWithBanana, handleUpscaleImageWithBanana, handleRemoveBackgroundWithBanana,
+        handleSplitImageLayers, handleUpscaleImage, handleRemoveImageBackground,
         handleOutpaint, handleInpaint, handleGenerate, handleBatchGenerate,
         handleSelectBatchResult, handleSelectAllBatchResults,
     } = useGeneration({
@@ -2516,6 +2516,7 @@ const App: React.FC = () => {
 
     const isSelectionActive = selectedElementIds.length > 0;
     const singleSelectedElement = selectedElementIds.length === 1 ? elements.find(el => el.id === selectedElementIds[0]) : null;
+    const isInlineMediaPromptActive = !!selectedInlinePromptElement && !croppingState && !editingElement;
 
     let cursor = 'default';
     if (maskEditingId) cursor = 'crosshair';
@@ -3211,7 +3212,7 @@ const App: React.FC = () => {
                                 canvasZoom={zoom}
                                 canvasPan={panOffset}
                                 modelId={selectedInlinePromptElement.type === 'video' ? modelPreference.videoModel : modelPreference.imageModel}
-                                status={isLoading ? 'running' : selectedInlinePromptElement.generationState?.status || 'idle'}
+                                status={selectedInlinePromptElement.generationState?.status || 'idle'}
                                 progress={selectedInlinePromptElement.generationState?.progress}
                                 isLoading={isLoading}
                                 onPromptChange={updateElementGenerationState}
@@ -3245,9 +3246,9 @@ const App: React.FC = () => {
                                 handleStartCrop={handleStartCrop}
                                 handleReversePrompt={handleReversePrompt}
                                 cancelReversePrompt={cancelReversePrompt}
-                                handleSplitImageWithBanana={handleSplitImageWithBanana}
-                                handleUpscaleImageWithBanana={handleUpscaleImageWithBanana}
-                                handleRemoveBackgroundWithBanana={handleRemoveBackgroundWithBanana}
+                                handleSplitImageLayers={handleSplitImageLayers}
+                                handleUpscaleImage={handleUpscaleImage}
+                                handleRemoveImageBackground={handleRemoveImageBackground}
                                 handleOutpaint={handleOutpaint}
                                 setFilterPanelElementId={setFilterPanelElementId}
                                 setOutpaintMenuId={setOutpaintMenuId}
@@ -3401,7 +3402,7 @@ const App: React.FC = () => {
             </div>
             {!croppingState && (
                 <div 
-                    className="compact-prompt-dock absolute bottom-0 left-0 right-0 z-[48] transition-all duration-300 ease-out flex flex-col items-center pointer-events-none"
+                    className={`compact-prompt-dock absolute bottom-0 left-0 right-0 z-[48] transition-all duration-300 ease-out flex flex-col items-center pointer-events-none ${isInlineMediaPromptActive ? 'translate-y-12 opacity-0' : 'translate-y-0 opacity-100'}`}
                     style={{
                         paddingLeft: chromeMetrics.isTablet ? `${chromeMetrics.promptSideInset}px` : `${isLayerMinimized ? chromeMetrics.outerGap : chromeMetrics.sidebarWidth + chromeMetrics.outerGap + 8}px`,
                         paddingRight: chromeMetrics.isTablet ? `${chromeMetrics.promptSideInset}px` : `${rightPanelWidth + chromeMetrics.promptSideInset}px`,

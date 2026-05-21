@@ -27,9 +27,9 @@ export interface ElementToolbarProps {
     handleStartCrop: (el: ImageElement) => void;
     handleReversePrompt: (href: string, mimeType: string, w?: number, h?: number) => void;
     cancelReversePrompt: () => void;
-    handleSplitImageWithBanana: (el: Element) => void;
-    handleUpscaleImageWithBanana: (el: Element) => void;
-    handleRemoveBackgroundWithBanana: (el: Element) => void;
+    handleSplitImageLayers: (el: Element) => void;
+    handleUpscaleImage: (el: Element) => void;
+    handleRemoveImageBackground: (el: Element) => void;
     handleOutpaint: (el: Element, dir: 'all' | 'up' | 'down' | 'left' | 'right') => void;
     setFilterPanelElementId: (id: string | null) => void;
     setOutpaintMenuId: (id: string | null) => void;
@@ -44,7 +44,7 @@ export function ElementToolbar(props: ElementToolbarProps) {
         t, getSelectionBounds, getElementBounds,
         handleAlignSelection, handleGroupSelection, handleCopyElement, handleDownloadImage, handleDeleteElement,
         handlePropertyChange, handleStartCrop, handleReversePrompt, cancelReversePrompt,
-        handleSplitImageWithBanana, handleUpscaleImageWithBanana, handleRemoveBackgroundWithBanana,
+        handleSplitImageLayers, handleUpscaleImage, handleRemoveImageBackground,
         handleOutpaint, setFilterPanelElementId, setOutpaintMenuId, setAddAssetModal, startMaskEditing,
     } = props;
 
@@ -128,13 +128,13 @@ export function ElementToolbar(props: ElementToolbarProps) {
                 }} className={`p-2 rounded flex items-center justify-center ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
                 </button>}
-            {element.type === 'image' && <button title="Split into layers with BANANA" onClick={() => handleSplitImageWithBanana(element)} className={`p-2 rounded flex items-center justify-center disabled:opacity-50 ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`} disabled={isLoading}>
+            {element.type === 'image' && <button title="Split into layers with image tool provider" onClick={() => handleSplitImageLayers(element)} className={`p-2 rounded flex items-center justify-center disabled:opacity-50 ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`} disabled={isLoading}>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="8" height="8" rx="1"></rect><rect x="13" y="3" width="8" height="8" rx="1"></rect><rect x="3" y="13" width="8" height="8" rx="1"></rect><path d="M13 17h8"></path><path d="M17 13v8"></path></svg>
                 </button>}
-            {element.type === 'image' && <button title="BANANA Agent: upscale x2" onClick={() => handleUpscaleImageWithBanana(element)} className={`p-2 rounded flex items-center justify-center disabled:opacity-50 ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`} disabled={isLoading}>
+            {element.type === 'image' && <button title="Image tool: upscale x2" onClick={() => handleUpscaleImage(element)} className={`p-2 rounded flex items-center justify-center disabled:opacity-50 ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`} disabled={isLoading}>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
                 </button>}
-            {element.type === 'image' && <button title="BANANA Agent: remove background" onClick={() => handleRemoveBackgroundWithBanana(element)} className={`p-2 rounded flex items-center justify-center disabled:opacity-50 ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`} disabled={isLoading}>
+            {element.type === 'image' && <button title="Image tool: remove background" onClick={() => handleRemoveImageBackground(element)} className={`p-2 rounded flex items-center justify-center disabled:opacity-50 ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`} disabled={isLoading}>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l18 18"></path><path d="M20 12a8 8 0 0 1-11.31 7.31"></path><path d="M4 12a8 8 0 0 1 11.31-7.31"></path></svg>
                 </button>}
             {element.type === 'video' && <a title={t('contextMenu.download')} href={(element as VideoElement).href} download={`video-${element.id}.mp4`} className={`p-2 rounded flex items-center justify-center ${resolvedTheme === 'dark' ? 'hover:bg-[#2A3140]' : 'hover:bg-gray-100'}`}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>}

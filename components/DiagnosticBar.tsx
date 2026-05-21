@@ -15,11 +15,12 @@ interface DiagnosticBarProps {
     onOpenSettings: () => void;
 }
 
-const CAP_LABELS: Record<AICapability, { label: string; icon: string }> = {
+const CREATIVE_CAPABILITIES: AICapability[] = ['text', 'image', 'video'];
+
+const CAP_LABELS: Record<'text' | 'image' | 'video', { label: string; icon: string }> = {
     text: { label: '润色', icon: '✏️' },
     image: { label: '绘图', icon: '🎨' },
     video: { label: '视频', icon: '🎬' },
-    agent: { label: '智能体', icon: '🤖' },
 };
 
 export const DiagnosticBar: React.FC<DiagnosticBarProps> = ({ userApiKeys, theme, onOpenSettings }) => {
@@ -55,7 +56,7 @@ export const DiagnosticBar: React.FC<DiagnosticBarProps> = ({ userApiKeys, theme
                 border: `1px solid ${isDark ? '#2A3140' : '#E4E7EC'}`,
             }}
         >
-            {(['text', 'image', 'video', 'agent'] as AICapability[]).map(cap => {
+            {CREATIVE_CAPABILITIES.map(cap => {
                 const covered = diagnosis.covered.includes(cap);
                 const { label, icon } = CAP_LABELS[cap];
                 return (

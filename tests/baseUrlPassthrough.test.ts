@@ -109,7 +109,7 @@ describe('Block2: Provider routing (已有)', () => {
         expect(inferCapabilityFromModel('veo-3.1-generate-preview')).toBe('video');
         expect(inferCapabilityFromModel('gpt-image-1')).toBe('image');
         expect(inferCapabilityFromModel('dall-e-3')).toBe('image');
-        expect(inferCapabilityFromModel('banana-vision-v1')).toBe('agent');
+        expect(inferCapabilityFromModel('unknown-tool-model')).toBeUndefined();
     });
 });
 

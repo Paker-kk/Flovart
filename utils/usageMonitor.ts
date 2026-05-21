@@ -54,7 +54,6 @@ const COST_MAP: Record<string, Record<string, number>> = {
   keling:     { text: 0,   image: 2, video: 8  },
   flux:       { text: 0,   image: 2, video: 0  },
   midjourney: { text: 0,   image: 5, video: 0  },
-  banana:     { text: 0,   image: 2, video: 5  },
   runningHub: { text: 0,   image: 3, video: 8  },
   custom:     { text: 0.5, image: 2, video: 5  },
 };

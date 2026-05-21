@@ -20,7 +20,6 @@ describe('types.ts', () => {
       'anthropic',
       'google',
       'qwen',
-      'banana',
       'deepseek',
       'siliconflow',
       'keling',
@@ -32,7 +31,7 @@ describe('types.ts', () => {
       'openrouter',
       'custom',
     ];
-    expect(providers).toHaveLength(15);
+    expect(providers).toHaveLength(14);
   });
 
   it('covers the supported generation modes', () => {

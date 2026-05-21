@@ -34,7 +34,7 @@ interface CanvasSettingsProps {
     /** Per-key usage summary (optional) */
     usageSummary?: Map<string, KeyUsageSummary>;
     /** 动态模型选项（从 App.tsx 传入，基于用户 Key 计算） */
-    dynamicModelOptions?: { text: string[]; image: string[]; video: string[]; agent: string[] };
+    dynamicModelOptions?: { text: string[]; image: string[]; video: string[] };
 }
 
 const providerBaseUrl: Record<AIProvider, string> = {
@@ -42,7 +42,6 @@ const providerBaseUrl: Record<AIProvider, string> = {
     anthropic: 'https://api.anthropic.com/v1',
     google: 'https://generativelanguage.googleapis.com/v1beta',
     qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    banana: 'https://api.banana.dev/v1/vision',
     deepseek: 'https://api.deepseek.com/v1',
     siliconflow: 'https://api.siliconflow.cn/v1',
     keling: 'https://api.klingai.com/v1',
@@ -62,6 +61,8 @@ const capabilityLabels: Record<AICapability, string> = {
     video: '视频',
     agent: 'Agent',
 };
+
+const CREATIVE_CAPABILITIES: AICapability[] = ['text', 'image', 'video'];
 
 type ProviderPreset = {
     id: string;
@@ -156,21 +157,6 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
         defaultModel: 'gemini-3-flash-preview',
         models: ['gemini-3-flash-preview', 'gemini-3.1-flash-image-preview', 'veo-3.1-generate-preview'],
     },
-    {
-        id: 'banana',
-        name: 'Banana Vision',
-        shortName: 'BN',
-        provider: 'banana',
-        websiteUrl: 'https://www.banana.dev',
-        baseUrl: providerBaseUrl.banana,
-        capabilities: ['agent'],
-        requestFormat: 'native',
-        authHeaderName: 'Authorization',
-        authScheme: 'Bearer',
-        defaultModel: 'banana-vision-v1',
-        models: ['banana-vision-v1'],
-        featured: true,
-    },
 ];
 
 const ensureModelOption = (options: string[], model?: string) => {
@@ -251,8 +237,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
             ],
             modelPreference.videoModel
         ),
-        agent: ensureModelOption(dynamicModelOptions?.agent?.length ? dynamicModelOptions.agent : [], modelPreference.agentModel),
-    }), [dynamicModelOptions, modelPreference.agentModel, modelPreference.imageModel, modelPreference.textModel, modelPreference.videoModel]);
+    }), [dynamicModelOptions, modelPreference.imageModel, modelPreference.textModel, modelPreference.videoModel]);
 
     if (!isOpen) return null;
 
@@ -976,13 +961,6 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                     {modelOptions.video.map(model => <option key={model} value={model}>{model}</option>)}
                                 </select>
                             </label>
-                            <label className={`rounded-2xl p-3 ${isDark ? 'bg-[#161A22]' : 'bg-[#F8FAFC]'}`}>
-                                <div className={`mb-2 text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>Agent 模型</div>
-                                <select value={modelPreference.agentModel} onChange={(event) => setModelPreference({ ...modelPreference, agentModel: event.target.value })} className={inputClass}>
-                                    {modelOptions.agent.length === 0 && <option value="">先添加支持 Agent 的供应商模型</option>}
-                                    {modelOptions.agent.map(model => <option key={model} value={model}>{model}</option>)}
-                                </select>
-                            </label>
                         </div>
                     </section>
 
@@ -1166,7 +1144,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                     <span className={`text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>这个 API 用于</span>
                                 </div>
                                 <div className="flex flex-wrap gap-2">
-                                    {(['text', 'image', 'video', 'agent'] as AICapability[]).map(capability => (
+                                    {CREATIVE_CAPABILITIES.map(capability => (
                                         <button
                                             key={capability}
                                             type="button"

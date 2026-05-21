@@ -1,4 +1,4 @@
-import type { AICapability, AIProvider } from '../types';
+import type { AIProvider } from '../types';
 import {
   DEFAULT_PROVIDER_MODELS,
   PROVIDER_LABELS,
@@ -6,7 +6,7 @@ import {
   supportsReferenceImageEditing,
 } from './aiGateway';
 
-export type ModelTemplateCapability = AICapability | 'videoEdit';
+export type ModelTemplateCapability = 'text' | 'image' | 'video' | 'videoEdit';
 export type ModelParamFieldType = 'text' | 'number' | 'boolean' | 'select';
 
 export interface ModelParamOption {
@@ -99,7 +99,6 @@ const PARAM_SCHEMAS: Record<ModelTemplateCapability, ModelParamSchemaField[]> = 
       group: 'basic',
     },
   ],
-  agent: [],
   videoEdit: [
     {
       key: 'trimInSec',
@@ -126,7 +125,6 @@ const DEFAULT_PARAMS: Record<ModelTemplateCapability, Record<string, unknown>> =
   text: { temperature: 0.7 },
   image: { aspectRatio: '16:9' },
   video: { aspectRatio: '16:9', durationSec: 4 },
-  agent: {},
   videoEdit: {},
 };
 
@@ -156,9 +154,9 @@ function buildBuiltinTemplates(): ModelTemplate[] {
 
   for (const [provider, modelMap] of Object.entries(DEFAULT_PROVIDER_MODELS) as Array<[
     AIProvider,
-    { text: string[]; image: string[]; video: string[]; agent?: string[] }
+    { text: string[]; image: string[]; video: string[] }
   ]>) {
-    for (const capability of ['text', 'image', 'video', 'agent'] as const) {
+    for (const capability of ['text', 'image', 'video'] as const) {
       const models = modelMap[capability] ?? [];
       for (const model of models) {
         templates.push({

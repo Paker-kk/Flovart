@@ -1,6 +1,6 @@
 /**
  * aiGateway 单元测试 — 验证 inferProviderFromModel 模型名称→Provider 推断逻辑
- * 覆盖 providers：google, openai, anthropic, qwen, banana, deepseek, custom
+ * 覆盖 providers：google, openai, anthropic, qwen, deepseek, custom
  * 2026 模型名更新：Gemini 3, GPT-5.4, Claude Opus 4.6, Veo 3.1
  */
 import { describe, it, expect } from 'vitest';
@@ -40,11 +40,6 @@ describe('inferProviderFromModel', () => {
         expect(inferProviderFromModel('qwen-vl-plus')).toBe('qwen');
     });
 
-    it('识别 Banana 模型', () => {
-        expect(inferProviderFromModel('banana-vision-agent')).toBe('banana');
-        expect(inferProviderFromModel('banana2-video-fast')).toBe('banana');
-    });
-
     it('识别 DeepSeek 模型', () => {
         expect(inferProviderFromModel('deepseek-chat')).toBe('deepseek');
         expect(inferProviderFromModel('deepseek-reasoner')).toBe('deepseek');
@@ -57,7 +52,6 @@ describe('inferProviderFromModel', () => {
         expect(inferCapabilityFromModel('gemini-3-pro-image-preview')).toBe('image');
         expect(inferCapabilityFromModel('imagen-4.0-generate-001')).toBe('image');
         expect(inferCapabilityFromModel('veo-3.1-generate-preview')).toBe('video');
-        expect(inferCapabilityFromModel('banana2-video-fast')).toBe('agent');
         expect(inferCapabilityFromModel('gpt-5.4')).toBe('text');
         expect(inferCapabilityFromModel('gpt-image-1.5')).toBe('image');
     });
@@ -121,7 +115,7 @@ describe('diagnoseKeyCapabilities', () => {
     it('无 Key 时报告全部缺失', () => {
         const result = diagnoseKeyCapabilities([]);
         expect(result.covered).toEqual([]);
-        expect(result.missing).toEqual(['text', 'image', 'video', 'agent']);
+        expect(result.missing).toEqual(['text', 'image', 'video']);
         expect(result.warnings.length).toBeGreaterThan(0);
     });
 
@@ -135,7 +129,7 @@ describe('diagnoseKeyCapabilities', () => {
         expect(result.covered).toContain('text');
         expect(result.covered).toContain('image');
         expect(result.covered).toContain('video');
-        expect(result.missing).toContain('agent');
+        expect(result.missing).toEqual([]);
     });
 
     it('缺少 Google Key 时给出建议', () => {
@@ -150,7 +144,7 @@ describe('diagnoseKeyCapabilities', () => {
 });
 
 describe('explainKeyCapabilities', () => {
-    it('reports unsupported agent for non-Banana keysets with Banana reason', () => {
+    it('only reports creative key capabilities', () => {
         const keys: UserApiKey[] = [{
             id: '1', provider: 'custom', key: 'sk-test',
             capabilities: ['text', 'image', 'video'],
@@ -158,15 +152,14 @@ describe('explainKeyCapabilities', () => {
         }];
 
         const result = explainKeyCapabilities(keys);
-        const agent = result.find(r => r.capability === 'agent')!;
-        expect(agent.supported).toBe(false);
-        expect(agent.reason).toContain('Banana');
+        expect(result.map(r => r.capability)).toEqual(['text', 'image', 'video']);
+        expect(result.every(r => r.supported)).toBe(true);
     });
 
     it('reports all supported with full keyset', () => {
         const keys: UserApiKey[] = [
             { id: '1', provider: 'google', key: 'k1', capabilities: ['text', 'image', 'video'], createdAt: 0, updatedAt: 0 },
-            { id: '2', provider: 'banana', key: 'k2', capabilities: ['agent'], createdAt: 0, updatedAt: 0 },
+            { id: '2', provider: 'custom', key: 'tool-key', capabilities: ['agent'], baseUrl: 'https://tools.example.com/v1', defaultModel: 'layer-tool-v1', createdAt: 0, updatedAt: 0 },
         ];
         const result = explainKeyCapabilities(keys);
         expect(result.every(r => r.supported)).toBe(true);
@@ -174,7 +167,7 @@ describe('explainKeyCapabilities', () => {
 
     it('returns per-capability reasons', () => {
         const result = explainKeyCapabilities([]);
-        expect(result).toHaveLength(4);
+        expect(result).toHaveLength(3);
         result.forEach(r => {
             expect(r.supported).toBe(false);
             expect(r.reason.length).toBeGreaterThan(0);

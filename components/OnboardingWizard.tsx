@@ -48,7 +48,6 @@ const PROVIDER_CAPABILITIES: Record<AIProvider, AICapability[]> = {
     openai: ['text'],
     anthropic: ['text'],
     qwen: ['text'],
-    banana: ['agent'],
     deepseek: ['text'],
     siliconflow: ['text', 'image'],
     keling: ['image', 'video'],
@@ -80,7 +79,7 @@ const CAPABILITY_LABELS: Record<AICapability, string> = {
     text: '✏️ LLM润色',
     image: '🖼️ 图片生成',
     video: '🎬 视频生成',
-    agent: '🤖 Agent',
+    agent: '图像工具',
 };
 
 const ENDPOINT_FLAVOR_LABELS: Record<'google' | 'openai-compatible' | 'openrouter-compatible', string> = {
@@ -407,7 +406,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                         支持的能力
                                     </label>
                                     <div className="flex flex-wrap gap-2">
-                                        {(['text', 'image', 'video', 'agent'] as AICapability[]).map(cap => (
+                                        {(['text', 'image', 'video'] as AICapability[]).map(cap => (
                                             <button
                                                 key={cap}
                                                 type="button"
@@ -424,7 +423,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                                             : 'border-[#E4E7EC] text-[#667085] hover:bg-[#F9FAFB]'
                                                 }`}
                                             >
-                                                {cap === 'text' ? '✏️ LLM润色' : cap === 'image' ? '🖼️ 图片生成' : cap === 'video' ? '🎬 视频生成' : '🤖 Agent'}
+                                                {cap === 'text' ? '✏️ LLM润色' : cap === 'image' ? '🖼️ 图片生成' : '🎬 视频生成'}
                                             </button>
                                         ))}
                                     </div>

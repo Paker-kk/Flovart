@@ -2,11 +2,10 @@ import type { AICapability, AIProvider, PromptEnhanceRequest, PromptEnhanceResul
 import { editImage, enhancePromptWithGemini, generateImageFromText, generateVideo, validateGeminiApiKey, getGeminiRestBaseUrl } from './geminiService';
 import { fetchModelsForProvider, type FetchModelsResult } from './modelFetcher';
 import { normalizeProviderBaseUrl } from './baseUrl';
-import { splitImageByBanana, runBananaImageAgent, type BananaAgentTask, type BananaAgentResult, type BananaImageInput, type BananaSplitLayer } from './bananaService';
 
 type ImageInput = { href: string; mimeType: string };
 
-type ProviderModelMap = { text: string[]; image: string[]; video: string[]; agent?: string[] };
+type ProviderModelMap = { text: string[]; image: string[]; video: string[] };
 
 export type ElementMediaCapability = 'image' | 'video';
 
@@ -37,12 +36,6 @@ export const DEFAULT_PROVIDER_MODELS: Partial<Record<AIProvider, ProviderModelMa
         text: ['qwen-max'],
         image: [],
         video: [],
-    },
-    banana: {
-        text: [],
-        image: [],
-        video: [],
-        agent: ['banana-vision-v1'],
     },
     deepseek: {
         text: ['deepseek-chat', 'deepseek-reasoner'],
@@ -231,7 +224,7 @@ export async function validateApiKey(provider: AIProvider, apiKey: string, baseU
         }
     }
 
-    // Banana / 其他: 简单格式校验
+    // 其他 provider: 简单格式校验
     if (apiKey.length < 10) return { ok: false, message: 'API Key 太短' };
     return { ok: true, message: '已保存（格式校验通过，未做在线验证）', capabilitySummary: inferCapabilitiesByProvider(provider) };
 }
@@ -241,7 +234,6 @@ const DEFAULT_BASE_URLS: Record<AIProvider, string> = {
     anthropic: 'https://api.anthropic.com/v1',
     google: 'https://generativelanguage.googleapis.com/v1beta',
     qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    banana: 'https://api.banana.dev/v1/vision',
     deepseek: 'https://api.deepseek.com/v1',
     siliconflow: 'https://api.siliconflow.cn/v1',
     keling: 'https://api.klingai.com/v1',
@@ -282,7 +274,6 @@ export function inferCapabilitiesByProvider(provider: AIProvider): import('../ty
     if (caps.text?.length) result.push('text');
     if (caps.image?.length) result.push('image');
     if (caps.video?.length) result.push('video');
-    if (caps.agent?.length) result.push('agent');
     return result.length ? result : ['text'];
 }
 
@@ -292,7 +283,6 @@ export const PROVIDER_LABELS: Record<AIProvider, string> = {
     openai: 'OpenAI',
     anthropic: 'Anthropic Claude',
     qwen: 'Qwen 通义千问',
-    banana: 'Banana',
     deepseek: 'DeepSeek 深度求索',
     siliconflow: 'SiliconFlow 硅基流动',
     keling: 'Keling 可灵',
@@ -329,7 +319,6 @@ function parseModelMappings(config: CustomProviderExtraConfig): Record<string, s
 }
 
 function mapProviderModel(model: string, key?: UserApiKey): string {
-    if (key?.provider !== 'custom') return model;
     return parseModelMappings(key.extraConfig)[model] || model;
 }
 
@@ -341,8 +330,8 @@ function buildProviderHeaders(
     const headers: Record<string, string> = {};
     if (options.contentType !== false) headers['Content-Type'] = 'application/json';
 
-    const headerName = key?.provider === 'custom' ? key.extraConfig?.authHeaderName || 'Authorization' : 'Authorization';
-    const authScheme = key?.provider === 'custom' ? key.extraConfig?.authScheme : 'Bearer';
+    const headerName = key?.extraConfig?.authHeaderName || 'Authorization';
+    const authScheme = key?.extraConfig?.authScheme ?? 'Bearer';
     headers[headerName] = authScheme === '' ? apiKey : `${authScheme || 'Bearer'} ${apiKey}`;
 
     if (options.anthropic) {
@@ -369,7 +358,6 @@ export function inferCapabilityFromModel(model: string): AICapability | undefine
     const normalized = stripModelProviderPrefix(model);
     if (!normalized) return undefined;
     if (/^(veo([-.\d]|$)|video|wan|seedance|vidu|pika|runway|higgsfield|luma|kling|keling|sora|sdols|hailuo|qwen-video|liveportrait|videoretalk|emo)/.test(normalized)) return 'video';
-    if (/^banana/.test(normalized)) return 'agent';
     if (/^(imagen|dall-e|gpt-image|flux|stable-diffusion|sdxl|midjourney|recraft|ideogram|qwen-image|seededit|nano-banana|jimeng|doubao-image|omni-image|grok-image)/.test(normalized)) return 'image';
     if (/^gemini/.test(normalized)) return normalized.includes('image') ? 'image' : 'text';
     if (/^(gpt|o\d|claude|qwen|deepseek|llama|command|mistral|doubao|abab|minimax)/.test(normalized)) return 'text';
@@ -740,7 +728,6 @@ export function inferProviderFromModel(model: string): AIProvider {
     if (/^(dall-e|gpt-image|gpt-5|gpt-4o|gpt-4\.1|o\d)/.test(normalized)) return 'openai';
     if (/^claude/i.test(model)) return 'anthropic';
     if (/^qwen/i.test(model)) return 'qwen';
-    if (/^banana/i.test(model)) return 'banana';
     if (/^deepseek/i.test(model)) return 'deepseek';
     if (/^(siliconflow|deepseek-ai|Qwen)/i.test(model)) return 'siliconflow';
     if (/^(kling|keling)/i.test(model)) return 'keling';
@@ -1845,6 +1832,29 @@ export async function generateVideoWithProvider(
     );
 }
 
+export interface ImageToolInput {
+    href: string;
+    mimeType: string;
+}
+
+export interface ImageToolLayer {
+    name: string;
+    dataUrl: string;
+    width: number;
+    height: number;
+    offsetX: number;
+    offsetY: number;
+}
+
+export type ImageToolTask = 'upscale' | 'remove-background' | 'enhance';
+
+export interface ImageToolResult {
+    dataUrl: string;
+    mimeType: string;
+    width: number;
+    height: number;
+}
+
 function getAgentBaseUrl(provider: AIProvider, key?: UserApiKey): string {
     return getBaseUrl(provider, key).replace(/\/$/, '');
 }
@@ -1855,16 +1865,13 @@ function dataUrlFromMaybeBase64(value: unknown, mimeType: string): string | null
 }
 
 export async function splitImageLayersWithProvider(
-    image: BananaImageInput,
+    image: ImageToolInput,
     model: string,
     key?: UserApiKey,
-): Promise<BananaSplitLayer[]> {
-    const provider = resolveGenerationProvider(model, key);
-    if (provider === 'banana') {
-        return splitImageByBanana(image);
-    }
-    if (provider !== 'custom') {
-        throw new Error(`当前暂不支持使用 ${PROVIDER_LABELS[provider] || provider} 进行图层拆分。`);
+): Promise<ImageToolLayer[]> {
+    const provider = key?.provider || resolveGenerationProvider(model, key);
+    if (!key?.baseUrl) {
+        throw new Error('未配置图像工具端点 Base URL。请在供应商设置中填写支持 /split-layers 的 API 地址。');
     }
 
     const apiKey = requireApiKey(provider, key);
@@ -1893,22 +1900,19 @@ export async function splitImageLayersWithProvider(
             offsetX: Number(layer.x || layer.bbox?.x || layer.box?.x || layer.bounds?.x || 0),
             offsetY: Number(layer.y || layer.bbox?.y || layer.box?.y || layer.bounds?.y || 0),
         };
-    }).filter((layer): layer is BananaSplitLayer => !!layer);
+    }).filter((layer): layer is ImageToolLayer => !!layer);
 }
 
 export async function runImageAgentWithProvider(
-    image: BananaImageInput,
-    task: BananaAgentTask,
+    image: ImageToolInput,
+    task: ImageToolTask,
     model: string,
     key?: UserApiKey,
     options?: Record<string, unknown>,
-): Promise<BananaAgentResult> {
-    const provider = resolveGenerationProvider(model, key);
-    if (provider === 'banana') {
-        return runBananaImageAgent(image, task, options);
-    }
-    if (provider !== 'custom') {
-        throw new Error(`当前暂不支持使用 ${PROVIDER_LABELS[provider] || provider} 运行图片代理任务。`);
+): Promise<ImageToolResult> {
+    const provider = key?.provider || resolveGenerationProvider(model, key);
+    if (!key?.baseUrl) {
+        throw new Error('未配置图像工具端点 Base URL。请在供应商设置中填写支持 /agent 的 API 地址。');
     }
 
     const apiKey = requireApiKey(provider, key);
@@ -1948,7 +1952,7 @@ export function diagnoseKeyCapabilities(keys: UserApiKey[]): {
     missing: AICapability[];
     warnings: string[];
 } {
-    const ALL_CAPS: AICapability[] = ['text', 'image', 'video', 'agent'];
+    const ALL_CAPS: AICapability[] = ['text', 'image', 'video'];
     const coveredSet = new Set<AICapability>();
     const warnings: string[] = [];
 
@@ -1963,7 +1967,6 @@ export function diagnoseKeyCapabilities(keys: UserApiKey[]): {
     if (missing.includes('text')) warnings.push('未配置文本模型 API Key — 提示词润色、AI 对话功能不可用');
     if (missing.includes('image')) warnings.push('未配置图片模型 API Key — AI 绘图、图片编辑功能不可用');
     if (missing.includes('video')) warnings.push('未配置视频模型 API Key — AI 视频生成功能不可用');
-    if (missing.includes('agent')) warnings.push('未配置 Agent API Key — 智能代理功能不可用');
 
     // 检查是否有 Google key (核心能力依赖)
     const hasGoogle = keys.some(k => k.provider === 'google' && k.key);
@@ -2001,8 +2004,6 @@ export function explainKeyCapabilities(keys: UserApiKey[]): CapabilityStatus[] {
         ),
     );
 
-    const hasBanana = keys.some(k => k.provider === 'banana' && k.key);
-
     return [
         {
             capability: 'text',
@@ -2024,15 +2025,6 @@ export function explainKeyCapabilities(keys: UserApiKey[]): CapabilityStatus[] {
             reason: covered.has('video')
                 ? '至少一个视频模型 Key 可用。'
                 : '未找到视频模型 Key — AI 视频生成不可用。',
-        },
-        {
-            capability: 'agent',
-            supported: covered.has('agent'),
-            reason: covered.has('agent')
-                ? 'Banana agent 端点可用。'
-                : hasBanana
-                    ? 'Banana Key 已配置但未声明 agent 能力，请检查 Key 配置。'
-                    : '多 Agent 讨论可使用文本模型运行，但 Banana 专用 agent 端点未配置。',
         },
     ];
 }

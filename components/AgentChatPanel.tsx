@@ -16,7 +16,6 @@ interface AgentChatPanelProps {
     getApiKeyForModel: (model: string) => UserApiKey | undefined;
     onFinalPrompt: (prompt: string) => void;
     onGenerateImage: (prompt: string) => void;
-    agentWarning?: string;
     discussionSupported?: boolean;
     onOpenSettings?: () => void;
 }
@@ -28,7 +27,6 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
     getApiKeyForModel,
     onFinalPrompt,
     onGenerateImage,
-    agentWarning,
     discussionSupported = true,
     onOpenSettings,
 }) => {
@@ -208,20 +206,6 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                     </span>
                 </div>
             </div>
-
-            {/* Agent capability warning */}
-            {agentWarning && (
-                <div
-                    className="rounded-xl px-3 py-2 text-xs"
-                    style={{
-                        border: `1px solid ${isDark ? 'rgba(245, 158, 11, 0.3)' : 'rgba(217, 119, 6, 0.3)'}`,
-                        background: isDark ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)',
-                        color: isDark ? '#FCD34D' : '#92400E',
-                    }}
-                >
-                    ⚠ {agentWarning}
-                </div>
-            )}
 
             {/* Expandable team panel */}
             {showTeam && (

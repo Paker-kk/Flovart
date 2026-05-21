@@ -71,12 +71,6 @@ describe('aiGateway - validateApiKey', () => {
         );
     });
 
-    it('短 key 格式校验失败（通用）', async () => {
-        const result = await validateApiKey('banana' as any, 'short');
-        expect(result.ok).toBe(false);
-        expect(result.message).toContain('太短');
-    });
-
     it('Anthropic provider 验证逻辑', async () => {
         globalThis.fetch = vi.fn().mockResolvedValue({
             ok: true,
@@ -285,6 +279,22 @@ describe('aiGateway - custom request format routing', () => {
 });
 
 describe('aiGateway - unified agent provider actions', () => {
+    it('provider-bound image tools require an explicit Base URL', async () => {
+        await expect(splitImageLayersWithProvider(
+            { href: 'data:image/png;base64,ZmFrZQ==', mimeType: 'image/png' },
+            'layer-tool-v1',
+            {
+                id: 'tool-key',
+                provider: 'custom',
+                capabilities: ['agent'],
+                key: 'secret-key',
+                defaultModel: 'layer-tool-v1',
+                createdAt: 0,
+                updatedAt: 0,
+            },
+        )).rejects.toThrow('Base URL');
+    });
+
     it('splits image layers through the selected UserApiKey provider config', async () => {
         globalThis.fetch = vi.fn().mockResolvedValue(mockJsonResponse({
             layers: [{
@@ -298,19 +308,19 @@ describe('aiGateway - unified agent provider actions', () => {
 
         const layers = await splitImageLayersWithProvider(
             { href: 'data:image/png;base64,ZmFrZQ==', mimeType: 'image/png' },
-            'banana-vision-v1',
+            'layer-tool-v1',
             {
                 id: 'agent-custom',
                 provider: 'custom',
                 capabilities: ['agent'],
                 key: 'secret-key',
                 baseUrl: 'https://agent.example.com/v1/vision',
-                models: [{ id: 'banana-vision-v1', name: 'Banana Vision' }],
+                models: [{ id: 'layer-tool-v1', name: 'Layer Tool' }],
                 extraConfig: {
                     requestFormat: 'native',
                     authHeaderName: 'x-api-key',
                     authScheme: '',
-                    modelMappingsJson: '{"banana-vision-v1":"vendor-layer-model"}',
+                    modelMappingsJson: '{"layer-tool-v1":"vendor-layer-model"}',
                 },
                 createdAt: 0,
                 updatedAt: 0,
@@ -350,14 +360,14 @@ describe('aiGateway - unified agent provider actions', () => {
         const result = await runImageAgentWithProvider(
             { href: 'data:image/png;base64,ZmFrZQ==', mimeType: 'image/png' },
             'upscale',
-            'banana-vision-v1',
+            'image-tool-v1',
             {
                 id: 'agent-custom',
                 provider: 'custom',
                 capabilities: ['agent'],
                 key: 'secret-key',
                 baseUrl: 'https://agent.example.com/v1/vision',
-                models: [{ id: 'banana-vision-v1', name: 'Banana Vision' }],
+                models: [{ id: 'image-tool-v1', name: 'Image Tool' }],
                 extraConfig: { requestFormat: 'native' },
                 createdAt: 0,
                 updatedAt: 0,

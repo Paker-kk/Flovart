@@ -4,7 +4,6 @@ import { saveKeysEncrypted, loadKeysDecrypted, clearAllKeyData, migrateLegacyKey
 import { getUsageSummary } from '../utils/usageMonitor';
 import {
     DEFAULT_PROVIDER_MODELS,
-    explainKeyCapabilities,
     inferCapabilitiesByProvider,
     inferCapabilityFromModel,
     inferProviderFromModel,
@@ -13,7 +12,6 @@ import {
     PROVIDER_LABELS,
 } from '../services/aiGateway';
 import { setGeminiRuntimeConfig } from '../services/geminiService';
-import { setBananaRuntimeConfig } from '../services/bananaService';
 import { refreshAllProviderModels, type FetchedModel } from '../services/modelFetcher';
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -22,7 +20,6 @@ export const DEFAULT_MODEL_PREFS: ModelPreference = {
     textModel: 'gemini-3-flash-preview',
     imageModel: 'gemini-3.1-flash-image-preview',
     videoModel: 'veo-3.1-generate-preview',
-    agentModel: 'banana-vision-v1',
 };
 
 const PROVIDER_MODELS = DEFAULT_PROVIDER_MODELS;
@@ -64,7 +61,7 @@ const getRequestedModelByCapability = (modelPreference: ModelPreference, capabil
     if (capability === 'text') return modelPreference.textModel;
     if (capability === 'image') return modelPreference.imageModel;
     if (capability === 'video') return modelPreference.videoModel;
-    return modelPreference.agentModel;
+    return '';
 };
 
 const FALLBACK_TEXT_OPTIONS = ensureModelOption([...(PROVIDER_MODELS.google?.text || [])], DEFAULT_MODEL_PREFS.textModel);
@@ -98,8 +95,7 @@ const hasCapabilityOverlap = (left: AICapability[], right: AICapability[]) =>
     left.some(capability => right.includes(capability));
 
 /**
- * Distinguishes generic multi-agent discussion support (any text model key)
- * from Banana-specific runtime endpoint availability.
+ * Distinguishes generic multi-agent discussion support from provider-bound image tool endpoint availability.
  */
 export function buildAgentRuntimeSummary(input: {
     textModel: string;
@@ -112,8 +108,8 @@ export function buildAgentRuntimeSummary(input: {
             (k.capabilities ?? inferCapabilitiesByProvider(k.provider as AIProvider)).includes('text')
         ),
     );
-    const bananaRuntimeSupported = input.keys.some(k => !!k.key && k.provider === 'banana');
-    return { discussionSupported, bananaRuntimeSupported };
+    const imageToolSupported = input.keys.some(k => !!k.key && (k.capabilities ?? inferCapabilitiesByProvider(k.provider as AIProvider)).includes('agent'));
+    return { discussionSupported, imageToolSupported };
 }
 
 export function useApiKeys(isSettingsPanelOpen: boolean) {
@@ -178,7 +174,6 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
             text: ensureModelOption(textSet.size > 0 ? Array.from(textSet) : [...FALLBACK_TEXT_OPTIONS], modelPreference.textModel),
             image: ensureModelOption(imageSet.size > 0 ? Array.from(imageSet) : [...FALLBACK_IMAGE_OPTIONS], modelPreference.imageModel),
             video: ensureModelOption(videoSet.size > 0 ? Array.from(videoSet) : [...FALLBACK_VIDEO_OPTIONS], modelPreference.videoModel),
-            agent: [] as string[],
         };
     }, [modelPreference.imageModel, modelPreference.textModel, modelPreference.videoModel, userApiKeys]);
 
@@ -428,7 +423,7 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
         if (!apiKeysLoaded || userApiKeys.length === 0 || autoRefreshRan.current) return;
         autoRefreshRan.current = true;
         const keysToFetch = userApiKeys
-            .filter(k => k.key && k.status !== 'error' && k.provider !== 'banana' && k.provider !== 'runningHub')
+            .filter(k => k.key && k.status !== 'error' && k.provider !== 'runningHub')
             .map(k => ({ id: k.id, provider: k.provider, key: k.key, baseUrl: k.baseUrl }));
         if (keysToFetch.length === 0) return;
         refreshAllProviderModels(keysToFetch).then(results => {
@@ -460,7 +455,7 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
         return matches.find(key => key.isDefault) || matches[0];
     }, [modelPreference, userApiKeys]);
 
-    // Sync runtime config for Gemini / Banana services
+    // Sync runtime config for Gemini services
     useEffect(() => {
         const textProvider = inferProviderFromModel(modelPreference.textModel);
         const imageProvider = inferProviderFromModel(modelPreference.imageModel);
@@ -469,7 +464,6 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
         const googleTextKey = getPreferredApiKey('text', 'google');
         const googleImageKey = getPreferredApiKey('image', 'google');
         const googleVideoKey = getPreferredApiKey('video', 'google');
-        const bananaKey = getPreferredApiKey('agent', 'banana');
 
         setGeminiRuntimeConfig({
             textApiKey: googleTextKey?.key,
@@ -486,11 +480,6 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
                     ? modelPreference.imageModel
                     : undefined,
             videoModel: videoProvider === 'google' ? modelPreference.videoModel : undefined,
-        });
-        setBananaRuntimeConfig({
-            apiKey: bananaKey?.key,
-            splitUrl: bananaKey?.baseUrl ? `${bananaKey.baseUrl.replace(/\/$/, '')}/split-layers` : undefined,
-            agentUrl: bananaKey?.baseUrl ? `${bananaKey.baseUrl.replace(/\/$/, '')}/agent` : undefined,
         });
     }, [getPreferredApiKey, modelPreference]);
 
@@ -523,7 +512,7 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
             return [{ ...nextKey, isDefault: shouldSetDefault }, ...withDefault];
         });
         // 新增 Key 后自动拉取模型列表（后台静默）
-        if (payload.provider !== 'banana' && payload.provider !== 'runningHub') {
+        if (payload.provider !== 'runningHub') {
             refreshAllProviderModels([{ id: nextKey.id, provider: payload.provider, key: payload.key, baseUrl: payload.baseUrl }], true)
                 .then(results => {
                     const fetched = results.get(nextKey.id);
@@ -562,9 +551,6 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
         });
     }, []);
 
-    const capabilityStatus = useMemo(() => explainKeyCapabilities(userApiKeys), [userApiKeys]);
-    const agentWarning = capabilityStatus.find(item => item.capability === 'agent' && !item.supported)?.reason;
-
     return {
         userApiKeys,
         setUserApiKeys,
@@ -587,7 +573,5 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
         handleUpdateApiKey,
         handleSetDefaultApiKey,
         modelAutoSwitchNotice,
-        capabilityStatus,
-        agentWarning,
     };
 }

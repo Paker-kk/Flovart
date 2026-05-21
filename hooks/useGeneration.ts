@@ -5,11 +5,10 @@ import type {
     CharacterLockProfile, ChatAttachment, AICapability, AIProvider,
 } from '../types';
 import { generateId, getElementBounds, rasterizeElement, rasterizeMask } from '../utils/canvasHelpers';
-import { splitImageByBanana, runBananaImageAgent } from '../services/bananaService';
 import {
     editImageWithProvider, enhancePromptWithProvider, generateImageWithProvider, generateVideoWithProvider,
     inferProviderFromModel, inferCapabilitiesByProvider, PROVIDER_LABELS, supportsMaskImageEditing, supportsReferenceImageEditing,
-    DEFAULT_PROVIDER_MODELS,
+    DEFAULT_PROVIDER_MODELS, splitImageLayersWithProvider, runImageAgentWithProvider,
 } from '../services/aiGateway';
 import { addGenerationHistoryItem, createThumbnailDataUrl } from '../utils/generationHistory';
 import { recordApiUsage } from '../utils/usageMonitor';
@@ -213,18 +212,32 @@ export function useGeneration(params: UseGenerationParams) {
         setSelectedElementIds([newImage.id]);
     };
 
-    /* ---- Banana handlers ---- */
+    const resolveImageToolKey = useCallback(() => {
+        const key = getPreferredApiKey('agent');
+        const model = key?.defaultModel || key?.customModels?.[0] || key?.models?.[0]?.id;
+        return key && model ? { key, model } : null;
+    }, [getPreferredApiKey]);
 
-    const handleSplitImageWithBanana = async (element: ImageElement) => {
+    /* ---- Provider-bound image tool handlers ---- */
+
+    const handleSplitImageLayers = async (element: ImageElement) => {
+        const resolvedTool = resolveImageToolKey();
+        if (!resolvedTool) {
+            setError('未找到可用于图层拆分的图像工具 Key。请在设置中添加带 agent 能力、Base URL 和默认模型的供应商。');
+            setIsSettingsPanelOpen(true);
+            return;
+        }
+
         try {
             setIsLoading(true);
             setError(null);
-            setProgressMessage('BANANA is splitting the image into layers...');
+            setProgressMessage('图像工具正在拆分图层...');
 
-            const layers = await splitImageByBanana({
-                href: element.href,
-                mimeType: element.mimeType,
-            });
+            const layers = await splitImageLayersWithProvider(
+                { href: element.href, mimeType: element.mimeType },
+                resolvedTool.model,
+                resolvedTool.key,
+            );
 
             const normalizedLayers = await Promise.all(
                 layers.map(async (layer) => {
@@ -264,7 +277,7 @@ export function useGeneration(params: UseGenerationParams) {
                 const groupElement: GroupElement = {
                     id: groupId,
                     type: 'group',
-                    name: `${element.name || 'Image'} / Banana Group`,
+                    name: `${element.name || 'Image'} / Layer Group`,
                     x: minX,
                     y: minY,
                     width: Math.max(1, maxX - minX),
@@ -288,54 +301,72 @@ export function useGeneration(params: UseGenerationParams) {
 
             if (insertedIds.length > 0) {
                 setSelectedElementIds(insertedIds);
-                setProgressMessage(`BANANA created ${insertedIds.length} layers.`);
+                setProgressMessage(`图像工具已创建 ${insertedIds.length} 个图层。`);
             } else {
                 setProgressMessage('');
             }
         } catch (err) {
             const error = err as Error;
-            setError(`BANANA split failed: ${error.message}`);
+            setError(`图层拆分失败: ${error.message}`);
         } finally {
             setIsLoading(false);
             setTimeout(() => setProgressMessage(''), 1200);
         }
     };
 
-    const handleUpscaleImageWithBanana = async (element: ImageElement) => {
+    const handleUpscaleImage = async (element: ImageElement) => {
+        const resolvedTool = resolveImageToolKey();
+        if (!resolvedTool) {
+            setError('未找到可用于图片放大的图像工具 Key。请在设置中添加带 agent 能力、Base URL 和默认模型的供应商。');
+            setIsSettingsPanelOpen(true);
+            return;
+        }
+
         try {
             setIsLoading(true);
             setError(null);
-            setProgressMessage('BANANA Agent 正在放大图片...');
-            const result = await runBananaImageAgent(
+            setProgressMessage('图像工具正在放大图片...');
+            const result = await runImageAgentWithProvider(
                 { href: element.href, mimeType: element.mimeType },
                 'upscale',
+                resolvedTool.model,
+                resolvedTool.key,
                 { scale: 2 },
             );
             await insertImageAgentResult(element, result.dataUrl, 'Upscaled x2', 2, result.mimeType);
             setProgressMessage('Upscale completed.');
         } catch (err) {
             const error = err as Error;
-            setError(`BANANA upscale failed: ${error.message}`);
+            setError(`图片放大失败: ${error.message}`);
         } finally {
             setIsLoading(false);
             setTimeout(() => setProgressMessage(''), 1200);
         }
     };
 
-    const handleRemoveBackgroundWithBanana = async (element: ImageElement) => {
+    const handleRemoveImageBackground = async (element: ImageElement) => {
+        const resolvedTool = resolveImageToolKey();
+        if (!resolvedTool) {
+            setError('未找到可用于移除背景的图像工具 Key。请在设置中添加带 agent 能力、Base URL 和默认模型的供应商。');
+            setIsSettingsPanelOpen(true);
+            return;
+        }
+
         try {
             setIsLoading(true);
             setError(null);
-            setProgressMessage('BANANA Agent 正在移除背景...');
-            const result = await runBananaImageAgent(
+            setProgressMessage('图像工具正在移除背景...');
+            const result = await runImageAgentWithProvider(
                 { href: element.href, mimeType: element.mimeType },
                 'remove-background',
+                resolvedTool.model,
+                resolvedTool.key,
             );
             await insertImageAgentResult(element, result.dataUrl, 'Background Removed', undefined, result.mimeType);
             setProgressMessage('Background removal completed.');
         } catch (err) {
             const error = err as Error;
-            setError(`BANANA background removal failed: ${error.message}`);
+            setError(`移除背景失败: ${error.message}`);
         } finally {
             setIsLoading(false);
             setTimeout(() => setProgressMessage(''), 1200);
@@ -1202,9 +1233,9 @@ export function useGeneration(params: UseGenerationParams) {
         // handlers
         handleEnhancePrompt,
         saveGenerationToHistory,
-        handleSplitImageWithBanana,
-        handleUpscaleImageWithBanana,
-        handleRemoveBackgroundWithBanana,
+        handleSplitImageLayers,
+        handleUpscaleImage,
+        handleRemoveImageBackground,
         handleOutpaint,
         handleInpaint,
         handleGenerate,

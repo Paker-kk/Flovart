@@ -8,7 +8,6 @@ const modelPreference: ModelPreference = {
   textModel: 'custom-text-model',
   imageModel: 'custom-image-model',
   videoModel: 'custom-video-model',
-  agentModel: 'custom-agent-model',
 };
 
 function renderSettings(userApiKeys: UserApiKey[] = []) {
@@ -37,7 +36,6 @@ function renderSettings(userApiKeys: UserApiKey[] = []) {
         text: ['custom-text-model'],
         image: ['custom-image-model'],
         video: ['custom-video-model'],
-        agent: ['custom-agent-model'],
       }}
     />,
   );
@@ -64,17 +62,17 @@ describe('CanvasSettings provider configuration UI', () => {
     expect(screen.getByText('模型测试配置')).toBeTruthy();
   });
 
-  it('offers Banana as a preset so layer splitting can be wired to a user key', () => {
+  it('does not expose a hardcoded image tool provider preset', () => {
     renderSettings();
 
     fireEvent.click(screen.getByRole('button', { name: /添加 API Key|添加供应商/i }));
 
-    expect(screen.getByText('Banana Vision')).toBeTruthy();
+    expect(screen.queryByText('Banana Vision')).toBeNull();
   });
 
-  it('uses user configured agent models instead of a hardcoded provider-only list', () => {
+  it('does not expose a separate Agent model preference in the creative model list', () => {
     renderSettings();
 
-    expect(screen.getByRole('option', { name: 'custom-agent-model' })).toBeTruthy();
+    expect(screen.queryByText('Agent 模型')).toBeNull();
   });
 });
