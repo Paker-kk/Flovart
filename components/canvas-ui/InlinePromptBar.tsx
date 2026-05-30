@@ -13,7 +13,6 @@ import { executeUnifiedIgnition } from '../../services/aiGateway';
 import RichPromptEditor, { type RichPromptEditorHandle } from '../RichPromptEditor';
 import type { MentionItem } from '../MentionList';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
-import { translations } from '../../translations';
 
 interface InlinePromptBarProps {
     element: CanvasElement;
@@ -250,7 +249,7 @@ export const InlinePromptBar = memo(({
         return Math.max(0.9, Math.min(2.35, 1 / safeZoom));
     }, [canvasZoom]);
     const [displayScale, setDisplayScale] = useState(targetScale);
-    const panelWidth = isChinese ? 360 : 390;
+    const panelWidth = isChinese ? 376 : 404;
     const accentColor = generationMode === 'video' ? '#D6A84F' : '#00FF88';
     const runningProgress = generationState.status === 'running'
         ? Math.max(6, Math.min(98, generationState.progress ?? progress ?? 12))
@@ -336,7 +335,7 @@ export const InlinePromptBar = memo(({
                 }}
             >
                 <div
-                    className="inline-prompt-bar"
+                    className="inline-prompt-bar flv-glass-shell"
                     style={{
                         '--inline-prompt-accent': accentColor,
                         '--inline-prompt-progress': `${runningProgress}%`,
@@ -409,7 +408,7 @@ export const InlinePromptBar = memo(({
                         </div>
                         <button
                             type="button"
-                            className="inline-prompt-bar__ignite active:scale-95 transition-transform"
+                            className="inline-prompt-bar__ignite flv-elastic flv-primary-action active:scale-95 transition-transform"
                             disabled={generationState.status === 'running' || !generationState.promptPayload.rawText.trim()}
                             onClick={handleIgniteExecution}
                         >

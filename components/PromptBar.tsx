@@ -449,9 +449,9 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                     )}
                 </div>
 
-                <div className={`relative flex items-center justify-between gap-3 border-t ${compactMode ? 'px-2.5 py-2' : 'px-3 py-2.5'} ${isDark ? 'border-[#2A3140]' : 'border-[#EEF1F5]'}`}>
+                <div className={`relative flex items-center gap-3 border-t ${compactMode ? 'px-2.5 py-2' : 'px-3 py-2.5'} ${isDark ? 'border-[#2A3140]' : 'border-[#EEF1F5]'}`}>
                     <div className="min-w-0 flex-1 overflow-visible">
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap pr-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                             {/* API Key 状态指示器 — 与设置面板联动 */}
                             {!hideApiStatus && (() => {
                                 const defaultKey = userApiKeys.find(k => k.isDefault);
@@ -695,50 +695,66 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                         </div>
                     </div>
 
-                    {/* Batch count toggle */}
-                    {variant !== 'inline' && generationMode === 'image' && onBatchCountChange && (
+                    <div className="flex shrink-0 items-center gap-2">
+                        {variant !== 'inline' && generationMode === 'image' && onBatchCountChange && (
+                            <div
+                                className={`flex h-9 items-center rounded-[18px] border p-1 transition ${
+                                    isDark ? 'border-[#2A3140] bg-[#121720]' : 'border-[#E5E7EB] bg-[#F8FAFC]'
+                                }`}
+                                title="批量方案数量"
+                            >
+                                {[1, 2, 4].map(count => {
+                                    const active = batchCount === count;
+                                    return (
+                                        <button
+                                            key={count}
+                                            type="button"
+                                            onClick={() => onBatchCountChange(count)}
+                                            className={`flv-elastic flex h-7 min-w-[38px] items-center justify-center rounded-[14px] px-2 text-[11px] font-semibold transition ${
+                                                active
+                                                    ? isDark
+                                                        ? 'bg-[#2F67FF] text-white shadow-[0_8px_18px_rgba(47,103,255,0.3)]'
+                                                        : 'bg-[#175CD3] text-white shadow-[0_8px_18px_rgba(23,92,211,0.22)]'
+                                                    : isDark
+                                                        ? 'text-[#98A2B3] hover:bg-[#202734] hover:text-white'
+                                                        : 'text-[#667085] hover:bg-white hover:text-[#111827]'
+                                            }`}
+                                            aria-pressed={active}
+                                            title={count === 1 ? '单张方案' : `输出 ${count} 张方案`}
+                                        >
+                                            X{count}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+
                         <button
                             type="button"
                             onClick={() => {
-                                const next = batchCount === 1 ? 2 : batchCount === 2 ? 4 : 1;
-                                onBatchCountChange(next);
+                                if (prompt.trim() && !isLoading) onGenerate();
                             }}
-                            title={batchCount === 1 ? '单张生成 — 点击切换批量' : `批量生成 ${batchCount} 张方案`}
-                            className={`flex h-9 min-w-[36px] items-center justify-center rounded-xl px-2 text-xs font-semibold transition ${
-                                batchCount > 1
-                                    ? (isDark ? 'bg-blue-600 text-white' : 'bg-blue-500 text-white')
-                                    : (isDark ? 'bg-[#2A3142] text-[#98A2B3] hover:bg-[#3A4458]' : 'bg-[#F2F4F7] text-[#667085] hover:bg-[#E4E7EC]')
-                            }`}
+                            disabled={isLoading || !prompt.trim()}
+                            aria-label={t('promptBar.generate')}
+                            title={t('promptBar.generate')}
+                            className={`flv-elastic flv-primary-action flex h-9 min-w-[112px] items-center justify-center rounded-2xl px-4 transition disabled:cursor-not-allowed ${isDark ? 'bg-[#F3F4F6] text-[#111827] hover:bg-white disabled:bg-[#3A4458] disabled:text-[#98A2B3]' : 'bg-[#111827] text-white hover:bg-[#0F172A] disabled:bg-[#D0D5DD]'}`}
                         >
-                            ×{batchCount}
-                        </button>
-                    )}
-
-                    <button
-                        type="button"
-                        onClick={() => {
-                            if (prompt.trim() && !isLoading) onGenerate();
-                        }}
-                        disabled={isLoading || !prompt.trim()}
-                        aria-label={t('promptBar.generate')}
-                        title={t('promptBar.generate')}
-                        className={`flv-elastic flv-primary-action flex h-9 min-w-[86px] items-center justify-center rounded-2xl px-4 transition disabled:cursor-not-allowed ${isDark ? 'bg-[#F3F4F6] text-[#111827] hover:bg-white disabled:bg-[#3A4458] disabled:text-[#98A2B3]' : 'bg-[#111827] text-white hover:bg-[#0F172A] disabled:bg-[#D0D5DD]'}`}
-                    >
-                        {isLoading ? (
-                            <svg className="h-3.5 w-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-30" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4Z" />
-                            </svg>
-                        ) : (
-                            <div className="flex items-center gap-1.5">
-                                <span className="text-xs font-semibold">{batchCount > 1 ? `生成 ×${batchCount}` : '生成'}</span>
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                                    <path d="M5 12h14" />
-                                    <path d="m12 5 7 7-7 7" />
+                            {isLoading ? (
+                                <svg className="h-3.5 w-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-30" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4Z" />
                                 </svg>
-                            </div>
-                        )}
-                    </button>
+                            ) : (
+                                <div className="flex items-center gap-1.5">
+                                    <span className="text-xs font-semibold">{batchCount > 1 ? `生成 ${batchCount} 版` : '开始生成'}</span>
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                                        <path d="M5 12h14" />
+                                        <path d="m12 5 7 7-7 7" />
+                                    </svg>
+                                </div>
+                            )}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
