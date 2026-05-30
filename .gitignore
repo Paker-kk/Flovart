@@ -46,3 +46,4 @@ show.jpg
 src-tauri/target/
 src-tauri/.tauri_private_key
 src-tauri/.tauri_private_key.pub
+.flovart/

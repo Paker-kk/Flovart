@@ -205,21 +205,21 @@ export function listAgentModels(input = {}) {
   return { ok: true, purpose, models: purpose === 'image' ? { image: models.image } : purpose === 'video' ? { video: models.video } : models };
 }
 
-function mcpServerConfig(projectDir = process.cwd()) {
+function cliServerConfig(projectDir = process.cwd()) {
   return {
     command: 'node',
-    args: [resolve(projectDir, 'tools/flovart/mcp-server.js')],
+    args: [resolve(projectDir, 'tools/flovart/cli.js')],
   };
 }
 
 const HOSTS = {
-  project: { name: 'Project MCP', path: '.mcp.json', wrapperKey: 'mcpServers' },
-  opencode: { name: 'OpenCode', path: '.mcp.json', wrapperKey: 'mcpServers' },
-  claude: { name: 'Claude Code', path: '.mcp.json', wrapperKey: 'mcpServers' },
-  cursor: { name: 'Cursor', path: '.cursor/mcp.json', wrapperKey: 'mcpServers' },
-  windsurf: { name: 'Windsurf', path: join(homedir(), '.codeium', 'windsurf', 'mcp_config.json'), wrapperKey: 'mcpServers', global: true },
-  roo: { name: 'Roo Code', path: '.roo/mcp.json', wrapperKey: 'mcpServers' },
-  vscode: { name: 'VS Code / GitHub Copilot', path: '.vscode/mcp.json', wrapperKey: 'servers', needsType: true },
+  project: { name: 'Project CLI', path: '.cli.json', wrapperKey: 'cliServers' },
+  opencode: { name: 'OpenCode', path: '.cli.json', wrapperKey: 'cliServers' },
+  claude: { name: 'Claude Code', path: '.cli.json', wrapperKey: 'cliServers' },
+  cursor: { name: 'Cursor', path: '.cursor/cli.json', wrapperKey: 'cliServers' },
+  windsurf: { name: 'Windsurf', path: join(homedir(), '.codeium', 'windsurf', 'cli_config.json'), wrapperKey: 'cliServers', global: true },
+  roo: { name: 'Roo Code', path: '.roo/cli.json', wrapperKey: 'cliServers' },
+  vscode: { name: 'VS Code / GitHub Copilot', path: '.vscode/cli.json', wrapperKey: 'servers', needsType: true },
 };
 
 function hostConfigPath(hostConfig, projectDir) {
@@ -228,11 +228,11 @@ function hostConfigPath(hostConfig, projectDir) {
 }
 
 function serverEntryForHost(hostConfig, projectDir) {
-  const entry = mcpServerConfig(projectDir);
+  const entry = cliServerConfig(projectDir);
   return hostConfig.needsType ? { type: 'stdio', ...entry } : entry;
 }
 
-function mergeMcpJson(filePath, wrapperKey, serverConfig) {
+function mergeCliJson(filePath, wrapperKey, serverConfig) {
   const current = readJson(filePath, {});
   const next = {
     ...current,
@@ -245,7 +245,7 @@ function mergeMcpJson(filePath, wrapperKey, serverConfig) {
   return next;
 }
 
-export function initMcpHost(input = {}) {
+export function initCliHost(input = {}) {
   const host = String(input.host || 'project').toLowerCase();
   const projectDir = resolve(String(input.projectDir || process.cwd()));
   const dryRun = input.dryRun === true || input['dry-run'] === true;
@@ -262,7 +262,7 @@ export function initMcpHost(input = {}) {
     const server = serverEntryForHost(hostConfig, projectDir);
     const config = dryRun
       ? { [hostConfig.wrapperKey]: { flovart: server } }
-      : mergeMcpJson(filePath, hostConfig.wrapperKey, server);
+      : mergeCliJson(filePath, hostConfig.wrapperKey, server);
     return { host: key, name: hostConfig.name, filePath, wrapperKey: hostConfig.wrapperKey, server, config, dryRun };
   });
 
@@ -273,21 +273,18 @@ export function initMcpHost(input = {}) {
     writes,
     nextSteps: [
       'Start the Vite app: npm run dev',
-      'Start Chrome with --remote-debugging-port=9222 and open Flovart.',
-      'Restart the MCP host so it reloads the Flovart server config.',
+      'Open the Flovart browser app from the dev server when provider-backed generation needs to run.',
+      'Restart the host so it reloads the Flovart CLI config.',
     ],
   };
 }
 
 export function diagnoseAgentSetup(input = {}) {
   const projectDir = resolve(String(input.projectDir || process.cwd()));
-  const cdpPort = Number(input.cdpPort || 9222);
-  const mcpServerPath = resolve(projectDir, 'tools/flovart/mcp-server.js');
   const cliPath = resolve(projectDir, 'tools/flovart/cli.js');
   const packagePath = resolve(projectDir, 'package.json');
   const checks = [
     { id: 'package', ok: existsSync(packagePath), detail: packagePath },
-    { id: 'mcp-server', ok: existsSync(mcpServerPath), detail: mcpServerPath },
     { id: 'cli', ok: existsSync(cliPath), detail: cliPath },
     { id: 'preferences', ok: existsSync(PREFS_FILE), detail: PREFS_FILE, optional: true },
   ];
@@ -307,17 +304,12 @@ export function diagnoseAgentSetup(input = {}) {
   return {
     ok: checks.every(check => check.ok || check.optional),
     projectDir,
-    cdp: {
-      port: cdpPort,
-      expectedUrl: `http://127.0.0.1:${cdpPort}/json`,
-      note: 'CDP reachability is tested by status/provider commands at runtime; this diagnostic avoids opening network sockets.',
-    },
     checks,
     hostConfigs,
     nextSteps: [
-      'Run npm run flovart:cli -- status --json to verify browser CDP or shadow fallback.',
-      'Run npm run flovart:cli -- init --host <host> to write missing MCP config.',
-      'Start Chrome with --remote-debugging-port=9222 for live canvas control.',
+      'Run npm run flovart:cli -- status --json to verify local file-state runtime.',
+      'Run npm run flovart:cli -- init --host <host> to write missing CLI config.',
+      'Run npm run dev and keep the browser app open for provider-backed generation.',
     ],
   };
 }

@@ -3,31 +3,31 @@ import { describe, expect, it } from 'vitest';
 import {
   diagnoseAgentSetup,
   enhancePrompt,
-  initMcpHost,
+  initCliHost,
   planBatchGeneration,
   searchInspiration,
 } from '../tools/flovart/agent-kit.js';
 
 describe('flovart agent kit', () => {
-  it('builds host-specific MCP config without writing in dry-run mode', () => {
+  it('builds host-specific CLI config without writing in dry-run mode', () => {
     const projectDir = process.cwd();
 
-    expect(initMcpHost({ host: 'opencode', projectDir, dryRun: true })).toMatchObject({
+    expect(initCliHost({ host: 'opencode', projectDir, dryRun: true })).toMatchObject({
       ok: true,
       writes: [
         expect.objectContaining({
-          wrapperKey: 'mcpServers',
-          config: { mcpServers: { flovart: expect.objectContaining({ command: 'node' }) } },
+          wrapperKey: 'cliServers',
+          config: { cliServers: { flovart: expect.objectContaining({ command: 'node' }) } },
         }),
       ],
     });
 
-    expect(initMcpHost({ host: 'vscode', projectDir, dryRun: true })).toMatchObject({
+    expect(initCliHost({ host: 'vscode', projectDir, dryRun: true })).toMatchObject({
       ok: true,
       writes: [
         expect.objectContaining({
           wrapperKey: 'servers',
-          config: { servers: { flovart: expect.objectContaining({ type: 'stdio' }) } },
+          config: { servers: { flovart: expect.objectContaining({ type: 'stdio', command: 'node' }) } },
         }),
       ],
     });
@@ -52,11 +52,10 @@ describe('flovart agent kit', () => {
       items: expect.arrayContaining([expect.objectContaining({ id: 'product-hero-luxury' })]),
     });
 
-    const diagnosis = diagnoseAgentSetup({ projectDir: process.cwd(), cdpPort: 9222 });
+    const diagnosis = diagnoseAgentSetup({ projectDir: process.cwd() });
     expect(diagnosis).toMatchObject({
       ok: true,
-      cdp: { port: 9222 },
-      checks: expect.arrayContaining([expect.objectContaining({ id: 'mcp-server', ok: true })]),
+      checks: expect.arrayContaining([expect.objectContaining({ id: 'cli', ok: true })]),
     });
     expect(JSON.stringify(diagnosis)).not.toMatch(/api[_-]?key|token|secret/i);
   });

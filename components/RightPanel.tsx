@@ -492,32 +492,43 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                     onPointerDown={handleResizePointerDown}
                 />
 
-                <div className={`flex items-center justify-between border-b ${isDark ? 'border-[#2A3140]' : 'border-neutral-200/60'} ${compactMode ? 'px-3 py-2' : 'px-4 py-2.5'}`}>
-                    <div className={`flex items-center gap-3 ${compactMode ? 'text-[12px]' : ''}`}>
-                        {([
-                            { key: 'agent' as RightPanelTab, label: 'Agent Studio', icon: null },
-                            { key: 'history' as RightPanelTab, label: '历史', icon: null },
-                            { key: 'inspiration' as RightPanelTab, label: '素材库', icon: null },
-                            { key: 'runningHub' as RightPanelTab, label: 'RH', icon: '🚀' },
-                        ]).map(tab => (
+                <div className={`border-b ${isDark ? 'border-[#2A3140] bg-white/[0.025]' : 'border-neutral-200/60 bg-white/62'} ${compactMode ? 'px-3 py-3' : 'px-4 py-4'}`}>
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                            <div className={`text-[10px] font-bold uppercase tracking-[0.18em] ${isDark ? 'text-white/36' : 'text-neutral-400'}`}>
+                                Right Panel
+                            </div>
+                            <div className={`mt-1 truncate text-[17px] font-semibold tracking-[-0.03em] ${isDark ? 'text-[#F3F4F6]' : 'text-neutral-950'}`}>
+                                {activeTab === 'agent' ? 'Agent Chat' : activeTab === 'history' ? 'Generation History' : activeTab === 'inspiration' ? 'Asset Library' : 'RunningHub'}
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={onToggleMinimize}
+                            className={`flv-elastic shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${isDark ? 'border-white/10 bg-white/[0.04] text-white/52 hover:border-white/18 hover:text-white' : 'border-neutral-200 bg-white text-neutral-500 shadow-sm hover:border-neutral-300 hover:text-neutral-900'}`}
+                            title="Collapse"
+                        >
+                            Collapse
+                        </button>
+                    </div>
+
+                    <div className={`mt-3 grid grid-cols-4 gap-1.5 rounded-full border p-1 ${isDark ? 'border-white/10 bg-black/18' : 'border-neutral-200 bg-neutral-100/80'}`}>
+                        {[
+                            { key: 'agent' as RightPanelTab, label: 'Agent' },
+                            { key: 'history' as RightPanelTab, label: 'History' },
+                            { key: 'inspiration' as RightPanelTab, label: 'Assets' },
+                            { key: 'runningHub' as RightPanelTab, label: 'Hub' },
+                        ].map(tab => (
                             <button
                                 key={tab.key}
                                 type="button"
                                 onClick={() => setActiveTab(tab.key)}
-                                className={`right-panel-tab ${activeTab === tab.key ? 'active' : ''} ${compactMode ? 'text-[12px]' : ''}`}
+                                className={`flv-elastic min-w-0 rounded-full px-2 py-1.5 text-[11px] font-semibold transition-all ${activeTab === tab.key ? 'bg-white text-neutral-950 shadow-sm' : isDark ? 'text-white/48 hover:text-white/82' : 'text-neutral-500 hover:text-neutral-900'}`}
                             >
-                                {tab.icon ? `${tab.icon} ${tab.label}` : tab.label}
+                                <span className="block truncate">{tab.label}</span>
                             </button>
                         ))}
                     </div>
-                    <button
-                        type="button"
-                        onClick={onToggleMinimize}
-                        className={`rounded-md border px-2 py-1.5 text-[11px] transition-colors ${isDark ? 'border-[#2A3140] text-[#667085] hover:border-[#4B5B78] hover:text-[#D0D5DD]' : 'border-neutral-200 text-neutral-400 hover:border-neutral-300 hover:text-neutral-700'}`}
-                        title="收起"
-                    >
-                        收起
-                    </button>
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-hidden">

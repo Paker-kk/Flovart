@@ -2,7 +2,7 @@
 
 ## Project
 
-Flovart is a React 19 + TypeScript + Vite AI Canvas Studio. It exposes a local runtime API through `window.__flovartAPI` so coding agents can inspect and operate the active canvas.
+Flovart is a React 19 + TypeScript + Vite AI Canvas Studio. It exposes a local CLI-first file bridge so coding agents can inspect and operate Flovart without Chrome DevTools Protocol or MCP.
 
 ## Primary Commands
 
@@ -11,52 +11,35 @@ Flovart is a React 19 + TypeScript + Vite AI Canvas Studio. It exposes a local r
 - Test: `npm test`
 - Build: `npm run build`
 - External Flovart CLI: `npm run flovart:cli -- status --json`
-- MCP server: `node tools/flovart/mcp-server.js`
 
 ## Flovart Agent Interface
 
 Use `tools/flovart/core.js` as the shared deterministic command registry. Do not add natural-language planning here; external agents handle planning.
 
-Use `tools/flovart/runtime-client.js` for external clients. It connects to Chrome DevTools Protocol on port `9222` and calls the active page's `window.__flovartAPI`.
+Use `tools/flovart/cli.js` for deterministic commands from Codex, Claude Code, OpenCode, or shell scripts.
 
-Use `tools/flovart/cli.js` for deterministic fallback commands from Codex, Claude Code, OpenCode, or shell scripts.
+Use `tools/flovart/flovart-bridge.js` for the dev-server file bridge. The CLI writes browser-executed commands to `.flovart/command-queue.json`; the Vite app polls `/__flovart/queue`, executes commands through `window.__flovartAPI`, and writes results back.
 
-Use `tools/flovart/mcp-server.js` for MCP hosts. It exposes these tools:
-
-- `flovart.status`
-- `flovart.provider_status`
-- `flovart.provider_begin_setup`
-- `flovart.provider_select_model`
-- `flovart.provider_test`
-- `flovart.canvas_list_media`
-- `flovart.canvas_add_image`
-- `flovart.canvas_add_video`
-- `flovart.generate_image`
-- `flovart.generate_images_batch`
-- `flovart.generate_video`
-- `flovart.video_status`
+Use `tools/flovart/shadow-runtime.js` as the local file-state runtime. Canvas, workflow, and provider metadata commands read/write the local state file directly, so they do not require a browser.
 
 ## Runtime Setup
 
-Before using external CLI or MCP tools that operate the browser:
-
-1. Start the Vite app with `npm run dev`.
-2. Start Chrome with `chrome --remote-debugging-port=9222`.
-3. Open Flovart in the debug Chrome window.
-4. Verify with `npm run flovart:cli -- status --json`.
+1. Run `npm run dev`.
+2. Use local data commands directly, e.g. `npm run flovart:cli -- canvas.inspect --json`.
+3. For provider-backed commands such as `generate.image`, keep the Flovart browser tab open from the dev server so it can consume queued commands and use browser-only API keys.
 
 ## Engineering Rules
 
 - Prefer small, surgical edits.
-- Do not add planner logic inside Flovart CLI/MCP. Claude Code/Codex/OpenCode are the planners.
-- Do not read or expose API keys through external CLI/MCP outputs.
+- Do not add planner logic inside Flovart CLI. Claude Code/Codex/OpenCode are the planners.
+- Do not read or expose API keys through external CLI outputs.
 - Canvas automation is media-only for external agents: images and videos. Do not add text nodes for scripts/storyboards.
 - Never commit secrets, `.env`, generated `dist`, or credentials.
-- After changing canvas runtime, Flovart CLI, MCP, provider routing, or workflow execution, run `npm run build` and targeted tests when available.
+- After changing canvas runtime, Flovart CLI, provider routing, workflow execution, or the file bridge, run `npm run build` and targeted tests when available.
 - Keep user-facing copy concise and bilingual only where the touched surface already uses bilingual copy.
 
 ## Current Caveats
 
 - `AgentBridgePanel` is a status/instructions panel, not a chat agent or OS shell.
-- External CLI and MCP require an active browser tab exposing `window.__flovartAPI`.
-- MCP is local stdio only for now, not remote HTTP.
+- Provider-backed generation still requires the browser UI because API keys stay in browser storage and must not be exposed to Node CLI.
+- The CLI/file bridge is local dev-server based; it is not a remote HTTP service.

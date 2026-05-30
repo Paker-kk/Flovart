@@ -200,14 +200,14 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     const [isDragActive, setIsDragActive] = useState(false);
     const [resolvedAttachmentHrefs, setResolvedAttachmentHrefs] = useState<Record<string, string>>({});
 
-    const triggerClass = `inline-flex ${compactMode ? 'h-7 gap-1 px-2.5 text-[11px]' : 'h-8 gap-1.5 px-3 text-xs'} items-center rounded-full border font-medium transition ${
+    const triggerClass = `flv-elastic inline-flex ${compactMode ? 'h-7 gap-1 px-2.5 text-[11px]' : 'h-8 gap-1.5 px-3 text-xs'} items-center rounded-full border font-medium transition ${
         isDark ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E5E7EB] bg-[#F5F7FA] text-[#344054] hover:border-[#D0D5DD] hover:bg-white'
     }`;
     const activeTriggerClass = isDark ? 'border-[#4B5B78] bg-[#202734] text-white shadow-sm' : 'border-[#D0D5DD] bg-white text-[#111827] shadow-sm';
-    const popoverCardClass = `absolute bottom-full left-0 z-[80] mb-2 ${compactMode ? 'min-w-[200px] rounded-[14px]' : 'min-w-[220px] rounded-[16px]'} border p-1.5 shadow-[0_20px_50px_rgba(15,23,42,0.14)] ${
+    const popoverCardClass = `flv-popover absolute bottom-full left-0 z-[80] mb-2 ${compactMode ? 'min-w-[200px] rounded-[14px]' : 'min-w-[220px] rounded-[16px]'} border p-1.5 shadow-[0_20px_50px_rgba(15,23,42,0.14)] ${
         isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E5E7EB] bg-white'
     }`;
-    const shellClass = `${compactMode ? 'rounded-[18px]' : 'rounded-[20px]'} ${isDark ? 'border-[#2A3140] bg-[#12151B] shadow-[0_20px_50px_rgba(0,0,0,0.24)]' : 'border-[#E4E7EC] bg-white shadow-[0_20px_50px_rgba(15,23,42,0.10)]'}`;
+    const shellClass = `flv-glass-shell ${compactMode ? 'rounded-[22px]' : 'rounded-[26px]'} ${isDark ? 'border-white/10 bg-[#11151D]/92 shadow-[0_28px_80px_rgba(0,0,0,0.38)]' : 'border-white/70 bg-white/82 shadow-[0_26px_70px_rgba(15,23,42,0.14)]'}`;
 
     /** 将画布元素转换为 RichPromptEditor 需要的 MentionItem[] */
     const canvasItems = useMemo<MentionItem[]>(() =>
@@ -229,6 +229,28 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     }, [selectedVideoModel]);
 
     const currentModelOptions = generationMode === 'video' ? videoModelOptions : imageModelOptions;
+    const activeKey = userApiKeys.find(k => k.isDefault) || userApiKeys[0];
+    const activeModel = generationMode === 'video' ? selectedVideoModel : selectedImageModel;
+    const promptCharCount = prompt.trim().length;
+    const readyState = !activeKey
+        ? 'missing-key'
+        : !prompt.trim()
+            ? 'empty'
+            : isLoading
+                ? 'generating'
+                : 'ready';
+    const readyCopy = readyState === 'missing-key'
+        ? '先连接一个 AI 供应商'
+        : readyState === 'empty'
+            ? '输入你想生成或修改的画面'
+            : readyState === 'generating'
+                ? '正在生成，保持画布打开'
+                : '准备就绪，Enter 生成';
+    const promptHints = isSelectionActive
+        ? [`已选中 ${selectedElementCount} 个元素`, '描述“怎么改”比描述“是什么”更有效']
+        : attachments.length > 0
+            ? [`已添加 ${attachments.length} 个参考`, '可以继续输入 @ 引用画布元素']
+            : ['支持拖入图片/视频参考', '输入 @ 可引用画布元素'];
     const placeholder = useMemo(() => {
         if (!isSelectionActive) return '使用 @ 引用画布中的图片，例如：把 @图片1 的人物替换为 @图片2 的兔子';
         if (selectedElementCount === 1) return '描述你想对当前元素做什么';
@@ -319,7 +341,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     return (
         <div ref={rootRef} className={`theme-aware w-full ${className || ''}`.trim()}>
             <div
-                className={`relative overflow-visible rounded-[20px] border transition-all duration-200 ${shellClass} ${shellClassName || ''} ${isDragActive ? (isDark ? 'scale-[1.01] border-[#4B5B78]' : 'scale-[1.01] border-[#B2CCFF]') : ''}`.trim()}
+                className={`relative overflow-visible border transition-all duration-300 ${shellClass} ${shellClassName || ''} ${isDragActive ? (isDark ? 'scale-[1.01] border-[#4B5B78]' : 'scale-[1.01] border-[#B2CCFF]') : ''}`.trim()}
                 onDragEnter={event => {
                     if (!Array.from(event.dataTransfer.items).some(item => isSupportedAttachment(item.type))) return;
                     event.preventDefault();
@@ -396,7 +418,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                 {attachments.map(attachment => (
                                     <div
                                         key={attachment.id}
-                                        className={`group flex items-center gap-2 rounded-[14px] border px-2 py-1.5 transition-all duration-200 hover:-translate-y-0.5 ${isDark ? 'border-[#2A3140] bg-[#171C24]' : 'border-[#E4E7EC] bg-[#F8FAFC]'}`}
+                                        className={`flv-elastic group flex items-center gap-2 rounded-[14px] border px-2 py-1.5 transition-all duration-200 hover:-translate-y-0.5 ${isDark ? 'border-[#2A3140] bg-[#171C24]' : 'border-[#E4E7EC] bg-[#F8FAFC]'}`}
                                     >
                                         <div className="h-8 w-8 overflow-hidden rounded-lg border border-[var(--border-color)] bg-white">
                                             {attachment.mimeType.startsWith('video/') ? (
@@ -700,7 +722,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                         disabled={isLoading || !prompt.trim()}
                         aria-label={t('promptBar.generate')}
                         title={t('promptBar.generate')}
-                        className={`flex h-9 min-w-[72px] items-center justify-center rounded-xl px-3 transition disabled:cursor-not-allowed ${isDark ? 'bg-[#F3F4F6] text-[#111827] hover:bg-white disabled:bg-[#3A4458] disabled:text-[#98A2B3]' : 'bg-[#111827] text-white hover:bg-[#0F172A] disabled:bg-[#D0D5DD]'}`}
+                        className={`flv-elastic flv-primary-action flex h-9 min-w-[86px] items-center justify-center rounded-2xl px-4 transition disabled:cursor-not-allowed ${isDark ? 'bg-[#F3F4F6] text-[#111827] hover:bg-white disabled:bg-[#3A4458] disabled:text-[#98A2B3]' : 'bg-[#111827] text-white hover:bg-[#0F172A] disabled:bg-[#D0D5DD]'}`}
                     >
                         {isLoading ? (
                             <svg className="h-3.5 w-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -722,3 +744,4 @@ export const PromptBar: React.FC<PromptBarProps> = ({
         </div>
     );
 };
+

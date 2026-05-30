@@ -903,7 +903,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                         </div>
                                         <div className="ml-3 flex items-center gap-2">
                                             {!item.isDefault ? (
-                                                <button type="button" onClick={() => onSetDefaultApiKey(item.id)} className={chipClass}>
+                                                <button type="button" onClick={() => onSetDefaultApiKey(item.id)} className={`${chipClass} flv-elastic`}>
                                                     设为默认
                                                 </button>
                                             ) : (
@@ -945,19 +945,19 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                         <div className="grid gap-3 md:grid-cols-2">
                             <label className={`rounded-2xl p-3 ${isDark ? 'bg-[#161A22]' : 'bg-[#F8FAFC]'}`}>
                                 <div className={`mb-2 text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>LLM 润色模型</div>
-                                <select value={modelPreference.textModel} onChange={(event) => setModelPreference({ ...modelPreference, textModel: event.target.value })} className={inputClass}>
+                                <select value={modelPreference.textModel} onChange={(event) => setModelPreference({ ...modelPreference, textModel: event.target.value })} className={`${inputClass} flv-safe-input`}>
                                     {modelOptions.text.map(model => <option key={model} value={model}>{model}</option>)}
                                 </select>
                             </label>
                             <label className={`rounded-2xl p-3 ${isDark ? 'bg-[#161A22]' : 'bg-[#F8FAFC]'}`}>
                                 <div className={`mb-2 text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>图片模型</div>
-                                <select value={modelPreference.imageModel} onChange={(event) => setModelPreference({ ...modelPreference, imageModel: event.target.value })} className={inputClass}>
+                                <select value={modelPreference.imageModel} onChange={(event) => setModelPreference({ ...modelPreference, imageModel: event.target.value })} className={`${inputClass} flv-safe-input`}>
                                     {modelOptions.image.map(model => <option key={model} value={model}>{model}</option>)}
                                 </select>
                             </label>
                             <label className={`rounded-2xl p-3 ${isDark ? 'bg-[#161A22]' : 'bg-[#F8FAFC]'}`}>
                                 <div className={`mb-2 text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>视频模型</div>
-                                <select value={modelPreference.videoModel} onChange={(event) => setModelPreference({ ...modelPreference, videoModel: event.target.value })} className={inputClass}>
+                                <select value={modelPreference.videoModel} onChange={(event) => setModelPreference({ ...modelPreference, videoModel: event.target.value })} className={`${inputClass} flv-safe-input`}>
                                     {modelOptions.video.map(model => <option key={model} value={model}>{model}</option>)}
                                 </select>
                             </label>
@@ -1006,7 +1006,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                 <div className="fixed inset-0 z-150 overflow-y-auto bg-black/40 backdrop-blur-sm" onClick={handleCancelEdit}>
                     <div className="flex min-h-[100dvh] items-end justify-center p-2 sm:min-h-full sm:items-center sm:p-6">
                     <div
-                        className={`relative flex min-h-0 max-h-[calc(100dvh-1rem)] w-full max-w-140 flex-col overflow-hidden rounded-3xl border shadow-[0_40px_100px_rgba(0,0,0,0.2)] sm:max-h-[calc(100dvh-3rem)] ${
+                        className={`flv-glass-shell relative flex min-h-0 max-h-[calc(100dvh-1rem)] w-full max-w-140 flex-col overflow-hidden rounded-3xl border shadow-[0_40px_100px_rgba(0,0,0,0.2)] sm:max-h-[calc(100dvh-3rem)] ${
                             isDark ? 'border-[#2A3140] bg-[#12151B]' : 'border-[#E4E7EC] bg-white'
                         }`}
                         onClick={(e) => e.stopPropagation()}
@@ -1023,7 +1023,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 pb-4">
                             {/* 预设供应商 */}
                             {!editingKeyId && (
-                                <div className={sectionPanelClass}>
+                                <div className={`${sectionPanelClass} flv-api-hero`}>
                                     <div className="mb-3 flex items-center justify-between gap-3">
                                         <div>
                                             <div className={`text-sm font-semibold ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>预设供应商</div>
@@ -1065,17 +1065,17 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                             <div className="grid gap-3 md:grid-cols-2">
                                 <label>
                                     <span className={`mb-1.5 block text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>供应商名称</span>
-                                    <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="例如：Claude 官方" className={inputClass} />
+                                    <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="例如：Claude 官方" className={`${inputClass} flv-safe-input`} />
                                 </label>
                                 <label>
                                     <span className={`mb-1.5 block text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>备注</span>
-                                    <input value={extraConfig.remark || ''} onChange={(event) => updateExtraConfig('remark', event.target.value)} placeholder="例如：公司专用账号" className={inputClass} />
+                                    <input value={extraConfig.remark || ''} onChange={(event) => updateExtraConfig('remark', event.target.value)} placeholder="例如：公司专用账号" className={`${inputClass} flv-safe-input`} />
                                 </label>
                             </div>
 
                             <label className="block">
                                 <span className={`mb-1.5 block text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>官网链接</span>
-                                <input value={extraConfig.websiteUrl || ''} onChange={(event) => updateExtraConfig('websiteUrl', event.target.value)} placeholder="https://example.com（可选）" className={inputClass} />
+                                <input value={extraConfig.websiteUrl || ''} onChange={(event) => updateExtraConfig('websiteUrl', event.target.value)} placeholder="https://example.com（可选）" className={`${inputClass} flv-safe-input`} />
                             </label>
 
                             <div className="flex gap-2">
@@ -1087,11 +1087,11 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                         onPaste={handleKeyPaste}
                                         type={showKey ? 'text' : 'password'}
                                         placeholder="只需要填这里，下方配置会自动填充"
-                                        className={inputClass}
+                                        className={`${inputClass} flv-safe-input`}
                                         autoFocus
                                     />
                                 </label>
-                                <button type="button" onClick={() => setShowKey(prev => !prev)} className={chipClass}>
+                                <button type="button" onClick={() => setShowKey(prev => !prev)} className={`${chipClass} flv-elastic`}>
                                     {showKey ? '隐藏' : '显示'}
                                 </button>
                             </div>
@@ -1130,7 +1130,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
 
                             <label className="block">
                                 <span className={`mb-1.5 block text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>请求地址</span>
-                                <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://your-api-endpoint.com" className={inputClass} />
+                                <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://your-api-endpoint.com" className={`${inputClass} flv-safe-input`} />
                             </label>
 
                             {provider === 'custom' && (
@@ -1205,9 +1205,9 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                         onChange={(e) => setNewModelId(e.target.value)}
                                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddModel(); } }}
                                         placeholder="输入模型 ID 并回车添加"
-                                        className={inputClass}
+                                        className={`${inputClass} flv-safe-input`}
                                     />
-                                    <button type="button" onClick={handleAddModel} className={chipClass}>添加</button>
+                                    <button type="button" onClick={handleAddModel} className={`${chipClass} flv-elastic`}>添加</button>
                                 </div>
                                 {editModels.length > 0 && (
                                     <div className={`mt-1.5 text-[11px] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>
@@ -1227,7 +1227,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                     <select
                                         value={extraConfig.requestFormat || ''}
                                         onChange={(e) => updateExtraConfig('requestFormat', e.target.value)}
-                                        className={inputClass}
+                                        className={`${inputClass} flv-safe-input`}
                                         title="API 格式"
                                         aria-label="API 格式"
                                     >
@@ -1241,31 +1241,31 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                         value={extraConfig.authHeaderName || ''}
                                         onChange={(e) => updateExtraConfig('authHeaderName', e.target.value)}
                                         placeholder="认证字段，如 Authorization / x-api-key"
-                                        className={inputClass}
+                                        className={`${inputClass} flv-safe-input`}
                                     />
                                     <input
                                         value={extraConfig.authScheme || ''}
                                         onChange={(e) => updateExtraConfig('authScheme', e.target.value)}
                                         placeholder="认证前缀，如 Bearer（可选）"
-                                        className={inputClass}
+                                        className={`${inputClass} flv-safe-input`}
                                     />
                                     <input
                                         value={extraConfig.projectId || ''}
                                         onChange={(e) => updateExtraConfig('projectId', e.target.value)}
                                         placeholder="Project ID / Organization（可选）"
-                                        className={inputClass}
+                                        className={`${inputClass} flv-safe-input`}
                                     />
                                     <div className={`md:col-span-2 mt-1 text-xs font-semibold ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>计费配置</div>
                                     <input
                                         value={extraConfig.costMultiplier || ''}
                                         onChange={(e) => updateExtraConfig('costMultiplier', e.target.value)}
                                         placeholder="成本倍率，如 1.2"
-                                        className={inputClass}
+                                        className={`${inputClass} flv-safe-input`}
                                     />
                                     <select
                                         value={extraConfig.billingMode || ''}
                                         onChange={(e) => updateExtraConfig('billingMode', e.target.value)}
-                                        className={inputClass}
+                                        className={`${inputClass} flv-safe-input`}
                                         title="计费模式"
                                         aria-label="计费模式"
                                     >
@@ -1280,13 +1280,13 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                         value={extraConfig.testTimeoutMs || ''}
                                         onChange={(e) => updateExtraConfig('testTimeoutMs', e.target.value)}
                                         placeholder="模型测试超时 ms，如 30000"
-                                        className={inputClass}
+                                        className={`${inputClass} flv-safe-input`}
                                     />
                                     <input
                                         value={extraConfig.maxRetries || ''}
                                         onChange={(e) => updateExtraConfig('maxRetries', e.target.value)}
                                         placeholder="最大重试次数，如 2"
-                                        className={inputClass}
+                                        className={`${inputClass} flv-safe-input`}
                                     />
                                 </div>
                                 <textarea
@@ -1357,3 +1357,4 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         </div>
     );
 };
+

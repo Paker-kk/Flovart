@@ -40,6 +40,44 @@
     --flovart-shadow: 0 12px 32px rgba(24, 24, 27, 0.08), 0 0 1px rgba(0, 0, 0, 0.05) inset;
 }
 
+:root[data-theme='light'] {
+    --app-bg: #f3f5f9;
+    --panel-bg: rgba(255, 255, 255, 0.92);
+    --panel-strong: #ffffff;
+    --panel-soft: #f8fafc;
+    --panel-muted: #eef2f6;
+    --border-color: #e4e7ec;
+    --border-strong: #d0d5dd;
+    --text-primary: #111827;
+    --text-secondary: #344054;
+    --text-muted: #667085;
+    --text-subtle: #98a2b3;
+    --toolbar-bg: rgba(255, 255, 255, 0.92);
+    --toolbar-border: #e4e7ec;
+    --toolbar-icon: #475467;
+    --toolbar-icon-active-bg: #111827;
+    --toolbar-icon-active-text: #ffffff;
+    --primary-bg: #111827;
+    --primary-text: #ffffff;
+    --input-bg: rgba(255, 255, 255, 0.92);
+    --canvas-bg: #f7f8fb;
+    --shadow-panel: 0 30px 70px rgba(15, 23, 42, 0.16);
+    --shadow-soft: 0 16px 40px rgba(15, 23, 42, 0.08);
+    --accent-bg: #eef4ff;
+    --accent-text: #175cd3;
+    --ui-bg-color: rgba(255, 255, 255, 0.92);
+    --button-bg-color: #111827;
+    --flovart-panel-bg: rgba(244, 245, 248, 0.94);
+    --flovart-panel-border: rgba(212, 212, 216, 0.8);
+    --flovart-text-primary: #18181b;
+    --flovart-text-muted: #52525b;
+    --flovart-text-ghost: #94949e;
+    --flovart-input-bg: rgba(255, 255, 255, 0.75);
+    --flovart-chip-bg: rgba(228, 228, 231, 0.6);
+    --flovart-chip-border: #d4d4d8;
+    --flovart-shadow: 0 12px 32px rgba(24, 24, 27, 0.06), 0 0 1px rgba(0, 0, 0, 0.05) inset;
+}
+
 :root[data-theme='dark'] {
     color-scheme: dark;
     --app-bg: #0c0f14;
@@ -69,12 +107,12 @@
     --ui-bg-color: rgba(18, 21, 27, 0.94);
     --button-bg-color: #f3f4f6;
     --flovart-panel-bg: rgba(18, 20, 26, 0.92);
-    --flovart-panel-border: rgba(39, 39, 42, 0.86);
+    --flovart-panel-border: rgba(39, 39, 42, 0.8);
     --flovart-text-primary: #f4f4f5;
     --flovart-text-muted: #a1a1aa;
     --flovart-text-ghost: #52525b;
-    --flovart-input-bg: rgba(0, 0, 0, 0.26);
-    --flovart-chip-bg: rgba(9, 9, 11, 0.72);
+    --flovart-input-bg: rgba(0, 0, 0, 0.3);
+    --flovart-chip-bg: #09090b;
     --flovart-chip-border: #27272a;
     --flovart-shadow: 0 12px 32px rgba(0, 0, 0, 0.7), 0 0 1px rgba(255, 255, 255, 0.05) inset;
 }
@@ -214,12 +252,13 @@ body {
     box-sizing: border-box;
     color: var(--flovart-text-muted);
     border: 1px solid var(--flovart-panel-border);
-    border-radius: 6px;
+    border-radius: 4px;
     background: var(--flovart-panel-bg);
     box-shadow: var(--flovart-shadow);
     padding: 6px 8px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    backdrop-filter: blur(14px);
+    transition: background 0.2s ease, border-color 0.2s ease, width 0.15s cubic-bezier(0.25, 1, 0.5, 1);
+    will-change: transform;
 }
 
 .inline-prompt-bar__header,
@@ -1842,4 +1881,241 @@ input[type='range'].toolbar-range::-moz-range-thumb:hover {
 .workflow-node-card-compact.is-selected .workflow-node-upload-bubble {
     opacity: 1;
     pointer-events: auto;
+}
+
+/* ==========================================================
+   🌊 Flovart-cc V3.0 — Lovart 级多任务跑马灯发丝动能效果
+   ========================================================== */
+
+@keyframes card-neon-flow-animation {
+    0% { clip-path: inset(0 0 98% 0); }
+    25% { clip-path: inset(0 0 0 98%); }
+    50% { clip-path: inset(98% 0 0 0); }
+    75% { clip-path: inset(0 98% 0 0); }
+    100% { clip-path: inset(0 0 98% 0); }
+}
+
+.animate-card-neon-flow {
+    border: 1px solid var(--inline-prompt-accent, #00ff88);
+    filter: drop-shadow(0 0 4px var(--inline-prompt-accent, #00ff88));
+    animation: card-neon-flow-animation 2.5s linear infinite;
+    position: absolute;
+    inset: 0;
+}
+
+
+/* Flovart tactile UI system: Lovart-like glass + LibTV-like elastic motion */
+:root {
+  --flv-rose: #e8453c;
+  --flv-coral: #ff7a5c;
+  --flv-violet: #7c3aed;
+  --flv-ink: #111827;
+  --flv-glow: rgba(232, 69, 60, 0.22);
+}
+
+.flv-glass-shell {
+  isolation: isolate;
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(28px) saturate(1.22);
+  -webkit-backdrop-filter: blur(28px) saturate(1.22);
+  box-shadow:
+    0 24px 70px rgba(15, 23, 42, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.flv-glass-shell::before {
+  content: '';
+  position: absolute;
+  inset: -40% -20% auto -20%;
+  height: 95px;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 50%, rgba(232, 69, 60, 0.22), transparent 34%),
+    radial-gradient(circle at 72% 40%, rgba(124, 58, 237, 0.16), transparent 38%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.18), transparent 44%, rgba(255, 255, 255, 0.12));
+  filter: blur(2px);
+  opacity: 0.9;
+  transform: translateY(-4px);
+}
+
+.flv-glass-shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.flv-dark .flv-glass-shell,
+.dark .flv-glass-shell {
+  box-shadow:
+    0 28px 80px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.flv-elastic {
+  transition:
+    transform 260ms cubic-bezier(.2, 1.45, .24, 1),
+    box-shadow 220ms ease,
+    border-color 220ms ease,
+    background-color 220ms ease,
+    color 220ms ease;
+  will-change: transform;
+}
+
+.flv-elastic:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.015);
+}
+
+.flv-elastic:active:not(:disabled) {
+  transform: translateY(0) scale(0.975);
+}
+
+.flv-primary-action {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255,255,255,.35), transparent 26%),
+    linear-gradient(135deg, #ff6b52 0%, #e8453c 48%, #b42318 100%) !important;
+  box-shadow: 0 16px 34px rgba(232, 69, 60, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.flv-primary-action::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 -45%;
+  width: 42%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent);
+  transform: skewX(-18deg);
+  transition: transform 650ms ease;
+}
+
+.flv-primary-action:hover::before {
+  transform: translateX(360%) skewX(-18deg);
+}
+
+.flv-primary-action:disabled {
+  background: linear-gradient(135deg, #cbd5e1, #94a3b8) !important;
+  box-shadow: none;
+}
+
+.flv-prompt-rail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-radius: 18px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, rgba(255,255,255,.58), rgba(255,255,255,.18));
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.dark .flv-prompt-rail {
+  background: linear-gradient(135deg, rgba(255,255,255,.065), rgba(255,255,255,.028));
+  border-color: rgba(255,255,255,.08);
+}
+
+.flv-micro-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  background: rgba(232, 69, 60, .09);
+  color: #b42318;
+}
+
+.dark .flv-micro-pill {
+  background: rgba(232, 69, 60, .16);
+  color: #ffb4a8;
+}
+
+.flv-editor-zone {
+  border-radius: 18px;
+  padding: 2px 2px 0;
+  background: linear-gradient(180deg, rgba(255,255,255,.32), rgba(255,255,255,0));
+}
+
+.dark .flv-editor-zone {
+  background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,0));
+}
+
+.flv-popover {
+  transform-origin: bottom left;
+  animation: flv-pop 180ms cubic-bezier(.2,1.35,.3,1) both;
+}
+
+@keyframes flv-pop {
+  from { opacity: 0; transform: translateY(8px) scale(.965); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.flv-agent-dock {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.flv-agent-dock::before {
+  content: '';
+  position: absolute;
+  inset: -120px -80px auto auto;
+  width: 260px;
+  height: 260px;
+  pointer-events: none;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(232,69,60,.16), transparent 62%);
+  filter: blur(4px);
+}
+
+.flv-message-card {
+  animation: flv-message-in 220ms cubic-bezier(.2,1,.24,1) both;
+}
+
+@keyframes flv-message-in {
+  from { opacity: 0; transform: translateY(8px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.flv-api-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 24px;
+  padding: 16px;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(232,69,60,.18), transparent 34%),
+    radial-gradient(circle at 88% 16%, rgba(124,58,237,.12), transparent 30%),
+    linear-gradient(135deg, rgba(255,255,255,.82), rgba(248,250,252,.58));
+  border: 1px solid rgba(148,163,184,.22);
+}
+
+.dark .flv-api-hero {
+  background:
+    radial-gradient(circle at 12% 18%, rgba(232,69,60,.18), transparent 34%),
+    radial-gradient(circle at 88% 16%, rgba(124,58,237,.14), transparent 30%),
+    linear-gradient(135deg, rgba(255,255,255,.07), rgba(255,255,255,.025));
+  border-color: rgba(255,255,255,.08);
+}
+
+.flv-safe-input:focus-within {
+  box-shadow: 0 0 0 4px rgba(232,69,60,.13);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flv-elastic,
+  .flv-message-card,
+  .flv-popover,
+  .flv-primary-action::before {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
 }

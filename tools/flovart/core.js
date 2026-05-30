@@ -1,10 +1,10 @@
 export const COMMAND_REGISTRY = {
   help: { summary: 'Show human-readable command help.', args: {} },
-  setup: { summary: 'Show MCP/CLI setup steps.', args: {} },
+  setup: { summary: 'Show CLI file-bridge setup steps.', args: {} },
   'command.list': { summary: 'List machine-readable atomic command metadata.', args: {} },
   'command.schema': { summary: 'Return one atomic command schema.', args: { command: 'string?' } },
-  init: { summary: 'Write MCP server config for a supported host.', args: { host: 'project|opencode|claude|cursor|windsurf|roo|vscode|all', projectDir: 'string?', dryRun: 'boolean?' } },
-  doctor: { summary: 'Diagnose local Flovart agent CLI/MCP setup without exposing secrets.', args: { projectDir: 'string?', cdpPort: 'number?' } },
+  init: { summary: 'Write CLI helper config for a supported host.', args: { host: 'project|opencode|claude|cursor|windsurf|roo|vscode|all', projectDir: 'string?', dryRun: 'boolean?' } },
+  doctor: { summary: 'Diagnose local Flovart CLI file-bridge setup without exposing secrets.', args: { projectDir: 'string?' } },
   'inspiration.search': { summary: 'Search curated Flovart prompt inspirations.', args: { query: 'string?', category: 'string?', limit: 'number?' } },
   'inspiration.get': { summary: 'Return one curated inspiration entry by ID.', args: { id: 'string' } },
   'prompt.enhance': { summary: 'Enhance a brief image/video prompt using Flovart agent preferences.', args: { prompt: 'string', style: 'string?', aspectRatio: 'string?', mode: 'image|video?' } },
@@ -73,9 +73,9 @@ export const HELP_TEXT = [
   '',
   'Commands:',
   'help                                            Show this help',
-  'setup                                           Show MCP/CLI setup steps',
+  'setup                                           Show CLI file-bridge setup steps',
   'init --host opencode|claude|cursor|windsurf|roo|vscode|all [--dry-run]',
-  'doctor                                          Diagnose local CLI/MCP setup',
+  'doctor                                          Diagnose local CLI file-bridge setup',
   'command.list                                    List machine-readable atomic command metadata',
   'command.schema --command <name>                 Show one command schema',
   'inspiration.search --query <term>               Search curated inspiration prompts',
@@ -113,13 +113,11 @@ export const HELP_TEXT = [
 ].join('\n');
 
 export const SETUP_TEXT = [
-  'Flovart Agent Bridge setup:',
+  'Flovart CLI file bridge setup:',
   '1. npm run dev',
-  '2. Start Chrome with --remote-debugging-port=9222',
-  '3. Open Flovart in that Chrome window',
-  '4. npm run flovart:cli -- status --json',
-  '5. npm run flovart:mcp',
-  '6. Optional: npm run flovart:cli -- init --host opencode',
+  '2. Open the Flovart browser app from the dev server when a command needs provider execution',
+  '3. npm run flovart:cli -- status --json',
+  '4. npm run flovart:cli -- generate.image --prompt <prompt> --json',
   '',
   'API keys must be entered in the Flovart browser UI only. Do not paste secrets into Claude Code transcripts.',
 ].join('\n');
@@ -268,16 +266,16 @@ function mediaElementFromArgs(args, type) {
 async function loadAgentKit() {
   if (typeof window !== 'undefined') {
     return {
-      initMcpHost: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'MCP host init is only available in the Node CLI/MCP runtime.' } }),
-      searchInspiration: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Inspiration search is only available in the Node CLI/MCP runtime.' } }),
-      getInspiration: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Inspiration lookup is only available in the Node CLI/MCP runtime.' } }),
-      enhancePrompt: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Prompt enhancement is only available in the Node CLI/MCP runtime.' } }),
-      planBatchGeneration: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Batch planning is only available in the Node CLI/MCP runtime.' } }),
-      planVideoWorkflow: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Workflow planning is only available in the Node CLI/MCP runtime.' } }),
-      prepareMediaUpload: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Local media upload is only available in the Node CLI/MCP runtime.' } }),
-      manageAgentPreferences: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Agent preferences are only available in the Node CLI/MCP runtime.' } }),
-      listAgentModels: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Agent model listing is only available in the Node CLI/MCP runtime.' } }),
-      diagnoseAgentSetup: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Agent setup diagnostics are only available in the Node CLI/MCP runtime.' } }),
+      initCliHost: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'CLI host init is only available in the Node CLI runtime.' } }),
+      searchInspiration: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Inspiration search is only available in the Node CLI runtime.' } }),
+      getInspiration: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Inspiration lookup is only available in the Node CLI runtime.' } }),
+      enhancePrompt: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Prompt enhancement is only available in the Node CLI runtime.' } }),
+      planBatchGeneration: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Batch planning is only available in the Node CLI runtime.' } }),
+      planVideoWorkflow: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Workflow planning is only available in the Node CLI runtime.' } }),
+      prepareMediaUpload: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Local media upload is only available in the Node CLI runtime.' } }),
+      manageAgentPreferences: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Agent preferences are only available in the Node CLI runtime.' } }),
+      listAgentModels: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Agent model listing is only available in the Node CLI runtime.' } }),
+      diagnoseAgentSetup: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Agent setup diagnostics are only available in the Node CLI runtime.' } }),
     };
   }
   const dynamicImport = new Function('specifier', 'return import(specifier)');
@@ -293,8 +291,8 @@ export async function executeFlovartCommand(commandName, args = {}, runtime = {}
     case 'setup':
       return { ok: true, text: SETUP_TEXT };
     case 'init': {
-      const { initMcpHost } = await loadAgentKit();
-      return initMcpHost({
+      const { initCliHost } = await loadAgentKit();
+      return initCliHost({
         host: args.host || args._?.[0] || 'project',
         projectDir: args['project-dir'] || args.projectDir,
         dryRun: args['dry-run'] || args.dryRun,
@@ -304,7 +302,6 @@ export async function executeFlovartCommand(commandName, args = {}, runtime = {}
       const { diagnoseAgentSetup } = await loadAgentKit();
       return diagnoseAgentSetup({
         projectDir: args['project-dir'] || args.projectDir,
-        cdpPort: args['cdp-port'] || args.cdpPort,
       });
     }
     case 'command.list':

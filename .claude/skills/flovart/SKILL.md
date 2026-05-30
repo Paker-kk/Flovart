@@ -10,7 +10,7 @@ Flovart is a deterministic media runtime. You are the planner. All operations go
 ## Runtime Setup
 
 1. `npm run dev`
-2. Start Chrome with `--remote-debugging-port=9222` and open Flovart
+2. Open Flovart in the browser when a command needs provider execution
 3. `npm run flovart:cli -- status --json`
 
 Without a browser, commands fall back to **shadow runtime** — state persists to disk and executes when the browser opens.
@@ -19,7 +19,7 @@ Without a browser, commands fall back to **shadow runtime** — state persists t
 
 - Never ask the user to paste API keys. Use `provider.begin-setup` to open the browser UI.
 - Do not add text nodes to the Flovart canvas. Canvas is media-only: images and videos.
-- Use CLI as the primary interface. MCP is optional discovery sugar.
+- Use CLI as the only external interface. No MCP or CDP port is required.
 - Keep all tool calls explicit and JSON-safe.
 
 ## Atomic CLI Commands
@@ -28,7 +28,7 @@ Without a browser, commands fall back to **shadow runtime** — state persists t
 | Command | Args |
 |---------|------|
 | `status` | — |
-| `doctor` | `--project-dir`, `--cdp-port` |
+| `doctor` | `--project-dir` |
 | `init` | `--host claude\|cursor\|vscode\|all` |
 | `command.list` | — |
 
@@ -135,9 +135,9 @@ npm run flovart:cli -- workflow.update-node --node-id "shot-1-image" --config-js
 
 ## Shadow Runtime (No Browser)
 
-When no browser Chrome is running, CLI commands automatically use the shadow runtime which persists state to `%LOCALAPPDATA%\Flovart\shadow-runtime-state.json`. Generation requests are queued and execute when Flovart opens in the browser.
+CLI data commands use the local file-state runtime at `%LOCALAPPDATA%\Flovart\shadow-runtime-state.json`. Provider-backed generation requests are queued through `.flovart/command-queue.json` and execute when the Flovart browser app is open.
 
 ```bash
 npm run flovart:cli -- status --json
-# => { "ok": true, "fallback": "shadow-runtime", "data": { "runtime": "flovart-shadow-runtime", ... } }
+# => { "ok": true, "runtime": "file-state", "data": { "runtime": "flovart-shadow-runtime", ... } }
 ```

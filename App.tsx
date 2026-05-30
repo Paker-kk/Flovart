@@ -54,6 +54,7 @@ import type { WorkflowNode, WorkflowValue } from './components/nodeflow/types';
 import { useWorkspaceStore } from './stores/useWorkspaceStore';
 import type { CanvasElement, ElementGenerationState, WorkspaceView } from './types';
 import { getFlovartRuntimeApi, getRuntimeErrorMessage } from './services/flovartRuntime';
+import { executeFlovartCommand } from './tools/flovart/core.js';
 
 
 
@@ -2781,16 +2782,49 @@ const App: React.FC = () => {
             _version: '2.1.0',
         };
         (window as any).__flovartAPI = api;
+
+        const runApiMethod = async (method: string, args: unknown) => {
+            const parts = method.split('.');
+            let fn: any = api;
+            for (const p of parts) fn = fn?.[p];
+            if (typeof fn !== 'function') throw new Error(`Unknown method: ${method}`);
+            return fn(...(Array.isArray(args) ? args : [args]));
+        };
+
+        const runtimeFacade = api as any;
+        const pollFileBridge = async () => {
+            if (document.hidden) return;
+            const response = await fetch('/__flovart/queue', { cache: 'no-store' });
+            if (!response.ok) return;
+            const entry = await response.json();
+            if (!entry?.id || !entry.command) return;
+            try {
+                const result = await executeFlovartCommand(entry.command, entry.args || {}, runtimeFacade);
+                await fetch('/__flovart/queue', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: entry.id, result }),
+                });
+            } catch (err: any) {
+                await fetch('/__flovart/queue', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: entry.id, error: { code: 'BROWSER_EXECUTION_ERROR', message: err?.message || String(err) } }),
+                });
+            }
+        };
+
+        const bridgeInterval = window.setInterval(() => {
+            pollFileBridge().catch(() => undefined);
+        }, 500);
+        pollFileBridge().catch(() => undefined);
+
         // Listen for postMessage commands from extension content script
         const handleApiMessage = (e: MessageEvent) => {
             if (e.data?.type !== '__flovart_command') return;
             const { id, method, args } = e.data;
             try {
-                const parts = (method as string).split('.');
-                let fn: any = api;
-                for (const p of parts) fn = fn?.[p];
-                if (typeof fn !== 'function') throw new Error(`Unknown method: ${method}`);
-                const result = fn(...(Array.isArray(args) ? args : [args]));
+                const result = runApiMethod(method, args);
                 const reply = (r: any) => window.postMessage({ type: '__flovart_result', id, result: r }, '*');
                 result instanceof Promise ? result.then(reply).catch((err: Error) => window.postMessage({ type: '__flovart_result', id, error: err.message }, '*')) : reply(result);
             } catch (err: any) {
@@ -2799,7 +2833,7 @@ const App: React.FC = () => {
         };
         window.addEventListener('message', handleApiMessage);
         window.dispatchEvent(new CustomEvent('flovart:api-ready'));
-        return () => { delete (window as any).__flovartAPI; window.removeEventListener('message', handleApiMessage); };
+        return () => { window.clearInterval(bridgeInterval); delete (window as any).__flovartAPI; window.removeEventListener('message', handleApiMessage); };
     }, [commitAction, selectedElementIds, zoom, panOffset, handleGenerate]);
 
     const getSelectionBounds = useCallback((selectionIds: string[]): Rect => {
@@ -3907,7 +3941,7 @@ const App: React.FC = () => {
                         <span>·</span>
                         <button className="underline-offset-2 hover:underline cursor-pointer bg-transparent border-none p-0 text-inherit text-[10px]" onClick={() => openLegalModal('terms')}>使用条款</button>
                         <span>·</span>
-                        <button className="underline-offset-2 hover:underline cursor-pointer bg-transparent border-none p-0 text-inherit text-[10px]" onClick={() => openLegalModal('privacy')}>隐私政策</button>
+                        <button className="underline-offset-2 hover:underline cursor-pointer bg-transparent border-none p-0 text-inherit text-[10px]" onClick={() => openLegalModal('privacy')}>隐私政策</button><span>·</span><button onClick={() => { const next = resolvedTheme === "dark" ? "light" : "dark"; setThemeMode(next); }} className="cursor-pointer bg-transparent border-none p-0 text-inherit text-[10px] hover:underline">{resolvedTheme === "dark" ? "☀️" : "🌙"}</button><span>·</span><button onClick={() => setLanguage(language === "zho" ? "en" : "zho")} className="cursor-pointer bg-transparent border-none p-0 text-inherit text-[10px] hover:underline">{language === "zho" ? "EN" : "中"}</button>
                     </div>
                 </div>
             )}

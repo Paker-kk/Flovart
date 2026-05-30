@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 
-const SHADOW_STATE_FILE = process.env.FLOVART_SHADOW_STATE_FILE
+export const SHADOW_STATE_FILE = process.env.FLOVART_SHADOW_STATE_FILE
   || join(process.env.LOCALAPPDATA || process.cwd(), 'Flovart', 'shadow-runtime-state.json');
 
 function ensureParentDir(filePath) {
@@ -47,7 +47,7 @@ function createEmptyState() {
   };
 }
 
-function loadState() {
+export function loadShadowState() {
   try {
     if (!existsSync(SHADOW_STATE_FILE)) return createEmptyState();
     const parsed = JSON.parse(readFileSync(SHADOW_STATE_FILE, 'utf8'));
@@ -68,7 +68,7 @@ function loadState() {
   }
 }
 
-function saveState(state) {
+export function saveShadowState(state) {
   ensureParentDir(SHADOW_STATE_FILE);
   state.updatedAt = Date.now();
   writeFileSync(SHADOW_STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
@@ -131,7 +131,7 @@ function createShadowElement(input, state) {
 
   state.elements.push(next);
   state.selectedElementIds = [next.id];
-  saveState(state);
+  saveShadowState(state);
   return { ok: true, id: next.id, element: next, shadow: true };
 }
 
@@ -151,7 +151,7 @@ function updateShadowPrompt(input, state) {
       resolvedReferences: compilePromptReferences(input.textPrompt, state.elements),
     },
   };
-  saveState(state);
+  saveShadowState(state);
   return { ok: true, elementId: element.id, generationState: element.generationState, shadow: true };
 }
 
@@ -187,7 +187,7 @@ function assignShadowSlot(input, state) {
       ],
     },
   };
-  saveState(state);
+  saveShadowState(state);
   return { ok: true, elementId: element.id, targetElementId: source.id, slotRole: input.slotRole, shadow: true };
 }
 
@@ -215,7 +215,7 @@ function igniteShadowElement(input, state) {
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
-  saveState(state);
+  saveShadowState(state);
   return {
     ok: true,
     id: element.id,
@@ -256,7 +256,7 @@ function updateShadowElement(id, updates, state) {
     Object.entries(updates || {}).filter(([key]) => !blocked.has(key)),
   );
   state.elements[index] = { ...current, ...safeUpdates };
-  saveState(state);
+  saveShadowState(state);
   return { ok: true, shadow: true, id, element: state.elements[index] };
 }
 
@@ -264,14 +264,14 @@ function removeShadowElement(id, state) {
   const before = state.elements.length;
   state.elements = state.elements.filter((item) => item.id !== id && item.parentId !== id);
   state.selectedElementIds = state.selectedElementIds.filter((item) => item !== id);
-  saveState(state);
+  saveShadowState(state);
   return { ok: before !== state.elements.length, shadow: true, id, removed: before - state.elements.length };
 }
 
 function selectShadowElements(ids, state) {
   const available = new Set(state.elements.map((item) => item.id));
   state.selectedElementIds = (Array.isArray(ids) ? ids : []).filter((id) => available.has(id));
-  saveState(state);
+  saveShadowState(state);
   return { ok: true, shadow: true, selectedElementIds: state.selectedElementIds };
 }
 
@@ -312,7 +312,7 @@ function runShadowWorkflow(input, state) {
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
-  saveState(state);
+  saveShadowState(state);
   return {
     ok: true,
     shadow: true,
@@ -343,7 +343,7 @@ function loadShadowWorkflow(input, state) {
     runs: state.workflow.runs || [],
     name: workflow.name,
   };
-  saveState(state);
+  saveShadowState(state);
   return { ok: true, shadow: true, nodeCount: state.workflow.nodes.length, edgeCount: state.workflow.edges.length, workflow: state.workflow };
 }
 
@@ -358,7 +358,7 @@ function updateShadowWorkflowNode(nodeId, config, state) {
     },
   };
   state.workflow.selectedNodeIds = [nodeId];
-  saveState(state);
+  saveShadowState(state);
   return { ok: true, shadow: true, node: state.workflow.nodes[index] };
 }
 
@@ -394,7 +394,7 @@ function createShadowGeneration(input, type, state) {
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
-  saveState(state);
+  saveShadowState(state);
   return {
     ok: true,
     shadow: true,
@@ -411,7 +411,7 @@ export function createShadowRuntimeFacade() {
   return {
     _version: 'shadow-runtime',
     status: async () => {
-      const state = loadState();
+      const state = loadShadowState();
       return {
         ok: true,
         runtime: 'flovart-shadow-runtime',
@@ -428,7 +428,7 @@ export function createShadowRuntimeFacade() {
       };
     },
     provider: {
-      status: async () => ({ ok: true, shadow: true, ...loadState().provider }),
+      status: async () => ({ ok: true, shadow: true, ...loadShadowState().provider }),
       beginSetup: async (input = {}) => ({
         ok: true,
         shadow: true,
@@ -438,17 +438,17 @@ export function createShadowRuntimeFacade() {
         message: 'Shadow runtime cannot collect API keys. Open Flovart UI to complete setup.',
       }),
       selectModel: async (input = {}) => {
-        const state = loadState();
+        const state = loadShadowState();
         state.provider.selectedModels = {
           image: input.imageModel || state.provider.selectedModels.image,
           video: input.videoModel || state.provider.selectedModels.video,
           text: input.textModel || state.provider.selectedModels.text,
         };
-        saveState(state);
+        saveShadowState(state);
         return { ok: true, shadow: true, selectedModels: state.provider.selectedModels };
       },
       test: async (input = {}) => {
-        const state = loadState();
+        const state = loadShadowState();
         const purpose = input.purpose || 'both';
         const checks = state.provider.configured;
         return {
@@ -460,59 +460,59 @@ export function createShadowRuntimeFacade() {
       },
     },
     canvas: {
-      inspect: async () => inspectShadowCanvas(loadState()),
-      listMedia: async () => loadState().elements.filter((item) => item.type === 'image' || item.type === 'video'),
-      addImage: async (input) => createShadowElement({ ...input, type: 'image' }, loadState()),
-      addVideo: async (input) => createShadowElement({ ...input, type: 'video' }, loadState()),
-      addElement: async (input) => createShadowElement(input, loadState()),
-      getElements: async () => loadState().elements,
-      updateElement: async (id, updates) => updateShadowElement(id, updates, loadState()),
-      removeElement: async (id) => removeShadowElement(id, loadState()),
-      select: async (ids) => selectShadowElements(ids, loadState()),
+      inspect: async () => inspectShadowCanvas(loadShadowState()),
+      listMedia: async () => loadShadowState().elements.filter((item) => item.type === 'image' || item.type === 'video'),
+      addImage: async (input) => createShadowElement({ ...input, type: 'image' }, loadShadowState()),
+      addVideo: async (input) => createShadowElement({ ...input, type: 'video' }, loadShadowState()),
+      addElement: async (input) => createShadowElement(input, loadShadowState()),
+      getElements: async () => loadShadowState().elements,
+      updateElement: async (id, updates) => updateShadowElement(id, updates, loadShadowState()),
+      removeElement: async (id) => removeShadowElement(id, loadShadowState()),
+      select: async (ids) => selectShadowElements(ids, loadShadowState()),
       clearMedia: async () => {
-        const state = loadState();
+        const state = loadShadowState();
         state.elements = state.elements.filter((item) => item.type !== 'image' && item.type !== 'video');
-        saveState(state);
+        saveShadowState(state);
         return { ok: true, shadow: true };
       },
       clear: async () => {
         const state = createEmptyState();
-        saveState(state);
+        saveShadowState(state);
         return { ok: true, shadow: true };
       },
     },
     element: {
-      create: async (input) => createShadowElement(input, loadState()),
-      updatePrompt: async (input) => updateShadowPrompt(input, loadState()),
-      assignSlot: async (input) => assignShadowSlot(input, loadState()),
-      ignite: async (input) => igniteShadowElement(input, loadState()),
-      watch: async (input) => watchShadowElement(input, loadState()),
+      create: async (input) => createShadowElement(input, loadShadowState()),
+      updatePrompt: async (input) => updateShadowPrompt(input, loadShadowState()),
+      assignSlot: async (input) => assignShadowSlot(input, loadShadowState()),
+      ignite: async (input) => igniteShadowElement(input, loadShadowState()),
+      watch: async (input) => watchShadowElement(input, loadShadowState()),
     },
     workflow: {
-      inspect: async () => inspectShadowWorkflow(loadState()),
-      load: async (input) => loadShadowWorkflow(input, loadState()),
-      updateNode: async (nodeId, config) => updateShadowWorkflowNode(nodeId, config, loadState()),
-      run: async (input = {}) => runShadowWorkflow(input, loadState()),
+      inspect: async () => inspectShadowWorkflow(loadShadowState()),
+      load: async (input) => loadShadowWorkflow(input, loadShadowState()),
+      updateNode: async (nodeId, config) => updateShadowWorkflowNode(nodeId, config, loadShadowState()),
+      run: async (input = {}) => runShadowWorkflow(input, loadShadowState()),
     },
     assets: {
       list: async () => [],
     },
     generate: {
-      image: async (input = {}) => createShadowGeneration(input, 'image', loadState()),
+      image: async (input = {}) => createShadowGeneration(input, 'image', loadShadowState()),
       imagesBatch: async (input = {}) => {
         const items = Array.isArray(input.items) ? input.items : [];
         const results = items.map((item, index) => ({
           clientShotId: item.clientShotId,
-          ...createShadowGeneration({ ...item, name: item.clientShotId ? `Shot ${item.clientShotId}` : `Shot ${index + 1}` }, 'image', loadState()),
+          ...createShadowGeneration({ ...item, name: item.clientShotId ? `Shot ${item.clientShotId}` : `Shot ${index + 1}` }, 'image', loadShadowState()),
         }));
         return { ok: true, shadow: true, items: results };
       },
-      video: async (input = {}) => createShadowGeneration(input, 'video', loadState()),
-      videoStatus: async (input) => loadState().jobs.find((item) => item.jobId === input.jobId) || null,
+      video: async (input = {}) => createShadowGeneration(input, 'video', loadShadowState()),
+      videoStatus: async (input) => loadShadowState().jobs.find((item) => item.jobId === input.jobId) || null,
     },
     export: {
       project: async () => {
-        const state = loadState();
+        const state = loadShadowState();
         return {
           ok: true,
           shadow: true,

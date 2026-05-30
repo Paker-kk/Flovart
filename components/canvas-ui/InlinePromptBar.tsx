@@ -13,6 +13,7 @@ import { executeUnifiedIgnition } from '../../services/aiGateway';
 import RichPromptEditor, { type RichPromptEditorHandle } from '../RichPromptEditor';
 import type { MentionItem } from '../MentionList';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
+import { translations } from '../../translations';
 
 interface InlinePromptBarProps {
     element: CanvasElement;
@@ -57,24 +58,24 @@ type InlinePromptTranslations = {
 };
 
 const inlinePromptFallback: InlinePromptTranslations = {
-    imageTitle: 'IMG MATRIX',
-    videoTitle: 'FILM MATRIX',
+    imageTitle: '生成图片',
+    videoTitle: '生成视频',
     imagePlaceholder: 'Enter prompt description or type @ to bind an asset...',
     videoPlaceholder: 'Describe camera motion or type @ to bind a layer...',
-    statusIdle: 'IDLE',
-    statusQueued: 'QUEUED',
-    statusRunning: 'COMPUTING',
-    statusSuccess: 'READY',
-    statusError: 'ERROR',
-    statusReady: 'CORE READY',
+    statusIdle: '等待输入',
+    statusQueued: '已排队',
+    statusRunning: '生成中',
+    statusSuccess: '已完成',
+    statusError: '需要处理',
+    statusReady: '准备好了',
     slotFirstFrame: 'POSTER',
     slotStyleRef: 'STYLE',
     slotControlNet: 'CONTROL',
-    slotContext: 'TXT REF',
-    ignite: 'IGNITE',
-    computing: 'COMPUTING',
-    queue: 'QUEUE',
-    model: 'MODEL',
+    slotContext: '参考',
+    ignite: '生成',
+    computing: '生成中',
+    queue: '排队',
+    model: '模型',
     uploadReference: 'Upload reference',
     removeReference: 'Remove reference',
     noProvider: 'Provider key is not configured',
@@ -417,7 +418,7 @@ export const InlinePromptBar = memo(({
                     </div>
 
                     {generationState.error && (
-                        <div className="inline-prompt-bar__error-harness animate-shake">
+                        <div className="inline-prompt-bar__error-harness flv-message-card">
                             <div className="inline-prompt-bar__error-line" />
                             <div className="inline-prompt-bar__error-text">{generationState.error}</div>
                         </div>
@@ -429,3 +430,4 @@ export const InlinePromptBar = memo(({
 });
 
 InlinePromptBar.displayName = 'InlinePromptBar';
+
