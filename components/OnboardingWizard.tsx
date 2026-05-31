@@ -108,30 +108,19 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     const [detectedCapabilities, setDetectedCapabilities] = useState<AICapability[]>([]);
     const [detectedModels, setDetectedModels] = useState<ModelItem[]>([]);
     const [endpointFlavor, setEndpointFlavor] = useState<'google' | 'openai-compatible' | 'openrouter-compatible' | null>(null);
+    const [showAdvancedCustom, setShowAdvancedCustom] = useState(false);
 
     if (!isOpen) return null;
 
     const isDark = resolvedTheme === 'dark';
 
     // ── 样式工具 ──
-    const cardBg = isDark ? 'bg-[#12151B] border-[#2A3140]' : 'bg-white border-[#E4E7EC]';
-    const textPrimary = isDark ? 'text-[#F3F4F6]' : 'text-[#101828]';
-    const textSecondary = isDark ? 'text-[#98A2B3]' : 'text-[#667085]';
-    const inputClass = `w-full rounded-2xl border px-4 py-3 text-sm outline-none transition ${
-        isDark
-            ? 'border-[#2A3140] bg-[#161A22] text-[#F3F4F6] placeholder:text-[#667085] focus:border-[#4B5B78]'
-            : 'border-[#E4E7EC] bg-white text-[#344054] placeholder:text-[#98A2B3] focus:border-[#98A2B3]'
-    }`;
-    const primaryBtn = `rounded-full px-6 py-3 text-sm font-semibold transition ${
-        isDark
-            ? 'bg-[#F3F4F6] text-[#111827] hover:bg-white'
-            : 'bg-[#111827] text-white hover:bg-[#0F172A]'
-    }`;
-    const secondaryBtn = `rounded-full px-5 py-3 text-sm font-medium transition ${
-        isDark
-            ? 'text-[#98A2B3] hover:text-[#D0D5DD]'
-            : 'text-[#667085] hover:text-[#344054]'
-    }`;
+    const cardBg = 'isl-shell';
+    const textPrimary = 'text-[var(--isl-ink)]';
+    const textSecondary = 'text-[var(--isl-ink-soft)]';
+    const inputClass = 'isl-well w-full px-4 py-3 text-sm text-[var(--isl-ink)] outline-none placeholder:text-[var(--isl-ink-ghost)]';
+    const primaryBtn = 'isl-go px-6 py-3 text-sm';
+    const secondaryBtn = 'isl-chip px-5 py-3 text-sm';
 
     const parseModelItems = (value: string): ModelItem[] => value
         .split(',')
@@ -294,10 +283,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                 key={i}
                                 className={`h-1.5 rounded-full transition-all duration-300 ${
                                     i === step
-                                        ? 'w-8 bg-blue-500'
+                                        ? 'w-8 bg-[var(--isl-mint)]'
                                         : i < step
-                                            ? 'w-4 bg-blue-300'
-                                            : isDark ? 'w-4 bg-[#2A3140]' : 'w-4 bg-[#E4E7EC]'
+                                            ? 'w-4 bg-[var(--isl-mint-deep)]'
+                                            : 'w-4 bg-[var(--isl-border)]'
                                 }`}
                             />
                         ))}
@@ -310,7 +299,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 {/* ── Step 0: 欢迎页 ── */}
                 {step === 0 && (
                     <div className="text-center">
-                        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-blue-500 to-purple-600 text-3xl shadow-lg">
+                        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-[var(--isl-mint)] text-3xl" style={{ boxShadow: '0 4px 0 0 var(--isl-edge-mint)' }}>
                             🎨
                         </div>
                         <h2 className={`mb-2 text-xl font-bold ${textPrimary}`}>
@@ -366,6 +355,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                         onClick={() => {
                                             setProvider(p);
                                             setError(null);
+                                            setShowAdvancedCustom(false);
                                             resetCustomDetection();
                                         }}
                                         className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
@@ -384,9 +374,52 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                             </div>
                         </div>
 
-                        {/* ── 自定义第三方 API 额外字段 ── */}
+                        {/* API Key 输入框 */}
+                        <div className="mb-4">
+                            <label className={`mb-2 block text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>
+                                API Key
+                            </label>
+                            <div className="relative">
+                                <input
+                                    value={apiKey}
+                                    onChange={(e) => {
+                                        setApiKey(e.target.value);
+                                        setError(null);
+                                        if (provider === 'custom') resetCustomDetection();
+                                    }}
+                                    onKeyDown={handleKeyDown}
+                                    type={showKey ? 'text' : 'password'}
+                                    placeholder={provider === 'google' ? 'AIzaSy...' : 'sk-...'}
+                                    className={inputClass}
+                                    autoFocus
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowKey(prev => !prev)}
+                                    className={`absolute right-3 top-1/2 -translate-y-1/2 text-xs ${textSecondary} hover:${textPrimary}`}
+                                >
+                                    {showKey ? '隐藏' : '显示'}
+                                </button>
+                            </div>
+                        </div>
+
                         {provider === 'custom' && (
-                            <>
+                            <div className="mb-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAdvancedCustom(prev => !prev)}
+                                    className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm font-medium transition ${
+                                        isDark ? 'border-[#2A3140] bg-[#161A22] text-[#D0D5DD] hover:bg-[#1B2029]' : 'border-[#E4E7EC] bg-[#F8FAFC] text-[#344054] hover:bg-white'
+                                    }`}
+                                >
+                                    <span>高级第三方 API 设置</span>
+                                    <span className="text-xs opacity-70">{showAdvancedCustom ? '收起' : '展开'}</span>
+                                </button>
+                            </div>
+                        )}
+
+                        {provider === 'custom' && showAdvancedCustom && (
+                            <div className={`mb-4 rounded-3xl border p-4 ${isDark ? 'border-[#2A3140] bg-[#10141B]' : 'border-[#E4E7EC] bg-[#FBFCFE]'}`}>
                                 <div className="mb-4">
                                     <label className={`mb-2 block text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>
                                         Base URL <span className="normal-case text-red-400">*</span>
@@ -423,12 +456,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                                             : 'border-[#E4E7EC] text-[#667085] hover:bg-[#F9FAFB]'
                                                 }`}
                                             >
-                                                {cap === 'text' ? '✏️ LLM润色' : cap === 'image' ? '🖼️ 图片生成' : '🎬 视频生成'}
+                                                {cap === 'text' ? 'LLM 润色' : cap === 'image' ? '图片生成' : '视频生成'}
                                             </button>
                                         ))}
                                     </div>
                                 </div>
-                                <div className="mb-4">
+                                <div>
                                     <label className={`mb-2 block text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>
                                         模型名称 <span className="normal-case opacity-60">(可选, 逗号分隔)</span>
                                     </label>
@@ -439,37 +472,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                         className={inputClass}
                                     />
                                 </div>
-                            </>
-                        )}
-
-                        {/* API Key 输入框 */}
-                        <div className="mb-4">
-                            <label className={`mb-2 block text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>
-                                API Key
-                            </label>
-                            <div className="relative">
-                                <input
-                                    value={apiKey}
-                                    onChange={(e) => {
-                                        setApiKey(e.target.value);
-                                        setError(null);
-                                        if (provider === 'custom') resetCustomDetection();
-                                    }}
-                                    onKeyDown={handleKeyDown}
-                                    type={showKey ? 'text' : 'password'}
-                                    placeholder={provider === 'google' ? 'AIzaSy...' : 'sk-...'}
-                                    className={inputClass}
-                                    autoFocus
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => setShowKey(prev => !prev)}
-                                    className={`absolute right-3 top-1/2 -translate-y-1/2 text-xs ${textSecondary} hover:${textPrimary}`}
-                                >
-                                    {showKey ? '隐藏' : '显示'}
-                                </button>
                             </div>
-                        </div>
+                        )}
 
                         {provider === 'custom' && (
                             <div className="mb-4 space-y-3">

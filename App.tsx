@@ -28,7 +28,7 @@ import { loadAssetLibrary, addAsset, removeAsset, renameAsset, loadAssetLibraryA
 import { loadGenerationHistoryAsync, saveGenerationHistoryAsync } from './utils/generationHistory';
 import { inferProviderFromModel, reversePromptStreamWithProvider, DEFAULT_PROVIDER_MODELS, generateImageWithProvider, generateVideoWithProvider, inferCapabilityFromModelName } from './services/aiGateway';
 import { fileToDataUrl, validateAndResizeImage } from './utils/fileUtils';
-import { translations } from './translations';
+import { translations } from './utils/translations';
 // keyVault imports moved to hooks/useApiKeys.ts
 // usageMonitor imports moved to hooks
 import { getCompactChromeMetrics } from './utils/uiScale';
@@ -39,8 +39,8 @@ import { appendHistorySnapshot } from './utils/historyState';
 import { compilePromptReferences } from './utils/semanticCompiler';
 import { hydrateRawTextToTiptapJSON } from './utils/htmlHydrator';
 import { readColdMedia, writeColdMedia } from './utils/mediaIndexedDB';
-import termsRaw from './TERMS_OF_SERVICE.md?raw';
-import privacyRaw from './PRIVACY_POLICY.md?raw';
+import termsRaw from './docs/TERMS_OF_SERVICE.md?raw';
+import privacyRaw from './docs/PRIVACY_POLICY.md?raw';
 import { generateId, getElementBounds, isPointInPolygon, rasterizeElement, rasterizeElements, rasterizeMask, createNewBoard, THEME_PALETTES, SNAP_THRESHOLD, type Rect, type Guide } from './utils/canvasHelpers';
 import { useApiKeys, DEFAULT_MODEL_PREFS, normalizeApiKeyEntry } from './hooks/useApiKeys';
 import { useCanvasInteraction } from './hooks/useCanvasInteraction';
@@ -3654,7 +3654,9 @@ const App: React.FC = () => {
                                 status={selectedInlinePromptElement.generationState?.status || 'idle'}
                                 progress={selectedInlinePromptElement.generationState?.progress}
                                 isLoading={isLoading}
+                                theme={resolvedTheme}
                                 apiKeyPayload={getInlineApiKeyForElement(selectedInlinePromptElement)}
+                                userApiKeys={userApiKeys}
                                 imageModelOptions={dynamicModelOptions.image}
                                 videoModelOptions={dynamicModelOptions.video}
                                 videoAspectRatio={videoAspectRatio}
@@ -3664,19 +3666,29 @@ const App: React.FC = () => {
                                 onEnhancePrompt={handleEnhancePrompt}
                                 isEnhancingPrompt={isEnhancingPrompt}
                                 t={t}
-                                onModelChange={(nextModel) => {
-                                    if (selectedInlinePromptElement.type === 'video') {
-                                        setModelPreference(prev => ({ ...prev, videoModel: nextModel }));
-                                    } else {
-                                        setModelPreference(prev => ({ ...prev, imageModel: nextModel }));
-                                    }
-                                }}
                                 onPromptChange={updateElementGenerationState}
                                 onMediaGenerated={updateElementMedia}
                                 animateViewport={animateViewportToElement}
                                 progressLabel={progressMessage}
                                 activeTaskCount={Object.values(runtimeJobsRef.current).filter(job => job.status === 'running').length}
                             />
+                        )}
+
+                        {elements.length === 0 && !croppingState && !editingElement && !selectedInlinePromptElement && (
+                            <foreignObject x={0} y={0} width="100%" height="100%" style={{ overflow: 'visible', pointerEvents: 'none' }}>
+                                <div className="flex h-full w-full items-center justify-center">
+                                    <div className={`rounded-[28px] border px-6 py-4 text-center shadow-[0_24px_70px_rgba(15,23,42,0.16)] ${
+                                        resolvedTheme === 'dark'
+                                            ? 'border-white/10 bg-[#11151D]/84 text-white/82'
+                                            : 'border-white/70 bg-white/88 text-neutral-700 backdrop-blur-xl'
+                                    }`}>
+                                        <div className="text-sm font-semibold">输入你想要生成的画面</div>
+                                        <div className={`mt-1 text-xs ${resolvedTheme === 'dark' ? 'text-white/48' : 'text-neutral-500'}`}>
+                                            先在底部 PromptBar 写一句，再按 Enter 开始。
+                                        </div>
+                                    </div>
+                                </div>
+                            </foreignObject>
                         )}
 
                         {selectedElementIds.length > 0 && !croppingState && !editingElement && (
@@ -3931,6 +3943,7 @@ const App: React.FC = () => {
                             onOpenSettings={() => setIsSettingsPanelOpen(true)}
                             batchCount={batchCount}
                             onBatchCountChange={setBatchCount}
+                            hideApiStatus
                         />
                     </div>
                     {/* 底部法律链接 */}

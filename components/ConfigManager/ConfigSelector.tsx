@@ -43,7 +43,6 @@ export const ConfigSelector: React.FC<ConfigSelectorProps> = ({
   activeModelId,
   onConfigChange,
   onModelChange,
-  isDark,
 }) => {
   const [showConfigMenu, setShowConfigMenu] = useState(false);
   const [showModelMenu, setShowModelMenu] = useState(false);
@@ -63,25 +62,11 @@ export const ConfigSelector: React.FC<ConfigSelectorProps> = ({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const pillClass = `inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition cursor-pointer select-none ${
-    isDark
-      ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]'
-      : 'border-[#E5E7EB] bg-[#F5F7FA] text-[#344054] hover:border-[#D0D5DD] hover:bg-white'
-  }`;
-  const pillActiveClass = isDark
-    ? 'border-[#4B5B78] bg-[#202734] text-white shadow-sm'
-    : 'border-[#D0D5DD] bg-white text-[#111827] shadow-sm';
-  const menuClass = `absolute bottom-full left-0 z-[85] mb-2 min-w-[200px] rounded-[16px] border p-1.5 shadow-[0_20px_50px_rgba(15,23,42,0.14)] ${
-    isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E5E7EB] bg-white'
-  }`;
+  const pillClass = 'isl-chip h-8 px-3 text-xs select-none';
+  const pillActiveClass = 'isl-chip--active';
+  const menuClass = 'isl-pop absolute bottom-full left-0 z-[85] mb-2 min-w-[200px] p-1.5';
   const optionClass = (active: boolean) =>
-    `flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-xs font-medium transition ${
-      active
-        ? 'bg-[var(--accent-bg,#EEF4FF)] text-[var(--accent-text,#175CD3)]'
-        : isDark
-          ? 'text-[#D0D5DD] hover:bg-[#1B2029]'
-          : 'text-[#344054] hover:bg-[#F9FAFB]'
-    }`;
+    `isl-opt text-xs ${active ? 'isl-opt--active' : ''}`;
 
   const chevron = (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6" /></svg>
@@ -89,9 +74,7 @@ export const ConfigSelector: React.FC<ConfigSelectorProps> = ({
 
   if (configs.length === 0) {
     return (
-      <div className={`inline-flex h-8 items-center gap-1 rounded-full border border-dashed px-3 text-[11px] ${
-        isDark ? 'border-[#3A4458] text-[#667085]' : 'border-[#D0D5DD] text-[#98A2B3]'
-      }`}>
+      <div className="isl-chip h-8 border-dashed px-3 text-[11px]" style={{ color: 'var(--isl-ink-ghost)' }}>
         <span>⚙️</span> 无配置，请到设置中新建
       </div>
     );
@@ -112,7 +95,7 @@ export const ConfigSelector: React.FC<ConfigSelectorProps> = ({
 
         {showConfigMenu && (
           <div className={menuClass}>
-            <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-subtle,#98A2B3)]">API 配置</div>
+            <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--isl-ink-ghost)' }}>API 配置</div>
             {configs.map(c => (
               <button
                 key={c.id}
@@ -144,7 +127,7 @@ export const ConfigSelector: React.FC<ConfigSelectorProps> = ({
 
         {showModelMenu && models.length > 0 && (
           <div className={menuClass}>
-            <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-subtle,#98A2B3)]">可用模型</div>
+            <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--isl-ink-ghost)' }}>可用模型</div>
             {models.map(m => (
               <button
                 key={m.id}

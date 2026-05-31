@@ -19,6 +19,7 @@ export interface UnifiedIgnitionInput {
     prompt: string;
     modelId: string;
     apiKeyPayload?: UserApiKey;
+    aspectRatio?: VideoAspectRatio;
     references?: IgnitionReference[];
     onProgress?: (progress: number, message: string) => void;
 }
@@ -1876,7 +1877,7 @@ export async function executeUnifiedIgnition(input: UnifiedIgnitionInput): Promi
                 ? { href: firstFrameReference.href, mimeType: firstFrameReference.mimeType || 'image/png' }
                 : undefined;
             const result = await generateVideoWithProvider(prompt, input.modelId, input.apiKeyPayload, {
-                aspectRatio: getDynamicParamSchema(input.modelId).defaultAspectRatio || '16:9',
+                aspectRatio: input.aspectRatio || getDynamicParamSchema(input.modelId).defaultAspectRatio || '16:9',
                 image: firstFrame,
                 onProgress: message => input.onProgress?.(35, message),
             });

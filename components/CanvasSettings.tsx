@@ -242,19 +242,9 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
     if (!isOpen) return null;
 
     const isDark = resolvedTheme === 'dark';
-    const inputClass = `w-full rounded-2xl border px-3 py-2.5 text-sm outline-none transition ${
-        isDark
-            ? 'border-[#2A3140] bg-[#161A22] text-[#F3F4F6] placeholder:text-[#667085] focus:border-[#4B5B78]'
-            : 'border-[#E4E7EC] bg-white text-[#344054] placeholder:text-[#98A2B3] focus:border-[#98A2B3]'
-    }`;
-    const chipClass = `rounded-full border px-3 py-2 text-sm transition ${
-        isDark
-            ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]'
-            : 'border-[#E4E7EC] bg-[#F8FAFC] text-[#475467] hover:bg-[#F2F4F7]'
-    }`;
-    const sectionPanelClass = `rounded-2xl border p-3 ${
-        isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E4E7EC] bg-[#F8FAFC]'
-    }`;
+    const inputClass = 'isl-well w-full px-3 py-2.5 text-sm text-[var(--isl-ink)] outline-none placeholder:text-[var(--isl-ink-ghost)]';
+    const chipClass = 'isl-chip px-3 py-2 text-sm';
+    const sectionPanelClass = 'rounded-2xl border-[1.5px] border-[var(--isl-border)] bg-[var(--isl-surface-2)] p-3';
 
     const toggleCapability = (capability: AICapability) => {
         setCapabilities(prev =>
@@ -640,15 +630,13 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
     return (
         <div className="theme-aware fixed inset-0 z-100 flex items-center justify-center bg-black/35 backdrop-blur-sm" onClick={onClose}>
             <div
-                className={`relative max-h-[88vh] w-[92%] max-w-170 overflow-y-auto rounded-[28px] border p-6 shadow-[0_40px_120px_rgba(15,23,42,0.18)] ${
-                    isDark ? 'border-[#2A3140] bg-[#12151B]' : 'border-[#E4E7EC] bg-white'
-                }`}
+                className="isl-shell relative max-h-[88vh] w-[92%] max-w-170 overflow-y-auto p-6"
                 onClick={(event) => event.stopPropagation()}
             >
                 <div className="mb-6 flex items-center justify-between">
                     <div>
-                        <h3 className={`text-xl font-semibold ${isDark ? 'text-[#F3F4F6]' : 'text-[#101828]'}`}>设置</h3>
-                        <p className={`mt-1 text-sm ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>
+                        <h3 className="text-xl font-extrabold text-[var(--isl-ink)]">设置</h3>
+                        <p className="mt-1 text-sm text-[var(--isl-ink-soft)]">
                             管理主题模式、交互方式、API 能力和默认模型。
                         </p>
                     </div>
@@ -678,27 +666,21 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                     key={mode}
                                     type="button"
                                     onClick={() => setThemeMode(mode)}
-                                    className={`rounded-3xl border p-4 text-left transition ${
+                                    className={`rounded-3xl border-[1.5px] p-4 text-left transition ${
                                         themeMode === mode
-                                            ? isDark
-                                                ? 'border-[#4B5B78] bg-[#1B2330] shadow-[0_10px_30px_rgba(0,0,0,0.18)]'
-                                                : 'border-[#B2CCFF] bg-[#EEF4FF] shadow-[0_10px_30px_rgba(23,92,211,0.08)]'
-                                            : isDark
-                                                ? 'border-[#2A3140] bg-[#161A22] hover:bg-[#1B2029]'
-                                                : 'border-[#E4E7EC] bg-[#F8FAFC] hover:bg-white'
+                                            ? 'border-[var(--isl-mint)] bg-[var(--isl-mint-bg)]'
+                                            : 'border-[var(--isl-border)] bg-[var(--isl-surface-2)] hover:border-[var(--isl-border-strong)]'
                                     }`}
                                 >
                                     <div className="mb-3 flex items-center justify-between">
-                                        <div className={`text-sm font-semibold ${isDark ? 'text-[#F3F4F6]' : 'text-[#101828]'}`}>{title}</div>
+                                        <div className="text-sm font-bold text-[var(--isl-ink)]">{title}</div>
                                         {themeMode === mode && (
-                                            <span className={`rounded-full px-2 py-1 text-[11px] font-medium ${
-                                                isDark ? 'bg-[#7CB4FF]/20 text-[#7CB4FF]' : 'bg-[#DCEBFF] text-[#175CD3]'
-                                            }`}>
+                                            <span className="rounded-full bg-[var(--isl-mint)] px-2 py-1 text-[11px] font-bold text-white">
                                                 当前
                                             </span>
                                         )}
                                     </div>
-                                    <div className={`mb-4 text-xs ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>{description}</div>
+                                    <div className="mb-4 text-xs text-[var(--isl-ink-soft)]">{description}</div>
                                     <div className={`grid h-16 grid-cols-[1fr_56px] gap-2 rounded-2xl p-2 ${
                                         mode === 'dark' || (mode === 'system' && resolvedTheme === 'dark')
                                             ? 'bg-[#0F141C]'
@@ -811,9 +793,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                         type="button"
                                         onClick={handleBatchTest}
                                         disabled={isBatchTesting}
-                                        className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
-                                            isDark ? 'border-[#2A3140] text-[#98A2B3] hover:bg-[#252C39]' : 'border-[#E4E7EC] text-[#667085] hover:bg-[#F2F4F7]'
-                                        } disabled:opacity-50`}
+                                        className="isl-chip px-2.5 py-1 text-[11px] disabled:opacity-50"
                                     >
                                         {isBatchTesting ? '测试中...' : '全部测试'}
                                     </button>
@@ -826,9 +806,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                         applyProviderPreset(PROVIDER_PRESETS[0], { resetKey: true });
                                         setShowKeyModal(true);
                                     }}
-                                    className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                                        isDark ? 'border-[#4B5B78] bg-[#1B2330] text-[#B2CCFF] hover:bg-[#252C39]' : 'border-[#B2CCFF] bg-[#EEF4FF] text-[#175CD3] hover:bg-[#DBEAFE]'
-                                    }`}
+                                    className="isl-chip isl-chip--active px-3 py-1.5 text-xs"
                                 >
                                     + 添加供应商
                                 </button>
@@ -924,7 +902,10 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                             </button>
                                             <button
                                                 type="button"
-                                                onClick={() => onDeleteApiKey(item.id)}
+                                                onClick={() => {
+                                                    if (!confirm(`确定删除 ${item.name || PROVIDER_LABELS[item.provider] || item.provider} 吗？`)) return;
+                                                    onDeleteApiKey(item.id);
+                                                }}
                                                 className={`rounded-full border px-3 py-2 text-xs font-medium ${
                                                     isDark ? 'border-[#7A271A] text-[#FDA29B]' : 'border-[#FECACA] text-[#DC2626]'
                                                 }`}
@@ -1006,16 +987,14 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                 <div className="fixed inset-0 z-150 overflow-y-auto bg-black/40 backdrop-blur-sm" onClick={handleCancelEdit}>
                     <div className="flex min-h-[100dvh] items-end justify-center p-2 sm:min-h-full sm:items-center sm:p-6">
                     <div
-                        className={`flv-glass-shell relative flex min-h-0 max-h-[calc(100dvh-1rem)] w-full max-w-140 flex-col overflow-hidden rounded-3xl border shadow-[0_40px_100px_rgba(0,0,0,0.2)] sm:max-h-[calc(100dvh-3rem)] ${
-                            isDark ? 'border-[#2A3140] bg-[#12151B]' : 'border-[#E4E7EC] bg-white'
-                        }`}
+                        className="isl-shell relative flex min-h-0 max-h-[calc(100dvh-1rem)] w-full max-w-140 flex-col overflow-hidden sm:max-h-[calc(100dvh-3rem)]"
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div className="mb-0 flex items-center justify-between px-6 pb-4 pt-6">
-                            <h4 className={`text-base font-semibold ${isDark ? 'text-[#F3F4F6]' : 'text-[#101828]'}`}>
+                            <h4 className="text-base font-extrabold text-[var(--isl-ink)]">
                                 {editingKeyId ? '编辑供应商' : '添加新供应商'}
                             </h4>
-                            <button type="button" title="关闭 API Key 表单" aria-label="关闭 API Key 表单" onClick={handleCancelEdit} className={`rounded-full p-1.5 transition ${isDark ? 'hover:bg-[#252C39]' : 'hover:bg-[#F2F4F7]'}`}>
+                            <button type="button" title="关闭 API Key 表单" aria-label="关闭 API Key 表单" onClick={handleCancelEdit} className="rounded-full p-1.5 text-[var(--isl-ink-soft)] transition hover:bg-black/5">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
                             </button>
                         </div>
@@ -1023,59 +1002,56 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 pb-4">
                             {/* 预设供应商 */}
                             {!editingKeyId && (
-                                <div className={`${sectionPanelClass} flv-api-hero`}>
+                                <div className={sectionPanelClass}>
                                     <div className="mb-3 flex items-center justify-between gap-3">
                                         <div>
-                                            <div className={`text-sm font-semibold ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>预设供应商</div>
-                                            <div className={`mt-0.5 text-[11px] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>选择后会自动填充请求地址、API 格式、认证字段和常用模型</div>
+                                            <div className="text-sm font-bold text-[var(--isl-ink)]">预设供应商</div>
+                                            <div className="mt-0.5 text-[11px] text-[var(--isl-ink-soft)]">选择后会自动填充请求地址、API 格式、认证字段和常用模型</div>
                                         </div>
-                                        <div className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] ${isDark ? 'bg-[#1B2029] text-[#98A2B3]' : 'bg-white text-[#667085]'}`}>
+                                        <div className="shrink-0 rounded-full bg-[var(--isl-card)] px-2.5 py-1 text-[11px] text-[var(--isl-ink-soft)]">
                                             可继续手动修改
                                         </div>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
-                                        {PROVIDER_PRESETS.map(preset => (
+                                        {PROVIDER_PRESETS.map(preset => {
+                                            const presetActive = provider === preset.provider && (displayName === preset.name || (preset.id === 'custom' && !displayName));
+                                            return (
                                             <button
                                                 key={preset.id}
                                                 type="button"
                                                 onClick={() => applyProviderPreset(preset, { fillName: true })}
-                                                className={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-left text-sm font-medium transition ${
-                                                    provider === preset.provider && (displayName === preset.name || (preset.id === 'custom' && !displayName))
-                                                        ? isDark ? 'border-[#4B5B78] bg-[#1B2330] text-[#F3F4F6]' : 'border-[#B2CCFF] bg-[#EEF4FF] text-[#175CD3]'
-                                                        : isDark ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E4E7EC] bg-white text-[#475467] hover:bg-[#F2F4F7]'
-                                                }`}
+                                                className={`isl-chip px-3 py-2 text-sm ${presetActive ? 'isl-chip--active' : ''}`}
                                             >
-                                                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-[11px] font-semibold ${
-                                                    isDark ? 'bg-[#12151B] text-[#98A2B3]' : 'bg-[#F8FAFC] text-[#667085]'
-                                                }`}>
+                                                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-[var(--isl-surface-2)] text-[11px] font-bold text-[var(--isl-ink-soft)]">
                                                     {preset.shortName}
                                                 </span>
                                                 <span>{preset.name}</span>
                                                 {preset.featured && (
-                                                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${isDark ? 'bg-[#123524] text-[#75E0A7]' : 'bg-[#ECFDF3] text-[#027A48]'}`}>
+                                                    <span className="rounded-full bg-[var(--isl-mint-bg)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--isl-mint-deep)]">
                                                         推荐
                                                     </span>
                                                 )}
                                             </button>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             )}
 
                             <div className="grid gap-3 md:grid-cols-2">
                                 <label>
-                                    <span className={`mb-1.5 block text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>供应商名称</span>
-                                    <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="例如：Claude 官方" className={`${inputClass} flv-safe-input`} />
+                                    <span className="mb-1.5 block text-sm font-bold text-[var(--isl-ink)]">供应商名称</span>
+                                    <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="例如：Claude 官方" className={inputClass} />
                                 </label>
                                 <label>
-                                    <span className={`mb-1.5 block text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>备注</span>
-                                    <input value={extraConfig.remark || ''} onChange={(event) => updateExtraConfig('remark', event.target.value)} placeholder="例如：公司专用账号" className={`${inputClass} flv-safe-input`} />
+                                    <span className="mb-1.5 block text-sm font-bold text-[var(--isl-ink)]">备注</span>
+                                    <input value={extraConfig.remark || ''} onChange={(event) => updateExtraConfig('remark', event.target.value)} placeholder="例如：公司专用账号" className={inputClass} />
                                 </label>
                             </div>
 
                             <label className="block">
-                                <span className={`mb-1.5 block text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>官网链接</span>
-                                <input value={extraConfig.websiteUrl || ''} onChange={(event) => updateExtraConfig('websiteUrl', event.target.value)} placeholder="https://example.com（可选）" className={`${inputClass} flv-safe-input`} />
+                                <span className="mb-1.5 block text-sm font-bold text-[var(--isl-ink)]">官网链接</span>
+                                <input value={extraConfig.websiteUrl || ''} onChange={(event) => updateExtraConfig('websiteUrl', event.target.value)} placeholder="https://example.com（可选）" className={inputClass} />
                             </label>
 
                             <div className="flex gap-2">
@@ -1318,20 +1294,14 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                     type="button"
                                     onClick={handleSaveKey}
                                     disabled={!apiKey.trim() || capabilities.length === 0 || isValidating}
-                                    className={`flex-1 rounded-full px-4 py-2.5 text-sm font-medium transition disabled:cursor-not-allowed ${
-                                        isDark
-                                            ? 'bg-[#F3F4F6] text-[#111827] hover:bg-white disabled:bg-[#3A4458] disabled:text-[#98A2B3]'
-                                            : 'bg-[#111827] text-white hover:bg-[#0F172A] disabled:bg-[#D0D5DD]'
-                                    }`}
+                                    className="isl-go h-11 flex-1 px-4 text-sm"
                                 >
                                     {isValidating ? '验证中...' : editingKeyId ? '验证并更新' : '验证并保存'}
                                 </button>
                                 <button
                                     type="button"
                                     onClick={handleCancelEdit}
-                                    className={`rounded-full border px-4 py-2.5 text-sm font-medium transition ${
-                                        isDark ? 'border-[#2A3140] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E4E7EC] text-[#475467] hover:bg-[#F2F4F7]'
-                                    }`}
+                                    className="isl-chip px-4 py-2.5 text-sm"
                                 >
                                     取消
                                 </button>

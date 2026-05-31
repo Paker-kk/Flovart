@@ -72,7 +72,14 @@ const EmptyHistory: React.FC<{ isDark?: boolean }> = ({ isDark }) => (
                 </svg>
             </div>
             <p className={`mt-3 text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-neutral-700'}`}>还没有历史生成内容</p>
-            <p className={`mt-1 text-xs ${isDark ? 'text-[#667085]' : 'text-neutral-500'}`}>新的图片生成后会自动保存到本地，并显示在这里。</p>
+            <p className={`mt-1 text-xs ${isDark ? 'text-[#667085]' : 'text-neutral-500'}`}>在底部输入提示词并点击生成，结果会自动保存到这里。</p>
+            <div className={`mx-auto mt-4 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium ${
+                isDark ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD]' : 'border-neutral-200 bg-white text-neutral-700 shadow-sm'
+            }`}>
+                <span>向下看</span>
+                <span>↓</span>
+                <span>PromptBar</span>
+            </div>
         </div>
     </div>
 );

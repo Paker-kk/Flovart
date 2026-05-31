@@ -21,6 +21,12 @@ tmp-chrome-profile-*/
 .npm-cache/
 dist-extension.zip
 
+# Agent and automation temp directories
+.claude/worktrees/
+.chrome-cdp/
+.chrome-cdp2/
+.cdp-temp/
+
 # Display / screenshot assets (not part of source)
 displayphoto0.png
 displayphoto1.png

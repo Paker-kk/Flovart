@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "./styles/motion.css";
+@import "./motion.css";
 
 :root {
     color-scheme: light;
@@ -498,18 +498,19 @@ body {
     right: 12px;
     display: inline-flex;
     gap: 6px;
-    border: 1px solid rgba(232, 69, 60, 0.22);
+    border: 1.5px solid var(--isl-border-strong);
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.92);
-    color: #e8453c;
+    background: var(--isl-card);
+    color: var(--isl-mint-deep);
+    font-family: var(--isl-font);
     font-size: 9px;
-    font-weight: 700;
+    font-weight: 800;
     padding: 3px 8px;
-    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.12);
+    box-shadow: 0 2px 0 0 var(--isl-edge);
 }
 
 .dark .inline-prompt-bar__queue-meta {
-    background: rgba(17, 21, 29, 0.95);
+    background: var(--isl-card);
 }
 
 .inline-prompt-bar__error-harness {
@@ -521,20 +522,25 @@ body {
 }
 
 .inline-prompt-bar__error-line {
-    height: 1px;
-    background: #f43f5e;
-    box-shadow: 0 0 5px #f43f5e;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--isl-coral);
 }
 
 .inline-prompt-bar__error-text {
-    color: #f43f5e;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 8px;
+    color: var(--isl-coral-deep);
+    font-family: var(--isl-font);
+    font-size: 10px;
+    font-weight: 700;
     overflow: hidden;
     padding-left: 2px;
+    padding-top: 3px;
     text-overflow: ellipsis;
-    text-transform: uppercase;
     white-space: nowrap;
+}
+
+:root[data-theme='dark'] .inline-prompt-bar__error-text {
+    color: var(--isl-coral);
 }
 
 @keyframes inlinePromptRibbonSweep {
@@ -751,7 +757,7 @@ input[type='range'].toolbar-range::-moz-range-thumb:hover {
     font-weight: 500;
 }
 
-/* ── Workflow surface — Notion minimal ─────────────────────────── */
+/* ── Workflow surface �?Notion minimal ─────────────────────────── */
 
 .workflow-libtv {
     background: #f7f6f4;
@@ -1147,7 +1153,7 @@ input[type='range'].toolbar-range::-moz-range-thumb:hover {
     color: #d44c47;
 }
 
-/* Undo dark-only color overrides — use neutral Tailwind classes natively */
+/* Undo dark-only color overrides �?use neutral Tailwind classes natively */
 .workflow-libtv .workflow-node-header .text-neutral-800,
 .workflow-libtv .workflow-node-card .text-neutral-800,
 .workflow-libtv .workflow-node-card .text-neutral-700 {
@@ -1933,7 +1939,7 @@ input[type='range'].toolbar-range::-moz-range-thumb:hover {
 }
 
 /* ==========================================================
-   🌊 Flovart-cc V3.0 — Lovart 级多任务跑马灯发丝动能效果
+   🌊 Flovart-cc V3.0 �?Lovart 级多任务跑马灯发丝动能效�?
    ========================================================== */
 
 @keyframes card-neon-flow-animation {
@@ -2155,6 +2161,291 @@ input[type='range'].toolbar-range::-moz-range-thumb:hover {
   .flv-message-card,
   .flv-popover,
   .flv-primary-action::before {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+/* ============================================================
+   Island UI — hand-drawn / tactile design system
+   Inspired by Animal Crossing-style warmth: parchment surfaces,
+   pill shapes, zero-blur "pressable" drop shadows, rounded type.
+   Self-built tokens (no external dep). Warm light + warm dark.
+   ============================================================ */
+:root {
+  --isl-font: "Nunito", "Zen Maru Gothic", "Noto Sans SC", ui-rounded, "Segoe UI", system-ui, sans-serif;
+
+  /* Surfaces — paper white / off-white */
+  --isl-surface: #faf9f6;
+  --isl-surface-2: #f1efe9;
+  --isl-surface-sunk: #f4f2ec;
+  --isl-card: #ffffff;
+
+  /* Ink — pen-stroke charcoal */
+  --isl-ink: #1f1d1a;
+  --isl-ink-soft: #6b6862;
+  --isl-ink-ghost: #a8a49c;
+
+  /* Accents — single mint pop */
+  --isl-mint: #19c8b9;
+  --isl-mint-deep: #12a89b;
+  --isl-mint-bg: #e3f7f4;
+  --isl-sun: #f5c31c;
+  --isl-coral: #e8615a;
+  --isl-coral-deep: #cf4b45;
+
+  /* Borders + edges (the pressable 3D drop) */
+  --isl-border: #e3e0d8;
+  --isl-border-strong: #cfcbc1;
+  --isl-edge: #d6d2c8;
+  --isl-edge-mint: #0f9a8f;
+  --isl-edge-coral: #b83f3a;
+
+  /* Radii — chunky + rounded */
+  --isl-r-sm: 14px;
+  --isl-r: 18px;
+  --isl-r-lg: 24px;
+  --isl-r-pill: 999px;
+
+  /* Soft ambient shadows */
+  --isl-shadow-sm: 0 2px 6px rgba(31, 29, 26, 0.06);
+  --isl-shadow: 0 6px 18px rgba(31, 29, 26, 0.1);
+  --isl-shadow-lg: 0 14px 36px rgba(31, 29, 26, 0.14);
+}
+
+:root[data-theme='dark'] {
+  /* Charcoal paper dark mapping — ink-on-slate */
+  --isl-surface: #1a1917;
+  --isl-surface-2: #232220;
+  --isl-surface-sunk: #151412;
+  --isl-card: #201f1d;
+
+  --isl-ink: #f4f2ec;
+  --isl-ink-soft: #b4b0a8;
+  --isl-ink-ghost: #76726b;
+
+  --isl-mint: #3ad9c9;
+  --isl-mint-deep: #1fb8a9;
+  --isl-mint-bg: rgba(58, 217, 201, 0.14);
+  --isl-sun: #f7d04a;
+  --isl-coral: #f07a72;
+  --isl-coral-deep: #e8615a;
+
+  --isl-border: #3a3834;
+  --isl-border-strong: #4c4944;
+  --isl-edge: #100f0e;
+  --isl-edge-mint: #0c8479;
+  --isl-edge-coral: #b8463f;
+
+  --isl-shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.4);
+  --isl-shadow: 0 6px 18px rgba(0, 0, 0, 0.46);
+  --isl-shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.54);
+}
+
+/* ── Tactile shell: a chunky parchment panel ── */
+.isl-shell {
+  position: relative;
+  border-radius: var(--isl-r-lg);
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.4), transparent 40%),
+    linear-gradient(180deg, var(--isl-card), var(--isl-surface));
+  border: 1.5px solid var(--isl-border);
+  box-shadow: 0 4px 0 0 var(--isl-edge), var(--isl-shadow);
+  color: var(--isl-ink);
+  font-family: var(--isl-font);
+}
+
+:root[data-theme='dark'] .isl-shell {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.05), transparent 42%),
+    linear-gradient(180deg, var(--isl-card), var(--isl-surface));
+}
+
+/* ── Pill chip / trigger button — raised, pressable ── */
+.isl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--isl-r-pill);
+  border: 1.5px solid var(--isl-border-strong);
+  background: var(--isl-surface);
+  color: var(--isl-ink);
+  font-family: var(--isl-font);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 2px 0 0 var(--isl-edge);
+  transition: transform 200ms cubic-bezier(.2,1.4,.3,1), box-shadow 200ms ease, background 200ms ease, border-color 200ms ease, color 200ms ease;
+}
+
+.isl-chip:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 0 0 var(--isl-edge), var(--isl-shadow-sm);
+  border-color: var(--isl-mint);
+  color: var(--isl-mint-deep);
+}
+
+.isl-chip:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 0 0 0 var(--isl-edge);
+}
+
+.isl-chip--active {
+  background: var(--isl-mint-bg);
+  border-color: var(--isl-mint);
+  color: var(--isl-mint-deep);
+}
+
+.isl-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* ── Primary "go" button — the signature 5px drop ── */
+.isl-go {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--isl-r-pill);
+  border: none;
+  background: var(--isl-mint);
+  color: #fff;
+  font-family: var(--isl-font);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 5px 0 0 var(--isl-edge-mint);
+  transition: transform 180ms cubic-bezier(.2,1.4,.3,1), box-shadow 180ms ease, background 180ms ease;
+}
+
+.isl-go:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: var(--isl-mint-deep);
+  box-shadow: 0 6px 0 0 var(--isl-edge-mint);
+}
+
+.isl-go:active:not(:disabled) {
+  transform: translateY(5px);
+  box-shadow: 0 0 0 0 var(--isl-edge-mint);
+}
+
+.isl-go:disabled {
+  cursor: not-allowed;
+  background: var(--isl-border-strong);
+  color: var(--isl-card);
+  box-shadow: 0 4px 0 0 var(--isl-edge);
+  opacity: 0.7;
+}
+
+/* ── Popover card ── */
+.isl-pop {
+  border-radius: var(--isl-r-lg);
+  background: var(--isl-card);
+  border: 1.5px solid var(--isl-border-strong);
+  box-shadow: 0 4px 0 0 var(--isl-edge), var(--isl-shadow-lg);
+  color: var(--isl-ink);
+  font-family: var(--isl-font);
+  animation: flv-pop 180ms cubic-bezier(.2,1.35,.3,1) both;
+}
+
+/* ── Sunk input well ── */
+.isl-well {
+  border-radius: var(--isl-r);
+  background: var(--isl-surface-sunk);
+  border: 1.5px solid var(--isl-border);
+  box-shadow: inset 0 2px 5px rgba(107, 74, 37, 0.1);
+}
+
+:root[data-theme='dark'] .isl-well {
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+.isl-well:focus-within {
+  border-color: var(--isl-mint);
+  box-shadow: inset 0 2px 5px rgba(107, 74, 37, 0.1), 0 0 0 4px var(--isl-mint-bg);
+}
+
+/* ── Menu option row ── */
+.isl-opt {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-radius: var(--isl-r-sm);
+  padding: 9px 11px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--isl-ink);
+  font-family: var(--isl-font);
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.isl-opt:hover {
+  background: var(--isl-surface-2);
+}
+
+.isl-opt--active {
+  background: var(--isl-mint-bg);
+  color: var(--isl-mint-deep);
+}
+
+/* ── Chat bubble ── */
+.isl-bubble {
+  border-radius: var(--isl-r-lg);
+  font-family: var(--isl-font);
+  line-height: 1.55;
+  animation: flv-message-in 220ms cubic-bezier(.2,1,.24,1) both;
+}
+
+.isl-bubble--agent {
+  background: var(--isl-card);
+  border: 1.5px solid var(--isl-border);
+  box-shadow: 0 2px 0 0 var(--isl-edge);
+  color: var(--isl-ink);
+  border-bottom-left-radius: 8px;
+}
+
+.isl-bubble--user {
+  background: var(--isl-mint);
+  color: #fff;
+  box-shadow: 0 3px 0 0 var(--isl-edge-mint);
+  border-bottom-right-radius: 8px;
+}
+
+.isl-bubble--error {
+  background: rgba(232, 97, 90, 0.12);
+  border: 1.5px solid var(--isl-coral);
+  color: var(--isl-coral-deep);
+  border-bottom-left-radius: 8px;
+}
+
+:root[data-theme='dark'] .isl-bubble--error {
+  color: var(--isl-coral);
+}
+
+/* ── Round avatar token for chat roles ── */
+.isl-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--isl-r-pill);
+  font-size: 13px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 0 0 var(--isl-edge);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .isl-chip,
+  .isl-go,
+  .isl-pop,
+  .isl-bubble {
     animation: none !important;
     transition: none !important;
     transform: none !important;

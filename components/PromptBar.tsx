@@ -48,6 +48,7 @@ interface PromptBarProps {
     onAddAttachments?: (files: FileList | File[]) => void;
     onRemoveAttachment?: (id: string) => void;
     onMentionedElementIds?: (ids: string[]) => void;
+    onPromptDocumentChange?: (document: Record<string, unknown>) => void;
     onEnhancePrompt?: (payload: { prompt: string; mode: PromptEnhanceMode; stylePreset?: string }) => Promise<PromptEnhanceResult>;
     isEnhancingPrompt?: boolean;
     isAutoEnhanceEnabled?: boolean;
@@ -73,6 +74,8 @@ interface PromptBarProps {
     className?: string;
     shellClassName?: string;
     hideApiStatus?: boolean;
+    modeOptions?: GenerationMode[];
+    popoverDirection?: 'up' | 'down';
 }
 
 type ExpandPanel = 'mode' | 'model' | 'more' | null;
@@ -108,8 +111,8 @@ function getModelLabel(mode: GenerationMode, imageModel?: string, videoModel?: s
 
 const PopoverHeader: React.FC<{ title: string; subtitle?: string }> = ({ title, subtitle }) => (
     <div className="px-2 pb-1.5">
-        <div className="text-xs font-semibold text-[var(--text-primary)]">{title}</div>
-        {subtitle && <div className="mt-0.5 text-[10px] text-[var(--text-muted)]">{subtitle}</div>}
+        <div className="text-xs font-bold" style={{ color: 'var(--isl-ink)' }}>{title}</div>
+        {subtitle && <div className="mt-0.5 text-[10px]" style={{ color: 'var(--isl-ink-soft)' }}>{subtitle}</div>}
     </div>
 );
 
@@ -117,13 +120,11 @@ const MenuOptionButton: React.FC<{ label: string; active?: boolean; description?
     <button
         type="button"
         onClick={onClick}
-        className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left transition ${
-            active ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--panel-muted)]'
-        }`}
+        className={`isl-opt ${active ? 'isl-opt--active' : ''}`}
     >
         <span className="min-w-0 flex-1">
-            <span className="block truncate text-xs font-medium">{label}</span>
-            {description && <span className="mt-0.5 block text-[10px] text-[var(--text-muted)]">{description}</span>}
+            <span className="block truncate text-xs font-bold">{label}</span>
+            {description && <span className="mt-0.5 block text-[10px]" style={{ color: 'var(--isl-ink-soft)' }}>{description}</span>}
         </span>
         {active && (
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
@@ -167,6 +168,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     onAddAttachments,
     onRemoveAttachment,
     onMentionedElementIds,
+    onPromptDocumentChange,
     onEnhancePrompt,
     isEnhancingPrompt = false,
     isAutoEnhanceEnabled = false,
@@ -189,6 +191,8 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     className,
     shellClassName,
     hideApiStatus = false,
+    popoverDirection = 'up',
+    modeOptions = ['image', 'video', 'keyframe'],
 }) => {
     const isDark = theme === 'dark';
     const rootRef = useRef<HTMLDivElement>(null);
@@ -200,14 +204,10 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     const [isDragActive, setIsDragActive] = useState(false);
     const [resolvedAttachmentHrefs, setResolvedAttachmentHrefs] = useState<Record<string, string>>({});
 
-    const triggerClass = `flv-elastic inline-flex ${compactMode ? 'h-7 gap-1 px-2.5 text-[11px]' : 'h-8 gap-1.5 px-3 text-xs'} items-center rounded-full border font-medium transition ${
-        isDark ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E5E7EB] bg-[#F5F7FA] text-[#344054] hover:border-[#D0D5DD] hover:bg-white'
-    }`;
-    const activeTriggerClass = isDark ? 'border-[#4B5B78] bg-[#202734] text-white shadow-sm' : 'border-[#D0D5DD] bg-white text-[#111827] shadow-sm';
-    const popoverCardClass = `flv-popover absolute bottom-full left-0 z-[80] mb-2 ${compactMode ? 'min-w-[200px] rounded-[14px]' : 'min-w-[220px] rounded-[16px]'} border p-1.5 shadow-[0_20px_50px_rgba(15,23,42,0.14)] ${
-        isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E5E7EB] bg-white'
-    }`;
-    const shellClass = `flv-glass-shell ${compactMode ? 'rounded-[22px]' : 'rounded-[26px]'} ${isDark ? 'border-white/10 bg-[#11151D]/92 shadow-[0_28px_80px_rgba(0,0,0,0.38)]' : 'border-white/70 bg-white/82 shadow-[0_26px_70px_rgba(15,23,42,0.14)]'}`;
+    const triggerClass = `isl-chip ${compactMode ? 'h-7 px-2.5 text-[11px]' : 'h-8 px-3 text-xs'}`;
+    const activeTriggerClass = 'isl-chip--active';
+    const popoverCardClass = `isl-pop absolute ${popoverDirection === 'down' ? 'top-full left-0 mt-2' : 'bottom-full left-0 mb-2'} z-[80] ${compactMode ? 'min-w-[200px]' : 'min-w-[220px]'} p-1.5`;
+    const shellClass = 'isl-shell';
 
     /** 将画布元素转换为 RichPromptEditor 需要的 MentionItem[] */
     const canvasItems = useMemo<MentionItem[]>(() =>
@@ -260,10 +260,11 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     /** 编辑器文本 + mention 变化时同步到父组件 */
     const handleEditorChange = useCallback((plainText: string, json: Record<string, unknown>) => {
         setPrompt(plainText);
+        onPromptDocumentChange?.(json);
         const mentions = extractMentions(json);
         const uniqueIds = [...new Set(mentions.map(m => m.id))];
         onMentionedElementIds?.(uniqueIds);
-    }, [setPrompt, onMentionedElementIds]);
+    }, [setPrompt, onPromptDocumentChange, onMentionedElementIds]);
 
     /** 编辑器 Enter 提交 */
     const handleEditorSubmit = useCallback(() => {
@@ -383,9 +384,9 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                 />
 
                 {isDragActive && (
-                    <div className={`pointer-events-none absolute inset-3 z-20 rounded-[26px] border border-dashed backdrop-blur-sm ${isDark ? 'border-[#4B5B78] bg-[#1B2029]/72' : 'border-[#84ADFF] bg-[#EEF4FF]/78'}`}>
+                    <div className="pointer-events-none absolute inset-3 z-20 rounded-[20px] border-[1.5px] border-dashed backdrop-blur-sm" style={{ borderColor: 'var(--isl-mint)', background: 'var(--isl-mint-bg)' }}>
                         <div className="flex h-full items-center justify-center">
-                            <div className="rounded-full bg-white/90 px-4 py-2 text-sm font-medium text-[#111827] shadow-lg">松手上传参考媒体</div>
+                            <div className="isl-chip px-4 py-2 text-sm">松手上传参考媒体</div>
                         </div>
                     </div>
                 )}
@@ -393,10 +394,10 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                 <div
                     className={`relative ${compactMode ? 'px-3 pt-2.5' : 'px-3.5 pt-3'}`}
                     style={{
-                        '--prompt-editor-color': isDark ? '#F8FAFC' : '#111827',
-                        '--prompt-editor-placeholder': isDark ? '#667085' : '#C2CAD7',
-                        '--prompt-editor-caret': isDark ? '#818CF8' : '#4f46e5',
-                        '--prompt-editor-scrollbar': isDark ? '#2A3140' : '#e5e7eb',
+                        '--prompt-editor-color': 'var(--isl-ink)',
+                        '--prompt-editor-placeholder': 'var(--isl-ink-ghost)',
+                        '--prompt-editor-caret': 'var(--isl-mint-deep)',
+                        '--prompt-editor-scrollbar': isDark ? '#4a3a26' : '#e3d7bd',
                         '--prompt-editor-min-height': compactMode ? '42px' : '48px',
                         '--prompt-editor-font-size': compactMode ? '13px' : '14px',
                         '--prompt-editor-line-height': compactMode ? '1.4' : '1.5',
@@ -412,15 +413,27 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                         initialDocument={promptDocument}
                     />
 
+                    {variant !== 'inline' && (
+                        <div className="mt-1.5 flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--isl-ink-soft)', fontFamily: 'var(--isl-font)' }}>
+                            <span
+                                className="inline-block h-1.5 w-1.5 rounded-full"
+                                style={{ background: readyState === 'ready' ? 'var(--isl-mint)' : readyState === 'missing-key' ? 'var(--isl-coral)' : readyState === 'generating' ? 'var(--isl-sun)' : 'var(--isl-ink-ghost)' }}
+                            />
+                            <span className="truncate font-semibold">{readyState === 'ready' ? promptHints[0] : readyCopy}</span>
+                            {promptCharCount > 0 && <span className="ml-auto tabular-nums" style={{ color: 'var(--isl-ink-ghost)' }}>{promptCharCount}</span>}
+                        </div>
+                    )}
+
                     {attachments.length > 0 && (
                         <div className={`space-y-2 pb-1 ${compactMode ? 'mt-2' : 'mt-2.5'}`}>
                             <div className="flex flex-wrap gap-1.5">
                                 {attachments.map(attachment => (
                                     <div
                                         key={attachment.id}
-                                        className={`flv-elastic group flex items-center gap-2 rounded-[14px] border px-2 py-1.5 transition-all duration-200 hover:-translate-y-0.5 ${isDark ? 'border-[#2A3140] bg-[#171C24]' : 'border-[#E4E7EC] bg-[#F8FAFC]'}`}
+                                        className="group flex items-center gap-2 rounded-[14px] border-[1.5px] px-2 py-1.5 transition-all duration-200 hover:-translate-y-0.5"
+                                        style={{ borderColor: 'var(--isl-border)', background: 'var(--isl-surface-2)' }}
                                     >
-                                        <div className="h-8 w-8 overflow-hidden rounded-lg border border-[var(--border-color)] bg-white">
+                                        <div className="h-8 w-8 overflow-hidden rounded-lg border bg-white" style={{ borderColor: 'var(--isl-border)' }}>
                                             {attachment.mimeType.startsWith('video/') ? (
                                                 <video src={resolvedAttachmentHrefs[attachment.id] || attachment.href} className="h-full w-full object-cover" muted playsInline />
                                             ) : (
@@ -428,13 +441,14 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                             )}
                                         </div>
                                         <div className="min-w-0">
-                                            <div className={`max-w-[120px] truncate text-xs font-medium ${isDark ? 'text-[#F8FAFC]' : 'text-[#111827]'}`}>{attachment.name}</div>
-                                            <div className="text-[10px] text-[var(--text-muted)]">{attachment.mimeType.startsWith('video/') ? '参考视频' : '参考图'}</div>
+                                            <div className="max-w-[120px] truncate text-xs font-bold" style={{ color: 'var(--isl-ink)' }}>{attachment.name}</div>
+                                            <div className="text-[10px]" style={{ color: 'var(--isl-ink-soft)' }}>{attachment.mimeType.startsWith('video/') ? '参考视频' : '参考图'}</div>
                                         </div>
                                         <button
                                             type="button"
                                             onClick={() => onRemoveAttachment?.(attachment.id)}
-                                            className={`flex h-6 w-6 items-center justify-center rounded-full transition ${isDark ? 'text-[#98A2B3] hover:bg-[#202734] hover:text-white' : 'text-[#667085] hover:bg-white hover:text-[#111827]'}`}
+                                            className="flex h-6 w-6 items-center justify-center rounded-full transition hover:bg-black/5"
+                                            style={{ color: 'var(--isl-ink-soft)' }}
                                             title="移除参考媒体"
                                         >
                                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -449,9 +463,9 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                     )}
                 </div>
 
-                <div className={`relative flex items-center gap-3 border-t ${compactMode ? 'px-2.5 py-2' : 'px-3 py-2.5'} ${isDark ? 'border-[#2A3140]' : 'border-[#EEF1F5]'}`}>
-                    <div className="min-w-0 flex-1 overflow-visible">
-                        <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap pr-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <div className={`relative flex items-end gap-3 border-t ${compactMode ? 'px-2.5 py-2' : 'px-3 py-2.5'}`} style={{ borderColor: 'var(--isl-border)' }}>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
                             {/* API Key 状态指示器 — 与设置面板联动 */}
                             {!hideApiStatus && (() => {
                                 const defaultKey = userApiKeys.find(k => k.isDefault);
@@ -461,9 +475,8 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                         <button
                                             type="button"
                                             onClick={onOpenSettings}
-                                            className={`inline-flex h-8 items-center gap-1.5 rounded-full border border-dashed px-3 text-[11px] font-medium transition ${
-                                                isDark ? 'border-[#7A271A] text-[#FDA29B] hover:bg-[#3A1616]' : 'border-[#FECACA] text-[#DC2626] hover:bg-[#FEF3F2]'
-                                            }`}
+                                            className={`isl-chip border-dashed ${compactMode ? 'h-7 px-2.5 text-[11px]' : 'h-8 px-3 text-xs'}`}
+                                            style={{ borderColor: 'var(--isl-coral)', color: 'var(--isl-coral-deep)' }}
                                         >
                                             🔑 未配置 API Key
                                         </button>
@@ -473,25 +486,31 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                     <button
                                         type="button"
                                         onClick={onOpenSettings}
-                                        className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition ${
-                                            isDark ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E5E7EB] bg-[#F5F7FA] text-[#344054] hover:bg-white'
-                                        }`}
+                                        className={`isl-chip ${compactMode ? 'h-7 px-2.5 text-[11px]' : 'h-8 px-3 text-xs'}`}
                                         title={`已配置 ${keyCount} 个 Key，点击打开设置管理`}
                                     >
                                         <span className={`inline-block h-2 w-2 rounded-full ${defaultKey?.status === 'ok' ? 'bg-green-500' : 'bg-yellow-400'}`} />
                                         <span className="max-w-[100px] truncate">{defaultKey?.name || defaultKey?.provider || 'API Key'}</span>
-                                        {keyCount > 1 && <span className={`text-[10px] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>+{keyCount - 1}</span>}
+                                        {keyCount > 1 && <span className="text-[10px]" style={{ color: 'var(--isl-ink-ghost)' }}>+{keyCount - 1}</span>}
                                     </button>
                                 );
                             })()}
 
 
                             <div className="relative">
-                                <button type="button" onClick={() => setExpandedPanel(prev => (prev === 'mode' ? null : 'mode'))} className={`${triggerClass} ${expandedPanel === 'mode' ? activeTriggerClass : ''}`}>
-                                    {getModeLabel(generationMode)}
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6" /></svg>
-                                </button>
-                                {expandedPanel === 'mode' && <div className={popoverCardClass}><PopoverHeader title="生成类型" subtitle="选择图片、视频或首尾帧模式" /><div className="space-y-1">{(['image', 'video', 'keyframe'] as GenerationMode[]).map(mode => <MenuOptionButton key={mode} label={getModeLabel(mode)} active={generationMode === mode} onClick={() => { setGenerationMode(mode); setExpandedPanel(null); }} />)}</div></div>}
+                                {modeOptions.length > 1 ? (
+                                    <>
+                                        <button type="button" onClick={() => setExpandedPanel(prev => (prev === 'mode' ? null : 'mode'))} className={`${triggerClass} ${expandedPanel === 'mode' ? activeTriggerClass : ''}`}>
+                                            {getModeLabel(generationMode)}
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6" /></svg>
+                                        </button>
+                                        {expandedPanel === 'mode' && <div className={popoverCardClass}><PopoverHeader title="生成类型" subtitle="选择图片、视频或首尾帧模式" /><div className="space-y-1">{modeOptions.map(mode => <MenuOptionButton key={mode} label={getModeLabel(mode)} active={generationMode === mode} onClick={() => { setGenerationMode(mode); setExpandedPanel(null); }} />)}</div></div>}
+                                    </>
+                                ) : (
+                                    <div className={`${triggerClass} cursor-default`}>
+                                        {getModeLabel(generationMode)}
+                                    </div>
+                                )}
                             </div>
 
                             <div className="relative">
@@ -503,7 +522,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                     <div className={`${popoverCardClass} w-[290px]`}>
                                         <PopoverHeader title="模型设置" subtitle="向上弹出选择，不打断输入流程" />
                                         <div className="max-h-[280px] space-y-1 overflow-y-auto pr-1">
-                                            <div className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#98A2B3]">{generationMode === 'video' ? '视频模型' : '图片模型'}</div>
+                                            <div className="px-2 pb-1 pt-1 text-[11px] font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--isl-ink-ghost)' }}>{generationMode === 'video' ? '视频模型' : '图片模型'}</div>
                                             {(() => {
                                                 // 按 provider 分组显示模型列表
                                                 const grouped = new Map<string, string[]>();
@@ -517,7 +536,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                                 return Array.from(grouped.entries()).map(([providerLabel, models]) => (
                                                     <div key={providerLabel}>
                                                         {grouped.size > 1 && (
-                                                            <div className={`mt-1.5 px-2 pb-0.5 text-[10px] font-semibold tracking-wide ${isDark ? 'text-[#528BFF]' : 'text-[#175CD3]'}`}>
+                                                            <div className="mt-1.5 px-2 pb-0.5 text-[10px] font-bold tracking-wide" style={{ color: 'var(--isl-mint-deep)' }}>
                                                                 {providerLabel}
                                                             </div>
                                                         )}
@@ -552,7 +571,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                                             disabled={!supported}
                                                             onClick={() => setVideoAspectRatio(ratio)}
                                                             title={supported ? undefined : '当前视频模型不支持此比例'}
-                                                            className={`rounded-2xl border px-3 py-2 text-sm font-medium transition ${!supported ? 'opacity-35 cursor-not-allowed' : ''} ${videoAspectRatio === ratio ? 'border-[#B2CCFF] bg-[#EEF4FF] text-[#175CD3]' : isDark ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E5E7EB] bg-[#F9FAFB] text-[#344054] hover:bg-white'}`}
+                                                            className={`rounded-2xl border-[1.5px] px-3 py-2 text-sm font-bold transition ${!supported ? 'opacity-35 cursor-not-allowed' : ''} ${videoAspectRatio === ratio ? 'isl-chip--active' : 'isl-chip'}`}
                                                         >
                                                             {ratio}
                                                         </button>
@@ -560,25 +579,26 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                                     })}
                                                 </div>
                                                 <div className="px-1 pt-2">
-                                                    <p className={`text-xs mb-1.5 ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>平台预设</p>
+                                                    <p className="text-xs mb-1.5" style={{ color: 'var(--isl-ink-soft)' }}>平台预设</p>
                                                     <div className="flex flex-wrap gap-1.5">
                                                         {Object.entries(SOCIAL_PRESETS).map(([key, preset]) => (
                                                             <div key={key} className="relative group">
                                                                 <button
                                                                     type="button"
-                                                                    className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${isDark ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E5E7EB] bg-[#F9FAFB] text-[#344054] hover:bg-white'}`}
+                                                                    className="isl-chip px-2.5 py-1 text-xs"
                                                                     onClick={() => setVideoAspectRatio(preset.ratios[0].ratio)}
                                                                     title={preset.ratios.map(r => `${r.desc}: ${r.ratio}`).join(', ')}
                                                                 >
                                                                     {preset.label}
                                                                 </button>
                                                                 {preset.ratios.length > 1 && (
-                                                                    <div className={`absolute bottom-full left-0 mb-1 hidden group-hover:flex flex-col rounded-lg border shadow-lg p-1 min-w-[140px] ${isDark ? 'bg-[#1B2029] border-[#2A3140]' : 'bg-white border-[#E5E7EB]'}`} style={{ zIndex: 1 }}>
+                                                                    <div className="isl-pop absolute bottom-full left-0 mb-1 hidden group-hover:flex flex-col p-1 min-w-[140px]" style={{ zIndex: 1 }}>
                                                                         {preset.ratios.map(r => (
                                                                             <button
                                                                                 key={r.desc}
                                                                                 type="button"
-                                                                                className={`text-left rounded-md px-2 py-1 text-xs transition ${videoAspectRatio === r.ratio ? 'text-[#175CD3] font-semibold' : isDark ? 'text-[#D0D5DD] hover:bg-[#252C39]' : 'text-[#344054] hover:bg-[#F5F7FA]'}`}
+                                                                                className={`text-left rounded-md px-2 py-1 text-xs transition ${videoAspectRatio === r.ratio ? 'font-bold' : ''}`}
+                                                                                style={{ color: videoAspectRatio === r.ratio ? 'var(--isl-mint-deep)' : 'var(--isl-ink)' }}
                                                                                 onClick={() => setVideoAspectRatio(r.ratio)}
                                                                             >
                                                                                 {r.desc} ({r.ratio})
@@ -601,15 +621,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                 type="button"
                                 onClick={onAutoEnhanceToggle}
                                 title={isAutoEnhanceEnabled ? '关闭自动润色（生成前不再自动优化提示词）' : '开启自动润色（生成前自动用 LLM 优化提示词）'}
-                                className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition ${
-                                    isAutoEnhanceEnabled
-                                        ? isDark
-                                            ? 'border-[#528BFF] bg-[#1E3A5F] text-[#B2CCFF] shadow-sm'
-                                            : 'border-[#84ADFF] bg-[#EEF4FF] text-[#175CD3] shadow-sm'
-                                        : isDark
-                                            ? 'border-[#2A3140] bg-[#1B2029] text-[#667085] hover:bg-[#252C39]'
-                                            : 'border-[#E5E7EB] bg-[#F5F7FA] text-[#98A2B3] hover:border-[#D0D5DD] hover:bg-white'
-                                }`}
+                                className={`isl-chip ${compactMode ? 'h-7 px-2.5 text-[11px]' : 'h-8 px-3 text-xs'} ${isAutoEnhanceEnabled ? 'isl-chip--active' : ''}`}
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                     <path d="M12 3l1.912 5.813a2 2 0 0 0 1.275 1.275L21 12l-5.813 1.912a2 2 0 0 0-1.275 1.275L12 21l-1.912-5.813a2 2 0 0 0-1.275-1.275L3 12l5.813-1.912a2 2 0 0 0 1.275-1.275L12 3Z" />
@@ -625,14 +637,16 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                     <div className={`${popoverCardClass} left-auto right-0 w-[320px]`}>
                                         <PopoverHeader title="更多操作" subtitle="参考图、角色锁定、效果存储" />
                                         <div className="space-y-1">
-                                            <MenuOptionButton
-                                                label="上传参考图"
-                                                description="点击选择，或直接把图片拖到输入框"
-                                                onClick={() => {
-                                                    fileInputRef.current?.click();
-                                                    setExpandedPanel(null);
-                                                }}
-                                            />
+                                            {onAddAttachments && (
+                                                <MenuOptionButton
+                                                    label="上传参考图"
+                                                    description="点击选择，或直接把图片拖到输入框"
+                                                    onClick={() => {
+                                                        fileInputRef.current?.click();
+                                                        setExpandedPanel(null);
+                                                    }}
+                                                />
+                                            )}
 
                                             {onLockCharacterFromSelection && (
                                                 <MenuOptionButton
@@ -650,12 +664,14 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                                 </>
                                             )}
 
-                                            <MenuOptionButton label="保存当前提示词" description="存成一个可复用效果" onClick={handleSaveEffect} />
+                                            {variant !== 'inline' && (
+                                                <MenuOptionButton label="保存当前提示词" description="存成一个可复用效果" onClick={handleSaveEffect} />
+                                            )}
 
                                             {userEffects.length > 0 && (
                                                 <div className="max-h-40 space-y-1 overflow-y-auto pt-2 pr-1">
                                                     {userEffects.map(effect => (
-                                                        <div key={effect.id} className={`flex items-center gap-2 rounded-2xl px-3 py-2 ${isDark ? 'bg-[#1B2029]' : 'bg-[#F9FAFB]'}`}>
+                                                        <div key={effect.id} className="flex items-center gap-2 rounded-2xl px-3 py-2" style={{ background: 'var(--isl-surface-2)' }}>
                                                             <button
                                                                 type="button"
                                                                 className="min-w-0 flex-1 text-left"
@@ -664,13 +680,14 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                                                     setExpandedPanel(null);
                                                                 }}
                                                             >
-                                                                <div className="truncate text-sm font-medium text-[var(--text-primary)]">{effect.name}</div>
-                                                                <div className="truncate text-xs text-[var(--text-muted)]">{effect.value}</div>
+                                                                <div className="truncate text-sm font-bold" style={{ color: 'var(--isl-ink)' }}>{effect.name}</div>
+                                                                <div className="truncate text-xs" style={{ color: 'var(--isl-ink-soft)' }}>{effect.value}</div>
                                                             </button>
                                                             <button
                                                                 type="button"
                                                                 onClick={() => onDeleteUserEffect(effect.id)}
-                                                                className={`flex h-8 w-8 items-center justify-center rounded-full transition ${isDark ? 'text-[#98A2B3] hover:bg-[#202734] hover:text-white' : 'text-[#667085] hover:bg-white hover:text-[#111827]'}`}
+                                                                className="flex h-8 w-8 items-center justify-center rounded-full transition hover:bg-black/5"
+                                                                style={{ color: 'var(--isl-ink-soft)' }}
                                                                 title="删除已保存提示词"
                                                             >
                                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -684,8 +701,8 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                             )}
 
                                             {canvasElements.length > 0 && (
-                                                <div className={`rounded-2xl px-3 py-3 text-sm ${isDark ? 'bg-[#1B2029] text-[#98A2B3]' : 'bg-[#F9FAFB] text-[#667085]'}`}>
-                                                    在输入框里输入 <span className={`font-semibold ${isDark ? 'text-[#F3F4F6]' : 'text-[#344054]'}`}>@</span>，可直接引用画布里的元素卡片。
+                                                <div className="rounded-2xl px-3 py-3 text-sm" style={{ background: 'var(--isl-surface-2)', color: 'var(--isl-ink-soft)' }}>
+                                                    在输入框里输入 <span className="font-bold" style={{ color: 'var(--isl-mint-deep)' }}>@</span>，可直接引用画布里的元素卡片。
                                                 </div>
                                             )}
                                         </div>
@@ -698,9 +715,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                     <div className="flex shrink-0 items-center gap-2">
                         {variant !== 'inline' && generationMode === 'image' && onBatchCountChange && (
                             <div
-                                className={`flex h-9 items-center rounded-[18px] border p-1 transition ${
-                                    isDark ? 'border-[#2A3140] bg-[#121720]' : 'border-[#E5E7EB] bg-[#F8FAFC]'
-                                }`}
+                                className="isl-well flex h-9 items-center p-1"
                                 title="批量方案数量"
                             >
                                 {[1, 2, 4].map(count => {
@@ -710,15 +725,10 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                             key={count}
                                             type="button"
                                             onClick={() => onBatchCountChange(count)}
-                                            className={`flv-elastic flex h-7 min-w-[38px] items-center justify-center rounded-[14px] px-2 text-[11px] font-semibold transition ${
-                                                active
-                                                    ? isDark
-                                                        ? 'bg-[#2F67FF] text-white shadow-[0_8px_18px_rgba(47,103,255,0.3)]'
-                                                        : 'bg-[#175CD3] text-white shadow-[0_8px_18px_rgba(23,92,211,0.22)]'
-                                                    : isDark
-                                                        ? 'text-[#98A2B3] hover:bg-[#202734] hover:text-white'
-                                                        : 'text-[#667085] hover:bg-white hover:text-[#111827]'
+                                            className={`flex h-7 min-w-[38px] items-center justify-center rounded-[12px] px-2 text-[11px] font-bold transition ${
+                                                active ? 'isl-chip--active' : ''
                                             }`}
+                                            style={active ? undefined : { color: 'var(--isl-ink-soft)' }}
                                             aria-pressed={active}
                                             title={count === 1 ? '单张方案' : `输出 ${count} 张方案`}
                                         >
@@ -737,7 +747,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                             disabled={isLoading || !prompt.trim()}
                             aria-label={t('promptBar.generate')}
                             title={t('promptBar.generate')}
-                            className={`flv-elastic flv-primary-action flex h-9 min-w-[112px] items-center justify-center rounded-2xl px-4 transition disabled:cursor-not-allowed ${isDark ? 'bg-[#F3F4F6] text-[#111827] hover:bg-white disabled:bg-[#3A4458] disabled:text-[#98A2B3]' : 'bg-[#111827] text-white hover:bg-[#0F172A] disabled:bg-[#D0D5DD]'}`}
+                            className={`isl-go ${compactMode ? 'h-9 min-w-[104px] px-4 text-xs' : 'h-10 min-w-[116px] px-5 text-sm'}`}
                         >
                             {isLoading ? (
                                 <svg className="h-3.5 w-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
