@@ -226,15 +226,23 @@
       "watchers": 0,
       "releases": 1,
       "downloads": 29
+    },
+    {
+      "date": "2026-08-26",
+      "stars": 134,
+      "forks": 34,
+      "watchers": 0,
+      "releases": 1,
+      "downloads": 33
     }
   ],
   "releaseAssets": [
     {
       "release": "v0.2.0-test",
       "name": "Flovart_0.2.0_x64-setup.exe",
-      "downloads": 29,
+      "downloads": 33,
       "updatedAt": "2026-06-02T08:23:17Z"
     }
   ],
-  "updatedAt": "2026-08-25T01:55:28.607Z"
+  "updatedAt": "2026-08-26T02:01:22.493Z"
 }
