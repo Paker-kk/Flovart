@@ -81,6 +81,17 @@ export async function discardWorkflowMediaRecord(storageKey: string) {
   ]);
 }
 
+/** 判断一个 storageKey 是否仍被项目节点或已注册的临时引用（撤销历史/剪贴板）持有。 */
+export function isWorkflowMediaKeyReferenced(storageKey: string, projects: Array<Pick<WorkflowProject, 'nodes'>>) {
+  const referenced = collectWorkflowMediaKeys(projects).has(storageKey)
+    || pendingReferences.has(storageKey);
+  if (referenced) return true;
+  for (const keys of transientReferences.values()) {
+    if (keys.has(storageKey)) return true;
+  }
+  return false;
+}
+
 export function workflowMediaType(file: Pick<File, 'name' | 'type'>): WorkflowMediaType {
   const mimeType = workflowMediaMimeType(file);
   if (mimeType.startsWith('image/')) return 'image';
@@ -246,7 +257,7 @@ export async function workflowDataUrlToBlob(dataUrl: string): Promise<Blob> {
   return response.blob();
 }
 
-function isFetchableMediaHref(href: string) {
+export function isFetchableMediaHref(href: string) {
   return /^(https?:|blob:)/i.test(href) || isDataUrl(href);
 }
 

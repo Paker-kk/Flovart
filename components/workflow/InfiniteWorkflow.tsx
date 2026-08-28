@@ -9,7 +9,7 @@ import { STUDIO_MEDIA_DRAG_TYPE } from '../studio/StudioMediaBrowser';
 import type { AssetSuggestion } from '../MentionList';
 import type { MentionData } from '../MediaMentionExtension';
 import { createWorkflowNode, WORKFLOW_NODE_SPECS } from './constants';
-import { applyWorkflowDraftChangeSet, recordWorkflowDraftSnapshotChange, redoWorkflowDraftChangeSet, undoWorkflowDraftChangeSet } from './draftAuthority';
+import { applyWorkflowMutation, redoWorkflowDraftChangeSet, undoWorkflowDraftChangeSet, workflowDocumentOperationsFromFrames } from './draftAuthority';
 import {
   discardWorkflowMediaRecord,
   fitWorkflowMediaSize,
@@ -23,7 +23,7 @@ import {
   workflowMediaType,
   type WorkflowMediaRecord,
 } from './media';
-import { summarizeWorkflowOps, validateWorkflowConnection } from './ops';
+import { summarizeWorkflowOps, topoSort, validateWorkflowConnection } from './ops';
 import { buildWorkflowPromptPasteOps } from './promptPaste';
 import { WorkflowConnections } from './WorkflowConnections';
 import { WorkflowContextMenu, type WorkflowContextMenuState } from './WorkflowContextMenu';
@@ -31,8 +31,10 @@ import { WorkflowCreateMenu, type WorkflowCreateMenuState } from './WorkflowCrea
 import type { WorkflowSharedMedia } from './WorkflowConfigPanel';
 import { WorkflowMiniMap } from './WorkflowMiniMap';
 import { WorkflowNode } from './WorkflowNode';
+import { workflowNodePluginContextFromProject } from './nodePluginSdk';
 import { MediaPreviewModal } from './MediaPreviewModal';
 import { WorkflowNodePromptBar, type WorkflowModelOptions } from './WorkflowNodePromptBar';
+import type { PromptIntent } from './promptIntent';
 import { WorkflowNodeToolbar, type WorkflowImageToolHandlers, type WorkflowVideoToolHandlers, type WorkflowAudioToolHandlers } from './WorkflowNodeToolbar';
 import { WorkflowImageToolDialogs, type WorkflowImageToolConfirmation, type WorkflowImageToolState } from './WorkflowImageToolDialogs';
 import { WorkflowVideoToolDialogs, type WorkflowVideoToolConfirmation, type WorkflowVideoToolState } from './WorkflowVideoToolDialogs';
@@ -44,7 +46,7 @@ import { WorkflowToolbar, type WorkflowTool } from './WorkflowToolbar';
 import { useProductionProjectionAdapter } from './useProductionProjectionAdapter';
 import { composeImageGrid } from './gridComposer';
 import { LIGHTING_PRESETS, buildRelightPrompt } from './LightingPresets';
-import type { WorkflowConnection, WorkflowNode as WorkflowNodeData, WorkflowNodeType, WorkflowOp, WorkflowPoint, WorkflowProject, WorkflowSnapshot, WorkflowViewport, ScriptShot, SlashCommand } from './types';
+import type { WorkflowConnection, WorkflowDocumentOperation, WorkflowNode as WorkflowNodeData, WorkflowNodeType, WorkflowPoint, WorkflowProject, WorkflowSnapshot, WorkflowViewport, ScriptShot, SlashCommand } from './types';
 import {
   runWorkflowCropOperation,
   runWorkflowImageEditOperation,
@@ -64,6 +66,7 @@ import {
 } from '../../services/workflowVideoOperations';
 import { runWorkflowAudioSpeedOperation, runWorkflowAudioStemSplitOperation, runWorkflowAudioTrimOperation } from '../../services/workflowAudioOperations';
 import { exportMediaArchive } from '../../utils/batchMediaExport';
+import { computeAutoLayout } from './layoutAlgorithm';
 import { usePromptHistoryStore } from '../../stores/usePromptHistoryStore';
 import { useClipboardStore, type ClipItem } from '../../stores/useClipboardStore';
 
@@ -84,53 +87,6 @@ const EDITABLE_TARGET = 'textarea,input,select,video,audio,[contenteditable="tru
 const SPACE_BLOCKED_TARGET = `${EDITABLE_TARGET},[role="menu"],[role="dialog"]`;
 const CONNECTION_NODE_PADDING = 24;
 const CONNECTION_HANDLE_RADIUS = 18;
-const AUTO_LAYOUT_GAP_X = 100;
-const AUTO_LAYOUT_GAP_Y = 40;
-const AUTO_LAYOUT_DEFAULT_W = 280;
-const AUTO_LAYOUT_DEFAULT_H = 200;
-
-function computeHierarchicalLayout(nodes: WorkflowNodeData[], connections: WorkflowConnection[]): Map<string, { x: number; y: number }> {
-  const positions = new Map<string, { x: number; y: number }>();
-  if (!nodes.length) return positions;
-  const incoming = new Map<string, string[]>();
-  const outgoing = new Map<string, string[]>();
-  connections.forEach(conn => {
-    (outgoing.get(conn.fromNodeId) || (outgoing.set(conn.fromNodeId, []).get(conn.fromNodeId) as string[])).push(conn.toNodeId);
-    (incoming.get(conn.toNodeId) || (incoming.set(conn.toNodeId, []).get(conn.toNodeId) as string[])).push(conn.fromNodeId);
-  });
-  const hasIncoming = new Set<string>();
-  const hasOutgoing = new Set<string>();
-  connections.forEach(conn => { hasIncoming.add(conn.toNodeId); hasOutgoing.add(conn.fromNodeId); });
-  const isolatedIds = nodes.map(node => node.id).filter(id => !hasIncoming.has(id) && !hasOutgoing.has(id));
-  const layer = new Map<string, number>();
-  const computeLayer = (id: string, visiting = new Set<string>()): number => {
-    if (layer.has(id)) return layer.get(id) as number;
-    if (visiting.has(id)) return 0;
-    visiting.add(id);
-    const preds = incoming.get(id) || [];
-    const l = preds.length ? 1 + Math.max(...preds.map(p => computeLayer(p, visiting))) : 0;
-    layer.set(id, l);
-    visiting.delete(id);
-    return l;
-  };
-  nodes.forEach(node => { if (hasIncoming.has(node.id) || hasOutgoing.has(node.id)) computeLayer(node.id); });
-  const layers = new Map<number, string[]>();
-  layer.forEach((l, id) => { (layers.get(l) || (layers.set(l, []).get(l) as string[])).push(id); });
-  const maxLayer = layers.size ? Math.max(...layers.keys()) : -1;
-  if (isolatedIds.length) layers.set(maxLayer + 1, isolatedIds);
-  layers.forEach((ids, l) => {
-    const x = l * (AUTO_LAYOUT_DEFAULT_W + AUTO_LAYOUT_GAP_X);
-    let y = 0;
-    ids.forEach(id => {
-      const node = nodes.find(n => n.id === id);
-      const h = node?.height || AUTO_LAYOUT_DEFAULT_H;
-      positions.set(id, { x, y });
-      y += h + AUTO_LAYOUT_GAP_Y;
-    });
-  });
-  return positions;
-}
-
 function sameIds(a: string[], b: string[]) {
   return a.length === b.length && a.every((id, index) => id === b[index]);
 }
@@ -263,7 +219,7 @@ export function InfiniteWorkflow({
 }: {
   project: WorkflowProject;
   updateProject: (patch: Partial<WorkflowProject>) => void;
-  onRunNode: (nodeId: string) => void;
+  onRunNode: (nodeId: string, promptIntent?: PromptIntent) => void;
   onStopNode?: (nodeId: string) => void;
   onSaveWorkflowMedia?: (nodeId: string) => void;
   onReversePrompt?: (imageHref: string, mimeType: string, width?: number, height?: number) => Promise<string>;
@@ -300,6 +256,7 @@ export function InfiniteWorkflow({
   const mountedRef = useRef(true);
   const mousePosRef = useRef({ x: 0, y: 0 });
   const replaceSequenceRef = useRef(new Map<string, number>());
+  const promptIntentRef = useRef<PromptIntent | null>(null);
   const mediaReferenceOwnerRef = useRef(`workflow-editor-${nanoid()}`);
   const [tool, setTool] = useState<WorkflowTool>('select');
   const [wheelMode, setWheelMode] = useState<'pan' | 'zoom'>('pan');
@@ -479,13 +436,22 @@ export function InfiniteWorkflow({
       draftVersion: next.draftVersion,
       draftChangeSets: next.draftChangeSets,
       draftRedoStack: next.draftRedoStack,
+      workflowMutationReceipts: next.workflowMutationReceipts,
     });
     selectedIdsRef.current = next.selectedNodeIds;
     setSelectedNodeIds(next.selectedNodeIds);
   }, [patchProject]);
 
   const pushHistory = useCallback((frame: Frame, nextFrame: Frame = currentFrame(), intent = '编辑画布') => {
-    const recorded = recordWorkflowDraftSnapshotChange(projectRef.current, frame, nextFrame, { actor: 'ui', intent });
+    const current = projectRef.current;
+    const recorded = applyWorkflowMutation({ ...current, nodes: frame.nodes, connections: frame.connections }, {
+      projectId: current.id,
+      expectedRevision: current.draftVersion || 1,
+      mutationId: nanoid(),
+      source: 'ui',
+      intent,
+      ops: workflowDocumentOperationsFromFrames(frame, nextFrame),
+    });
     if (recorded.ok === false) return false;
     applyDraftProject(recorded.project);
     return true;
@@ -498,12 +464,20 @@ export function InfiniteWorkflow({
   const autoLayout = useCallback(() => {
     const nodes = projectRef.current.nodes;
     if (!nodes.length) return;
-    const positions = computeHierarchicalLayout(nodes, projectRef.current.connections);
+    const positions = computeAutoLayout(nodes, projectRef.current.connections);
     if (!positions.size) return;
     const prev = nodes.map(node => ({ ...node, position: { ...node.position } }));
     const next = nodes.map(node => {
       const p = positions.get(node.id);
-      return p ? { ...node, position: { x: p.x, y: p.y } } : node;
+      if (!p) return node;
+      // 缺尺寸的老数据一并写回类型默认值，保证渲染高度与布局一致（避免内容撑高导致重叠）。
+      const spec = WORKFLOW_NODE_SPECS[node.type];
+      return {
+        ...node,
+        position: { x: p.x, y: p.y },
+        ...(node.width ? {} : { width: spec?.width || 320 }),
+        ...(node.height ? {} : { height: spec?.height || 200 }),
+      };
     });
     commitFrame(next, projectRef.current.connections);
     setLayoutToast({ prev, deadline: Date.now() + 6000 });
@@ -531,18 +505,22 @@ export function InfiniteWorkflow({
     getProject: () => projectRef.current,
     onProjectChange: next => {
       if (next.id !== projectRef.current.id) return;
-      projectRef.current = next;
-      patchProject({
-        nodes: next.nodes,
-        connections: next.connections,
-        selectedNodeIds: next.selectedNodeIds,
-        draftVersion: next.draftVersion,
-        updatedAt: next.updatedAt,
+      const current = projectRef.current;
+      const result = applyWorkflowMutation(current, {
+        projectId: current.id,
+        expectedRevision: current.draftVersion || 1,
+        mutationId: nanoid(),
+        source: 'ui',
+        intent: '提交 Workflow Operation 状态',
+        ops: workflowDocumentOperationsFromFrames(
+          { nodes: current.nodes, connections: current.connections },
+          { nodes: next.nodes, connections: next.connections },
+        ),
       });
-      selectedIdsRef.current = next.selectedNodeIds;
-      setSelectedNodeIds(next.selectedNodeIds);
+      if (result.ok === false) throw new Error(result.error.message);
+      applyDraftProject({ ...result.project, selectedNodeIds: next.selectedNodeIds });
     },
-  }), [confirmRouteFallback, patchProject, userApiKeys]);
+  }), [applyDraftProject, confirmRouteFallback, userApiKeys]);
 
   const ownsImageToolTransaction = useCallback((transaction: ImageToolTransaction) => {
     const current = imageToolTransactionRef.current;
@@ -898,18 +876,21 @@ export function InfiniteWorkflow({
     }
   }, [imageTool, imageToolRuntime, ownsImageToolTransaction, patchProject, pushHistory, releaseImageToolTransaction]);
 
-  const applyOps = useCallback((ops: WorkflowOp[]) => {
+  const applyOps = useCallback((ops: WorkflowDocumentOperation[]) => {
     // 自动命名：未自定义标题的新节点按「类型 + 序号」命名，避免画布上全是「图片」「视频」
     const snapshot = projectRef.current;
     const renamedOps = ops.map(op => {
       if (op.type !== 'add_node') return op;
-      const specTitle = WORKFLOW_NODE_SPECS[op.node.type].title;
+      const specTitle = WORKFLOW_NODE_SPECS[op.node.type]?.title || op.node.title || op.node.type;
       if (op.node.title !== specTitle) return op;
       const count = snapshot.nodes.filter(node => node.type === op.node.type).length + 1;
       return { ...op, node: { ...op.node, title: `${specTitle} ${count}` } };
     });
-    const result = applyWorkflowDraftChangeSet(projectRef.current, {
-      actor: 'ui',
+    const result = applyWorkflowMutation(projectRef.current, {
+      projectId: projectRef.current.id,
+      expectedRevision: projectRef.current.draftVersion || 1,
+      mutationId: nanoid(),
+      source: 'ui',
       intent: summarizeWorkflowOps(renamedOps) || '编辑画布',
       ops: renamedOps,
     });
@@ -919,9 +900,8 @@ export function InfiniteWorkflow({
     }
     applyDraftProject(result.project);
     setNotice(null);
-    result.runRequests.forEach(({ nodeId }) => onRunNode(nodeId));
     return true;
-  }, [applyDraftProject, onRunNode]);
+  }, [applyDraftProject]);
 
   const assetFolders = useMemo(() => assetLibrary?.folders || [], [assetLibrary]);
   const assetSuggestions = useMemo<AssetSuggestion[]>(() => (assetLibrary?.items || []).map(item => ({
@@ -989,7 +969,7 @@ export function InfiniteWorkflow({
     const newOrder = [...currentOrder, nodeId];
     const currentMentions = targetNode.metadata.mentionedNodeIds || [];
 
-    const ops: WorkflowOp[] = [
+    const ops: WorkflowDocumentOperation[] = [
       { type: 'add_node', node: newNode },
       { type: 'connect_nodes', fromNodeId: nodeId, toNodeId: fromNodeId },
       { type: 'update_node', id: fromNodeId, metadata: { imageReferenceOrder: newOrder, mentionedNodeIds: [...currentMentions, nodeId] } },
@@ -1007,7 +987,7 @@ export function InfiniteWorkflow({
     const alreadyConnected = snapshot.connections.some(connection => connection.fromNodeId === nodeId && connection.toNodeId === targetNodeId);
     const nextOrder = [...(target.metadata.imageReferenceOrder || []).filter(id => id !== nodeId), nodeId];
     const nextMentions = [...(target.metadata.mentionedNodeIds || []).filter(id => id !== nodeId), nodeId];
-    const ops: WorkflowOp[] = [];
+    const ops: WorkflowDocumentOperation[] = [];
     if (!alreadyConnected) ops.push({ type: 'connect_nodes', fromNodeId: nodeId, toNodeId: targetNodeId });
     ops.push({ type: 'update_node', id: targetNodeId, metadata: { imageReferenceOrder: nextOrder, mentionedNodeIds: nextMentions } });
     return applyOps(ops) ? nodeId : undefined;
@@ -1030,7 +1010,7 @@ export function InfiniteWorkflow({
         return { ...createWorkflowNode(nanoid(), type, { x, y: target.position.y - size.height - 100 }, { ...metadata, status: 'success' }), ...size, freeResize: false };
       });
       const ids = nodes.map(item => item.id);
-      const ops: WorkflowOp[] = nodes.map(node => ({ type: 'add_node', node }));
+      const ops: WorkflowDocumentOperation[] = nodes.map(node => ({ type: 'add_node', node }));
       ids.forEach(id => ops.push({ type: 'connect_nodes', fromNodeId: id, toNodeId: targetNodeId }));
       ops.push({ type: 'update_node', id: targetNodeId, metadata: {
         imageReferenceOrder: [...(target.metadata.imageReferenceOrder || []), ...ids],
@@ -1072,7 +1052,7 @@ export function InfiniteWorkflow({
       .map(n => n.position.x + n.width + gapX));
     const originX = rightEdge > startX ? rightEdge : startX;
 
-    const ops: WorkflowOp[] = [];
+    const ops: WorkflowDocumentOperation[] = [];
     const newNodeIds: string[] = [];
     const batchId = nanoid();
     const updatedShots: ScriptShot[] = [...breakdown.shots];
@@ -1200,7 +1180,7 @@ export function InfiniteWorkflow({
     const totalHeight = totalRows * (nodeHeight + gapY) - gapY;
     const startX = center.x - totalWidth / 2;
     const startY = center.y - totalHeight / 2;
-    const ops: WorkflowOp[] = [];
+    const ops: WorkflowDocumentOperation[] = [];
     const newNodeIds: string[] = [];
     const batchId = nanoid();
     for (let i = 0; i < command.generateCount; i++) {
@@ -2293,6 +2273,11 @@ export function InfiniteWorkflow({
             onChangeTitle={title => { if (!node.isLocked) applyOps([{ type: 'update_node', id: node.id, patch: { title } }]); }}
             renameSignal={renameSignal?.nodeId === node.id ? renameSignal.nonce : undefined}
             onFocusNode={() => focusNode(node.id)}
+            pluginContext={workflowNodePluginContextFromProject({
+              project: projectRef.current,
+              node,
+              applyOps: ops => node.isLocked ? false : applyOps(ops),
+            })}
           />;
         })}
         </AnimatePresence>
@@ -2311,7 +2296,7 @@ export function InfiniteWorkflow({
             onSaveMedia={onSaveWorkflowMedia}
             onGroup={ids => applyOps([{ type: 'group_nodes', ids, batchId: nanoid(), source: 'manual' }])}
             onUngroup={ids => applyOps([{ type: 'ungroup_nodes', ids }])}
-            onExecuteGroup={ids => applyOps([{ type: 'execute_group', nodeIds: ids }])}
+            onExecuteGroup={ids => topoSort(projectRef.current.nodes, projectRef.current.connections, ids).forEach(id => onRunNode(id))}
             onReversePrompt={onReversePrompt ? (id, mediaUrl) => {
               const node = projectRef.current.nodes.find(item => item.id === id);
               if (!node || node.isLocked) return;
@@ -2359,7 +2344,7 @@ export function InfiniteWorkflow({
           <WorkflowConfigPanel node={selectedNodeData[0]} nodes={project.nodes} connections={project.connections} onChange={metadata => applyOps([{ type: 'update_node', id: selectedNodeData[0].id, metadata }])} onRun={() => onRunNode(selectedNodeData[0].id)} onStop={onStopNode ? () => onStopNode(selectedNodeData[0].id) : undefined} />
         </div>}
         {selectedNodeData.length === 1 && ['image', 'video', 'text', 'operation'].includes(selectedNodeData[0].type) && <div data-workflow-overlay style={{ position: 'absolute', zIndex: 69, left: promptLeft, top: promptTop }}>
-      <WorkflowNodePromptBar width={promptWidth} node={selectedNodeData[0]} nodes={project.nodes} connections={project.connections} t={t} theme={theme} language={language} userApiKeys={userApiKeys} dynamicModelOptions={dynamicModelOptions} onOpenSettings={onOpenSettings} onEnhancePrompt={onEnhancePrompt} isEnhancingPrompt={isEnhancingPrompt} onChange={metadata => applyOps([{ type: 'update_node', id: selectedNodeData[0].id, metadata }])} onRun={() => onRunNode(selectedNodeData[0].id)} onStop={onStopNode ? () => onStopNode(selectedNodeData[0].id) : undefined} focusSignal={promptFocusSignal} onDisconnectReference={fromNodeId => { const targetId = selectedNodeData[0].id; const conn = project.connections.find(c => c.toNodeId === targetId && c.fromNodeId === fromNodeId); if (!conn) return; applyOps([{ type: 'delete_connections', ids: [conn.id] }]); }} assetFolders={assetFolders} assetItems={assetSuggestions} assetLibrary={assetLibrary} onSelectWorkflowReference={selectedNodeData[0] ? (nodeId => handleSelectWorkflowReference(nodeId, selectedNodeData[0].id)) : undefined} onAddReferenceFiles={selectedNodeData[0] ? (files => handleAddReferenceFiles(files, selectedNodeData[0].id)) : undefined} onSelectAsset={selectedNodeData[0] ? (assetId => handleSelectAsset(assetId, selectedNodeData[0].id)) : undefined} onResolvePastedMentions={mentions => handleResolvePastedMentions(mentions, selectedNodeData[0].id)} onPasteUnresolvedMentions={labels => setNotice(`未能唯一匹配引用：${labels.map(label => `@${label}`).join('、')}，已保留为普通文字。`)} skillEnabled={false} />
+      <WorkflowNodePromptBar width={promptWidth} node={selectedNodeData[0]} nodes={project.nodes} connections={project.connections} t={t} theme={theme} language={language} userApiKeys={userApiKeys} dynamicModelOptions={dynamicModelOptions} onOpenSettings={onOpenSettings} onEnhancePrompt={onEnhancePrompt} isEnhancingPrompt={isEnhancingPrompt} onChange={metadata => applyOps([{ type: 'update_node', id: selectedNodeData[0].id, metadata }])} onPromptIntent={intent => { promptIntentRef.current = intent; }} onRun={() => { const intent = promptIntentRef.current?.targetNodeId === selectedNodeData[0].id ? promptIntentRef.current : undefined; promptIntentRef.current = null; onRunNode(selectedNodeData[0].id, intent || undefined); }} onStop={onStopNode ? () => onStopNode(selectedNodeData[0].id) : undefined} focusSignal={promptFocusSignal} onDisconnectReference={fromNodeId => { const targetId = selectedNodeData[0].id; const conn = project.connections.find(c => c.toNodeId === targetId && c.fromNodeId === fromNodeId); if (!conn) return; applyOps([{ type: 'delete_connections', ids: [conn.id] }]); }} assetFolders={assetFolders} assetItems={assetSuggestions} assetLibrary={assetLibrary} onSelectWorkflowReference={selectedNodeData[0] ? (nodeId => handleSelectWorkflowReference(nodeId, selectedNodeData[0].id)) : undefined} onAddReferenceFiles={selectedNodeData[0] ? (files => handleAddReferenceFiles(files, selectedNodeData[0].id)) : undefined} onSelectAsset={selectedNodeData[0] ? (assetId => handleSelectAsset(assetId, selectedNodeData[0].id)) : undefined} onResolvePastedMentions={mentions => handleResolvePastedMentions(mentions, selectedNodeData[0].id)} onPasteUnresolvedMentions={labels => setNotice(`未能唯一匹配引用：${labels.map(label => `@${label}`).join('、')}，已保留为普通文字。`)} skillEnabled={false} />
         </div>}
       </>}
       {minimapOpen && <WorkflowMiniMap nodes={project.nodes.filter(node => node.isVisible !== false)} viewport={project.viewport} onCenter={(x, y) => {

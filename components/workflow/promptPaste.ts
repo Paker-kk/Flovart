@@ -2,7 +2,7 @@ import type { AssetItem } from '../../types';
 import type { PromptReferenceMention } from '../../utils/promptReferenceClipboard';
 import { createWorkflowNode } from './constants';
 import { validateWorkflowConnection } from './ops';
-import type { WorkflowNode, WorkflowOp, WorkflowSnapshot } from './types';
+import type { WorkflowDocumentOperation, WorkflowNode, WorkflowSnapshot } from './types';
 
 interface BuildWorkflowPromptPasteOpsInput {
   targetNodeId: string;
@@ -13,7 +13,7 @@ interface BuildWorkflowPromptPasteOpsInput {
 }
 
 export interface WorkflowPromptPasteOps {
-  ops: WorkflowOp[];
+  ops: WorkflowDocumentOperation[];
   resolvedMentions: Array<PromptReferenceMention | null>;
 }
 
@@ -29,7 +29,7 @@ export function buildWorkflowPromptPasteOps({
   const { nodes, connections } = snapshot;
   const target = nodes.find(node => node.id === targetNodeId);
   if (!target) return { ops: [], resolvedMentions: mentions.map(() => null) };
-  const ops: WorkflowOp[] = [];
+  const ops: WorkflowDocumentOperation[] = [];
   const virtualNodes = [...nodes];
   const virtualConnections = [...connections];
   const referenceOrder = [...(target.metadata.imageReferenceOrder || [])];

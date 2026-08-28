@@ -1,12 +1,13 @@
 import { BookOpen } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AssetFolder, AssetLibrary, UserApiKey, GenerationMode, PromptEnhanceMode, PromptEnhanceResult } from '../../types';
 import { PromptBar } from '../PromptBar';
 import type { MentionData } from '../MediaMentionExtension';
 import type { AssetSuggestion } from '../MentionList';
 import type { ReferencePickerWorkflowItem } from '../studio/AssetReferencePicker';
-import { resolveProductModelRoute } from '../../services/productModelCatalog';
+import { resolveWorkflowDefaultModel } from '../../services/workflowPromptPolicy';
 import { getWorkflowOperationCapability, parseWorkflowOperationParameters, type WorkflowOperationCapability } from './operationRegistry';
+import { createPromptIntent, type PromptIntent, type PromptIntentAction } from './promptIntent';
 import {
   applyImageReferenceOrder,
   filterWorkflowInputIds,
@@ -18,6 +19,7 @@ import {
   toWorkflowMentionItems,
 } from './references';
 import type { WorkflowConnection, WorkflowGenerationConfig, WorkflowNode, WorkflowNodeMetadata } from './types';
+import { promptAssetFromQuickPrompt } from '../../services/promptAsset';
 
 export interface WorkflowModelOptions {
   text: string[];
@@ -66,7 +68,7 @@ const modeFor = (node: WorkflowNode, config?: WorkflowGenerationConfig): Generat
   return mode === 'text' || mode === 'video' ? mode : 'image';
 };
 
-export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme, language, userApiKeys, dynamicModelOptions, onOpenSettings, onEnhancePrompt, isEnhancingPrompt, onChange, onRun, onStop, focusSignal, onDisconnectReference, assetFolders, assetItems, assetLibrary, onSelectAsset, onSelectWorkflowReference, onAddReferenceFiles, onResolvePastedMentions, onPasteUnresolvedMentions, skillEnabled, width = 880 }: {
+export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme, language, userApiKeys, dynamicModelOptions, onOpenSettings, onEnhancePrompt, isEnhancingPrompt, onChange, onPromptIntent, onRun, onStop, focusSignal, onDisconnectReference, assetFolders, assetItems, assetLibrary, onSelectAsset, onSelectWorkflowReference, onAddReferenceFiles, onResolvePastedMentions, onPasteUnresolvedMentions, skillEnabled, width = 880 }: {
   node: WorkflowNode;
   nodes: WorkflowNode[];
   connections?: WorkflowConnection[];
@@ -79,6 +81,8 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
   onEnhancePrompt?: (payload: { prompt: string; mode: PromptEnhanceMode; stylePreset?: string }) => Promise<PromptEnhanceResult>;
   isEnhancingPrompt?: boolean;
   onChange: (metadata: Partial<WorkflowNodeMetadata>) => void;
+  /** PromptBar 的稳定业务输出，不携带 Provider wire 字段或凭据。 */
+  onPromptIntent?: (intent: PromptIntent) => void;
   onRun: () => void;
   onStop?: () => void;
   focusSignal?: number;
@@ -105,16 +109,15 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
   const isLocalOperation = operationCapability?.executor === 'local-transform';
   const config = node.metadata.config || { mode: node.type === 'text' ? 'text' : node.type === 'video' ? 'video' : 'image' };
   const generationMode = modeFor(node, config);
-  const productMode = operationCapability?.executor === 'provider-image-tool'
-    ? 'image-to-image'
-    : config.submode || (generationMode === 'video' ? 'text-to-video' : 'text-to-image');
   const availableProductModelIds = generationMode === 'video'
     ? dynamicModelOptions?.video || []
     : dynamicModelOptions?.image || [];
-  const defaultMappedModelId = generationMode === 'text'
-    || operationCapability?.executor === 'local-transform'
-    ? undefined
-    : availableProductModelIds.find(modelId => Boolean(resolveProductModelRoute(modelId, productMode, userApiKeys)));
+  const defaultMappedModelId = resolveWorkflowDefaultModel({
+    mode: generationMode,
+    localOperation: operationCapability?.executor === 'local-transform',
+    modelIds: availableProductModelIds,
+    userApiKeys,
+  });
   const mentionItems = toWorkflowMentionItems([
     ...getOrderedImageReferences(node, nodes, connections),
     ...getWorkflowInputNodes(node, nodes, connections).filter(item => item.type === 'text'),
@@ -138,6 +141,29 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
   const reconciledOrder = reconcileImageReferenceOrder(node.metadata.imageReferenceOrder, orderedImageRefs);
   const currentOrder = node.metadata.imageReferenceOrder || [];
   const orderDrifted = reconciledOrder.length !== currentOrder.length || reconciledOrder.some((id, i) => id !== currentOrder[i]);
+  const lastPromptIntentRef = useRef<PromptIntent | null>(null);
+
+  const promptMention = (id: string) => {
+    const item = [...mentionItems, ...referenceItems, ...(assetItems || []).map(asset => ({
+      id: `asset:${asset.id}`,
+      label: asset.name,
+      thumbnail: asset.thumbnail,
+      elementType: asset.elementType,
+      assetId: asset.id,
+      sourceType: 'assetLibrary',
+    }))].find(candidate => {
+      const assetId = 'assetId' in candidate ? candidate.assetId : undefined;
+      return candidate.id === id || assetId === id || `asset:${assetId}` === id;
+    });
+    const assetId = item && 'assetId' in item ? item.assetId : undefined;
+    const sourceType = item && 'sourceType' in item ? item.sourceType : undefined;
+    return { id, label: item?.label, elementType: item?.elementType, assetId, sourceType };
+  };
+  const emitPromptIntent = (text: string, ids: string[], requestedAction: PromptIntentAction = 'edit') => {
+    const intent = createPromptIntent({ targetNodeId: node.id, text, mentions: ids.map(promptMention), requestedAction });
+    lastPromptIntentRef.current = intent;
+    onPromptIntent?.(intent);
+  };
 
   // 连线增删或顺序失效时，自动同步 imageReferenceOrder 到节点 metadata（新增节点追加在尾部，断开的 id 被剔除）
   useEffect(() => {
@@ -148,14 +174,62 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
 
   const handleReorder = (nextIds: string[]) => {
     const next = applyImageReferenceOrder(node.metadata.imageReferenceOrder, nextIds, orderedImageRefs);
-    if (next) onChange({ imageReferenceOrder: next });
+    if (next) {
+      emitPromptIntent(node.metadata.prompt || '', next, 'reorder_reference');
+      onChange({ imageReferenceOrder: next });
+    }
   };
 
   const handleRemoveReference = (fromNodeId: string) => {
     const remainingOrder = (node.metadata.imageReferenceOrder || orderedImageRefs.map(item => item.id)).filter(id => id !== fromNodeId);
     const remainingMentions = (node.metadata.mentionedNodeIds || []).filter(id => id !== fromNodeId);
+    emitPromptIntent(node.metadata.prompt || '', remainingMentions, 'remove_reference');
     onChange({ imageReferenceOrder: remainingOrder, mentionedNodeIds: remainingMentions });
     onDisconnectReference?.(fromNodeId);
+  };
+
+  const handlePromptInput = (plainText: string, document: Record<string, unknown>, mentionedElementIds: string[]) => {
+    const mentionedNodeIds = keepConnectedMentions(plainText, mentionedElementIds);
+    emitPromptIntent(plainText, mentionedNodeIds);
+    onChange({ prompt: plainText, richTextDocument: document as typeof node.metadata.richTextDocument, mentionedNodeIds });
+  };
+  const latestPromptIntent = () => {
+    const previous = lastPromptIntentRef.current?.targetNodeId === node.id ? lastPromptIntentRef.current : undefined;
+    return {
+      text: previous?.text ?? node.metadata.prompt ?? '',
+      ids: previous ? previous.mentions.map(mention => mention.id || mention.assetId).filter((id): id is string => Boolean(id)) : (node.metadata.mentionedNodeIds || []),
+    };
+  };
+  const handleGenerate = () => {
+    const current = latestPromptIntent();
+    emitPromptIntent(current.text, current.ids, 'generate');
+    onRun();
+  };
+  const handleStop = onStop ? () => {
+    const current = latestPromptIntent();
+    emitPromptIntent(current.text, current.ids, 'stop');
+    onStop();
+  } : undefined;
+  const handleSelectAsset = (assetId: string) => {
+    const selected = onSelectAsset?.(assetId);
+    if (selected) {
+      const current = latestPromptIntent();
+      emitPromptIntent(current.text, [...current.ids, selected], 'add_reference');
+    }
+    return selected;
+  };
+  const handleSelectWorkflowReference = (nodeId: string) => {
+    const selected = onSelectWorkflowReference?.(nodeId);
+    if (selected) {
+      const current = latestPromptIntent();
+      emitPromptIntent(current.text, [...current.ids, selected], 'add_reference');
+    }
+    return selected;
+  };
+  const handleAddReferenceFiles = async (files: File[]) => {
+    const current = latestPromptIntent();
+    emitPromptIntent(current.text, current.ids, 'add_reference');
+    await onAddReferenceFiles?.(files);
   };
 
   const patchConfig = (patch: Partial<WorkflowGenerationConfig>) => onChange({ config: { ...config, ...patch } });
@@ -173,6 +247,7 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
   };
   const translatedPrompts = t('quickPrompts');
   const prompts = Array.isArray(translatedPrompts) ? translatedPrompts.filter((item): item is { name: string; value: string } => Boolean(item) && typeof item.name === 'string' && typeof item.value === 'string') : [];
+  const promptAssets = prompts.map((item, index) => promptAssetFromQuickPrompt({ id: `quick:${index}`, title: item.name, text: item.value, modality: generationMode === 'keyframe' ? 'image' : generationMode }));
   const providerUsageLabel = [
     node.metadata.generationActualCost !== undefined
       ? `${node.metadata.generationCurrency === 'CNY' ? '¥' : '$'}${node.metadata.generationActualCost.toFixed(node.metadata.generationActualCost < 1 ? 3 : 2)}`
@@ -188,7 +263,7 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
         onChange={operationParameters => patchConfig({ operationParameters })}
       />}
       {prompts.length > 0 && <button type="button" className="workflow-node-prompt__library-button" aria-label="提示词库" title="提示词库" onClick={() => setLibraryOpen(open => !open)}><BookOpen size={15} /></button>}
-      {libraryOpen && <div className="workflow-node-prompt__library" role="menu" aria-label="提示词库">{prompts.map((item, index) => <button type="button" role="menuitem" key={`${item.name}-${index}`} onClick={() => { onChange({ prompt: item.value, richTextDocument: undefined }); setLibraryOpen(false); }}><strong>{item.name}</strong><span>{item.value}</span></button>)}</div>}
+      {libraryOpen && <div className="workflow-node-prompt__library" role="menu" aria-label="提示词库">{promptAssets.map(asset => <button type="button" role="menuitem" key={asset.id} onClick={() => { emitPromptIntent(asset.text, [], 'edit'); onChange({ prompt: asset.text, richTextDocument: undefined }); setLibraryOpen(false); }}><strong>{asset.title}</strong><span>{asset.text}</span></button>)}</div>}
       <PromptBar
         t={t}
         theme={theme}
@@ -196,7 +271,7 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
         compactMode
         prompt={node.metadata.prompt || ''}
         promptDocument={node.metadata.richTextDocument}
-        setPrompt={prompt => onChange({ prompt, richTextDocument: undefined, mentionedNodeIds: keepConnectedMentions(prompt, []) })}
+        setPrompt={prompt => handlePromptInput(prompt, { type: 'doc', content: prompt ? [{ type: 'paragraph', content: [{ type: 'text', text: prompt }] }] : [] }, [])}
         onPromptInputChange={({ plainText, document, mentionedElementIds }) => {
           const mentionedNodeIds = keepConnectedMentions(plainText, mentionedElementIds);
           const currentMentionIds = node.metadata.mentionedNodeIds || [];
@@ -205,7 +280,7 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
           const sameDocument = !node.metadata.richTextDocument
             || JSON.stringify(document) === JSON.stringify(node.metadata.richTextDocument);
           if (plainText === (node.metadata.prompt || '') && sameMentions && sameDocument) return;
-          onChange({ prompt: plainText, richTextDocument: document as typeof node.metadata.richTextDocument, mentionedNodeIds });
+          handlePromptInput(plainText, document, mentionedElementIds);
         }}
         onResolvePastedMentions={onResolvePastedMentions}
         onPasteUnresolvedMentions={onPasteUnresolvedMentions}
@@ -214,9 +289,9 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
         imageReferenceChips={referenceChips}
         onImageReferenceReorder={handleReorder}
         onImageReferenceRemove={onDisconnectReference ? handleRemoveReference : undefined}
-        onGenerate={onRun}
-        onStop={onStop}
-        onRetry={node.metadata.status === 'error' ? onRun : undefined}
+        onGenerate={handleGenerate}
+        onStop={handleStop}
+        onRetry={node.metadata.status === 'error' ? handleGenerate : undefined}
         error={node.metadata.error || null}
         progressStage={node.metadata.generationMessage || (node.metadata.progress === undefined ? undefined : `${Math.round(node.metadata.progress)}%`)}
         providerUsageLabel={providerUsageLabel}
@@ -282,9 +357,9 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
         assetFolders={assetFolders}
         assetItems={assetItems}
         assetLibrary={assetLibrary}
-            onSelectWorkflowReference={onSelectWorkflowReference}
-        onAddReferenceFiles={onAddReferenceFiles}
-        onSelectAsset={onSelectAsset}
+        onSelectWorkflowReference={onSelectWorkflowReference ? handleSelectWorkflowReference : undefined}
+        onAddReferenceFiles={onAddReferenceFiles ? handleAddReferenceFiles : undefined}
+        onSelectAsset={onSelectAsset ? handleSelectAsset : undefined}
         skillEnabled={skillEnabled}
       />
     </div>

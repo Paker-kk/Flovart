@@ -139,8 +139,11 @@ export function getWorkflowInputNodes(
   nodes: WorkflowNode[],
   connections: WorkflowConnection[],
 ): WorkflowNode[] {
+  // 不按 isVisible 过滤：原位替换产生的隐藏输入节点是语义上真实的参考来源，
+  // 画布渲染层自行按可见性过滤，这里必须与运行时引用解析保持同一份输入集合，
+  // 否则 chip 编号、@ 候选和提交时的引用会指向不同节点。
   const allowedIds = new Set(getWorkflowInputNodeIds(targetNode.id, connections));
-  return nodes.filter(node => allowedIds.has(node.id) && node.id !== targetNode.id && node.isVisible !== false);
+  return nodes.filter(node => allowedIds.has(node.id) && node.id !== targetNode.id);
 }
 
 export function filterWorkflowInputIds(ids: string[], targetNodeId: string, connections: WorkflowConnection[]): string[] {

@@ -78,6 +78,36 @@ describe('workflow node overlays', () => {
     expect(screen.getByText('选择模型')).toBeInTheDocument();
   });
 
+  it('emits a provider-neutral PromptIntent before running the selected node', () => {
+    const onPromptIntent = vi.fn();
+    const onRun = vi.fn();
+    const promptNode = createWorkflowNode('prompt-image', 'image', { x: 0, y: 0 }, {
+      prompt: '初始提示词',
+      config: { mode: 'image', modelId: 'flovart:gpt-image-2' },
+    });
+    render(<WorkflowNodePromptBar
+      node={promptNode}
+      nodes={[promptNode]}
+      t={t}
+      theme="light"
+      language="zho"
+      userApiKeys={[productKey]}
+      dynamicModelOptions={{ text: [], image: ['flovart:gpt-image-2'], video: [] }}
+      onChange={vi.fn()}
+      onPromptIntent={onPromptIntent}
+      onRun={onRun}
+    />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'promptBar.generate' }));
+    expect(onRun).toHaveBeenCalledOnce();
+    expect(onPromptIntent).toHaveBeenLastCalledWith({
+      targetNodeId: 'prompt-image',
+      text: '初始提示词',
+      mentions: [],
+      requestedAction: 'generate',
+    });
+  });
+
   it('uses the shared toolbar shell and exposes only wired actions', () => {
     const onCopy = vi.fn();
     const onDelete = vi.fn();

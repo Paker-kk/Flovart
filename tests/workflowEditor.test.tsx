@@ -211,6 +211,21 @@ describe('InfiniteWorkflow surface interactions', () => {
     expect(editor().querySelectorAll('video')).toHaveLength(0);
   });
 
+  it('selects image content without starting a node drag', () => {
+    const initial = makeProject();
+    initial.nodes = [createWorkflowNode('image-media', 'image', { x: 100, y: 100 }, { href: 'data:image/png;base64,aW1hZ2U=' })];
+    render(<Harness initial={initial} />);
+
+    const image = node('image-media').querySelector<HTMLImageElement>('img')!;
+    fireEvent.pointerDown(image, { button: 0, pointerId: 31, clientX: 140, clientY: 150 });
+    fireEvent.pointerMove(window, { pointerId: 31, clientX: 300, clientY: 300 });
+    fireEvent.pointerUp(window, { pointerId: 31, clientX: 300, clientY: 300 });
+
+    expect(projectNode('image-media').position).toEqual({ x: 100, y: 100 });
+    expect(node('image-media')).toHaveClass('is-selected');
+    expect(screen.getByTestId('workflow-node-toolbar')).toBeInTheDocument();
+  });
+
   it('keeps multiple selected video nodes on lightweight previews', () => {
     const initial = makeProject();
     initial.nodes = [

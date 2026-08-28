@@ -5,6 +5,7 @@ import { WorkflowConfigPanel } from './WorkflowConfigPanel';
 import { getWorkflowOperationCapability } from './operationRegistry';
 import { buildCssFilter } from '../ImageFilterPanel';
 import { useWorkflowMediaUrl } from './media';
+import { getWorkflowNodePlugin, type WorkflowNodePluginContext } from './nodePluginSdk';
 import type { WorkflowNode as WorkflowNodeData } from './types';
 
 export function WorkflowNode({
@@ -33,6 +34,7 @@ export function WorkflowNode({
   onChangeTitle,
   onFocusNode,
   renameSignal,
+  pluginContext,
 }: {
   node: WorkflowNodeData;
   selected: boolean;
@@ -59,6 +61,7 @@ export function WorkflowNode({
   onChangeTitle?: (title: string) => void;
   onFocusNode?: () => void;
   renameSignal?: number;
+  pluginContext?: WorkflowNodePluginContext;
 }) {
   const status = node.metadata.status || 'idle';
   const progress = Math.max(0, Math.min(100, Math.round(node.metadata.progress || 0)));
@@ -116,6 +119,7 @@ export function WorkflowNode({
   const [isDropTarget, setDropTarget] = useState(false);
   const [isEditingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(node.title);
+  const plugin = getWorkflowNodePlugin(node.type);
   useEffect(() => {
     if (isEditingTitle) setTitleDraft(node.title);
   }, [isEditingTitle, node.title]);
@@ -184,6 +188,7 @@ export function WorkflowNode({
       }}
       onPointerDown={onPointerDown}
       onDoubleClick={event => {
+        if (plugin && pluginContext) { event.stopPropagation(); plugin.onDoubleClick?.(pluginContext); return; }
         if (node.type === 'script') { event.stopPropagation(); onDoubleClick?.(); return; }
         event.stopPropagation();
         if (isMedia && !hasMediaReference) { mediaInput.current?.click(); return; }
@@ -247,9 +252,18 @@ export function WorkflowNode({
         </div>
       )}
       <div className="workflow-node__body">
+        {plugin
+          ? pluginContext
+            ? <>
+              <div className="workflow-node__plugin-render">{plugin.render({ node: pluginContext.node, context: pluginContext })}</div>
+              {plugin.panel && <div className="workflow-node__plugin-panel">{plugin.panel({ node: pluginContext.node, context: pluginContext })}</div>}
+              {plugin.toolbar && <div className="workflow-node__plugin-toolbar" data-workflow-overlay>{plugin.toolbar({ node: pluginContext.node, context: pluginContext })}</div>}
+            </>
+            : <div className="workflow-node__empty"><FileText size={26} /><span>插件未启用</span></div>
+          : <>
         {isMedia && (media.url || hasMediaReference) && <div className="workflow-node__drag-handle" data-workflow-drag-handle />}
         {node.type === 'image' && (media.url
-          ? <><img src={media.url} alt={node.title} draggable={false} style={{ filter: buildCssFilter(node.metadata.filters) }} />{mediaActions}</>
+          ? <><img src={media.url} alt={node.title} draggable={false} data-workflow-media-preview style={{ filter: buildCssFilter(node.metadata.filters) }} />{mediaActions}</>
           : <div className="workflow-node__empty"><ImageIcon size={26} /><span>{mediaError || '图片节点'}</span>{mediaActions}</div>)}
         {node.type === 'video' && (hasMediaReference
           ? videoActive
@@ -335,6 +349,7 @@ export function WorkflowNode({
         )}
         {node.type === 'script' && <ScriptNodeCard node={node} />}
         {node.type === 'operation' && <OperationNodeCard node={node} onRun={onRun} />}
+          </>}
         {mediaDetails && <span className="workflow-node__media-details">{mediaDetails}</span>}
         {status === 'loading' && (
           <motion.div

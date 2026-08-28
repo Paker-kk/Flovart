@@ -1,6 +1,6 @@
-import type { CameraMovement, StylePreset, WorkflowNode, WorkflowNodeMetadata, WorkflowNodeType, WorkflowPoint } from './types';
+import type { BuiltinWorkflowNodeType, CameraMovement, StylePreset, WorkflowNode, WorkflowNodeMetadata, WorkflowNodeType, WorkflowPoint } from './types';
 
-export const WORKFLOW_NODE_SPECS: Record<WorkflowNodeType, { title: string; width: number; height: number; metadata: WorkflowNodeMetadata }> = {
+export const WORKFLOW_NODE_SPECS: Record<BuiltinWorkflowNodeType, { title: string; width: number; height: number; metadata: WorkflowNodeMetadata }> = {
   image: { title: '图片', width: 340, height: 240, metadata: { status: 'idle' } },
   text: { title: '文本', width: 340, height: 220, metadata: { content: '', status: 'idle' } },
   video: { title: '视频', width: 420, height: 236, metadata: { status: 'idle' } },
@@ -28,7 +28,12 @@ export const WORKFLOW_NODE_SPECS: Record<WorkflowNodeType, { title: string; widt
 export const INITIAL_WORKFLOW_VIEWPORT = { x: 0, y: 0, k: 1 } as const;
 
 export function createWorkflowNode(id: string, type: WorkflowNodeType, position: WorkflowPoint, metadata: WorkflowNodeMetadata = {}): WorkflowNode {
-  const spec = WORKFLOW_NODE_SPECS[type];
+  const spec = WORKFLOW_NODE_SPECS[type as BuiltinWorkflowNodeType] || {
+    title: type,
+    width: 340,
+    height: 220,
+    metadata: { status: 'idle' as const },
+  };
   return {
     id,
     type,

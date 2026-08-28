@@ -120,7 +120,7 @@ export function WorkflowToolbar({
         </div>}
       </div>
     </div>
-    <div className={`workflow-toolbar theme-aware${constrained ? ' workflow-toolbar--inset' : ''}`} role="toolbar" aria-label="工作流工具栏" style={constrained ? { left: `calc((100% - ${rightInset}px) / 2)` } : undefined}>
+    <div className={`workflow-toolbar theme-aware${constrained ? ' workflow-toolbar--inset' : ''}`} role="toolbar" aria-label="工作流工具栏" style={constrained ? { left: `calc((100% - ${Math.min(rightInset, 220)}px) / 2)` } : undefined}>
       <div ref={addWrapRef} className="workflow-toolbar__add-wrap">
         <Tip title="添加节点"><button type="button" className="isl-icon-btn workflow-toolbar__add-btn" aria-label="添加节点" aria-expanded={addOpen} onClick={() => setAddOpen(open => !open)}><motion.span animate={{ rotate: addOpen ? 45 : 0 }} transition={{ type: 'spring', stiffness: 400, damping: 22 }}><Plus size={20} /></motion.span></button></Tip>
         <AnimatePresence>{addOpen && <motion.div className="workflow-toolbar__add-menu" role="menu" aria-label="添加节点" initial={{ opacity: 0, scale: .9, y: 6 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: .9, y: 6 }} transition={{ type: 'spring', stiffness: 420, damping: 28, mass: .7 }}>

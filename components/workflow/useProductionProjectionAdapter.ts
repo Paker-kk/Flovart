@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
+import { nanoid } from 'nanoid';
 import { getFlovartRuntimeApi } from '../../services/flovartRuntime';
 import { ProductionProjectionAdapter } from '../../services/productionProjectionAdapter';
-import { recordWorkflowDraftSnapshotChange } from './draftAuthority';
+import { applyWorkflowMutation, workflowDocumentOperationsFromFrames } from './draftAuthority';
 import { useWorkflowStore } from './store';
 
 const PROJECTION_SYNC_INTERVAL_MS = 1_500;
@@ -18,20 +19,35 @@ export function useProductionProjectionAdapter(projectId: string | null) {
         const state = useWorkflowStore.getState();
         const project = state.projects.find(item => item.id === id);
         if (!project) return;
-        const recorded = recordWorkflowDraftSnapshotChange(
-          project,
+        const ops = workflowDocumentOperationsFromFrames(
           { nodes: project.nodes, connections: project.connections },
           { nodes: patch.nodes, connections: patch.connections },
-          { actor: 'agent', intent: '同步 Production Runtime 画布投影' },
         );
-        state.updateProject(id, recorded.ok ? {
+        if (!ops.length) {
+          state.updateProject(id, { selectedNodeIds: patch.selectedNodeIds });
+          return;
+        }
+        const recorded = applyWorkflowMutation(project, {
+          projectId: id,
+          expectedRevision: project.draftVersion || 1,
+          mutationId: nanoid(),
+          source: 'dsh',
+          intent: '同步 Production Runtime 画布投影',
+          ops,
+        });
+        if (recorded.ok === false) {
+          console.warn('Production Projection mutation 被拒绝。', recorded.error);
+          return;
+        }
+        state.updateProject(id, {
           nodes: recorded.project.nodes,
           connections: recorded.project.connections,
           selectedNodeIds: patch.selectedNodeIds,
           draftVersion: recorded.project.draftVersion,
           draftChangeSets: recorded.project.draftChangeSets,
           draftRedoStack: recorded.project.draftRedoStack,
-        } : patch);
+          workflowMutationReceipts: recorded.project.workflowMutationReceipts,
+        });
       },
     });
   }
