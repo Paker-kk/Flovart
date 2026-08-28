@@ -14,6 +14,7 @@
 
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import type { AssetFolder } from '../types';
+import { isFetchableMediaHref } from './workflow/media';
 
 export interface MentionItem {
     id: string;
@@ -21,6 +22,8 @@ export interface MentionItem {
     thumbnail: string;
     elementType: string;
     description?: string;
+    /** 除 label 外的可 @ 匹配名（如自定义标题），与运行时 mentionAliases 保持一致 */
+    aliases?: string[];
     sourceType?: 'connected' | 'assetLibrary';
     assetId?: string;
     kind?: 'item' | 'folder' | 'back' | 'skillDisabled';
@@ -323,7 +326,7 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>(
                                 title={isSkill ? '即将支持 Anthropic Claude Skills 作为参考资源' : undefined}
                             >
                                 <span style={styles.thumb}>
-                                    {item.thumbnail ? (
+                                    {item.thumbnail && isFetchableMediaHref(item.thumbnail) ? (
                                         <img src={item.thumbnail} alt={item.label} style={styles.thumbImg} />
                                     ) : (
                                         <span style={styles.thumbFallback}>

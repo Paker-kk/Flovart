@@ -48,14 +48,16 @@ export function toImageReferenceChips(
   });
 }
 
-/** 从纯文本中的 @节点名 兜底解析引用；只接纳调用方给出的候选节点，避免任意文本注入节点 id。 */
 export function inferWorkflowMentionIds(plainText: string, items: MentionItem[]): string[] {
   const hits = items.flatMap(item => {
-    const label = item.label.trim();
-    if (!label) return [];
-    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = new RegExp(`@${escaped}(?![\\p{L}\\p{N}_])`, 'u').exec(plainText);
-    return match ? [{ id: item.id, index: match.index }] : [];
+    const candidates = [item.label.trim(), ...(item.aliases || [])].filter(Boolean);
+    const found: Array<{ id: string; index: number }> = [];
+    for (const candidate of candidates) {
+      const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const match = new RegExp('@' + escaped + '(?![\\p{L}\\p{N}_])', 'u').exec(plainText);
+      if (match) found.push({ id: item.id, index: match.index });
+    }
+    return found;
   });
   return hits.sort((left, right) => left.index - right.index).map(hit => hit.id);
 }
@@ -113,9 +115,11 @@ export function toWorkflowMentionItems(nodes: WorkflowNode[]): MentionItem[] {
     else if (type === 'video') { counters.video += 1; label = `视频${counters.video}`; }
     else if (type === 'audio') { counters.audio += 1; label = `音频${counters.audio}`; }
     else if (type === 'text') { counters.text += 1; label = `文本${counters.text}`; }
+    const aliases = item.title && item.title !== label ? [item.title] : undefined;
     return {
       id: item.id,
       label,
+      aliases,
       thumbnail: item.metadata.href || '',
       elementType: item.type,
       description: item.metadata.content?.trim().slice(0, 36) || item.type,
