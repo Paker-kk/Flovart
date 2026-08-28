@@ -1,17 +1,17 @@
 import { nanoid } from 'nanoid';
+import { resolveWorkflowInputs } from './inputResolver';
 import { getWorkflowOperationInputRoleForNodeType, validateWorkflowOperationInputBindings } from './operationRegistry';
 import { createWorkflowOperationInputBinding, updateWorkflowOperationFromMetadata, updateWorkflowOperationRecipe, workflowOperationInputConnections } from './operations';
 import type { WorkflowConnection, WorkflowNode, WorkflowOp, WorkflowOperationInputRole, WorkflowSnapshot } from './types';
 
 export interface WorkflowOpResult {
   snapshot: WorkflowSnapshot;
-  runRequests: Array<{ nodeId: string }>;
   rejections: WorkflowOpRejection[];
 }
 
 export interface WorkflowOpRejection {
   opIndex: number;
-  opType: WorkflowOp['type'];
+  opType: string;
   reason: string;
 }
 
@@ -132,19 +132,14 @@ export function getUpstreamData(
   nodes: WorkflowNode[],
   connections: WorkflowConnection[],
 ): UpstreamData {
-  const upstreamNodeIds = Array.from(new Set(connections.filter(c => c.toNodeId === targetNode.id).map(c => c.fromNodeId)));
-  const nodesById = new Map(nodes.map(n => [n.id, n]));
-  const data: UpstreamData = { imageHrefs: [], videoHrefs: [], audioHrefs: [], textContents: [], referenceNodeIds: upstreamNodeIds };
-  upstreamNodeIds.forEach(id => {
-    const node = nodesById.get(id);
-    if (!node) return;
-    if (node.type === 'image' && node.metadata.href) data.imageHrefs.push(node.metadata.href);
-    if (node.type === 'video' && node.metadata.href) data.videoHrefs.push(node.metadata.href);
-    if (node.type === 'audio' && node.metadata.href) data.audioHrefs.push(node.metadata.href);
-    if (node.type === 'text' && node.metadata.content) data.textContents.push(node.metadata.content);
-    if (node.type === 'config' && node.metadata.prompt) data.textContents.push(node.metadata.prompt);
-  });
-  return data;
+  const resolved = resolveWorkflowInputs(targetNode, nodes, connections);
+  return {
+    imageHrefs: resolved.images.map(resource => resource.href).filter((href): href is string => Boolean(href)),
+    videoHrefs: resolved.videos.map(resource => resource.href).filter((href): href is string => Boolean(href)),
+    audioHrefs: resolved.audios.map(resource => resource.href).filter((href): href is string => Boolean(href)),
+    textContents: resolved.texts.map(resource => resource.text).filter((text): text is string => Boolean(text)),
+    referenceNodeIds: [...new Set(resolved.resources.map(resource => resource.sourceNodeId))],
+  };
 }
 
 export function validateWorkflowConnection(
@@ -167,13 +162,16 @@ export function validateWorkflowConnection(
     if (!toNode.metadata.operation) return { ok: false, reason: 'Operation 配方缺失' };
     const role = operationInputRole(fromNode, toNode);
     if (!role) return { ok: false, reason: '该节点类型不能作为此 Operation 的输入' };
-    try {
-      validateWorkflowOperationInputBindings(toNode.metadata.operation.capabilityId, [
-        ...toNode.metadata.operation.recipe.inputBindings,
-        createWorkflowOperationInputBinding('__candidate__', fromNodeId, role, toNode.metadata.operation.recipe.inputBindings.length),
-      ]);
-    } catch (error) {
-      return { ok: false, reason: error instanceof Error ? error.message : 'Operation 输入不符合 Registry 契约' };
+    const existingBinding = toNode.metadata.operation.recipe.inputBindings.some(binding => binding.sourceNodeId === fromNodeId);
+    if (!existingBinding) {
+      try {
+        validateWorkflowOperationInputBindings(toNode.metadata.operation.capabilityId, [
+          ...toNode.metadata.operation.recipe.inputBindings,
+          createWorkflowOperationInputBinding('__candidate__', fromNodeId, role, toNode.metadata.operation.recipe.inputBindings.length),
+        ]);
+      } catch (error) {
+        return { ok: false, reason: error instanceof Error ? error.message : 'Operation 输入不符合 Registry 契约' };
+      }
     }
   }
   if (createsCycle(snapshot.connections, fromNodeId, toNodeId)) return { ok: false, reason: '连接会形成循环' };
@@ -188,7 +186,6 @@ export function applyWorkflowOps(initial: WorkflowSnapshot, ops: WorkflowOp[]): 
     selectedNodeIds: [...initial.selectedNodeIds],
     viewport: { ...initial.viewport },
   };
-  const runRequests: Array<{ nodeId: string }> = [];
   const rejections: WorkflowOpRejection[] = [];
   const reject = (opIndex: number, op: WorkflowOp, reason: string) => {
     rejections.push({ opIndex, opType: op.type, reason });
@@ -231,7 +228,9 @@ export function applyWorkflowOps(initial: WorkflowSnapshot, ops: WorkflowOp[]): 
       if (!current) return;
       const metadataPatch = { ...(op.patch?.metadata || {}), ...(op.metadata || {}) };
       const base = { ...current, ...op.patch, metadata: current.metadata };
-      const updated = current.metadata.operation && Object.keys(metadataPatch).length > 0
+      const updated = op.replaceMetadata
+        ? { ...base, metadata: op.patch?.metadata || op.metadata || {} }
+        : current.metadata.operation && Object.keys(metadataPatch).length > 0
         ? updateWorkflowOperationFromMetadata(base, metadataPatch)
         : { ...base, metadata: { ...current.metadata, ...metadataPatch } };
       snapshot = {
@@ -279,7 +278,27 @@ export function applyWorkflowOps(initial: WorkflowSnapshot, ops: WorkflowOp[]): 
         id: op.id || createUniqueConnectionId(snapshot.connections),
         fromNodeId: op.fromNodeId,
         toNodeId: op.toNodeId,
+        kind: op.kind,
+        role: op.role,
+        order: op.order,
       });
+      return;
+    }
+    if (op.type === 'move_nodes') {
+      const positions = new Map(op.positions.map(item => [item.id, item.position]));
+      snapshot = {
+        ...snapshot,
+        nodes: snapshot.nodes.map(node => positions.has(node.id) ? { ...node, position: { ...positions.get(node.id)! } } : node),
+      };
+      return;
+    }
+    if (op.type === 'reorder_nodes') {
+      const nodes = new Map(snapshot.nodes.map(node => [node.id, node]));
+      if (op.ids.length !== nodes.size || new Set(op.ids).size !== nodes.size || op.ids.some(id => !nodes.has(id))) {
+        reject(opIndex, op, '节点顺序必须完整且不能重复');
+        return;
+      }
+      snapshot = { ...snapshot, nodes: op.ids.map(id => nodes.get(id)!) };
       return;
     }
     if (op.type === 'select_nodes') {
@@ -290,9 +309,6 @@ export function applyWorkflowOps(initial: WorkflowSnapshot, ops: WorkflowOp[]): 
     if (op.type === 'set_viewport') {
       snapshot = { ...snapshot, viewport: { ...op.viewport } };
       return;
-    }
-    if (op.type === 'run_generation' && snapshot.nodes.some(node => node.id === op.nodeId)) {
-      runRequests.push({ nodeId: op.nodeId });
     }
     if (op.type === 'group_nodes') {
       const ids = new Set(op.ids);
@@ -326,13 +342,24 @@ export function applyWorkflowOps(initial: WorkflowSnapshot, ops: WorkflowOp[]): 
       };
       return;
     }
-    if (op.type === 'execute_group') {
-      const order = topoSort(snapshot.nodes, snapshot.connections, op.nodeIds);
-      order.forEach(nodeId => runRequests.push({ nodeId }));
+    if (op.type === 'focus_node') {
+      if (!snapshot.nodes.some(node => node.id === op.nodeId)) {
+        reject(opIndex, op, '目标节点不存在');
+        return;
+      }
+      snapshot = {
+        ...snapshot,
+        selectedNodeIds: [op.nodeId],
+        ...(op.viewport ? { viewport: { ...op.viewport } } : {}),
+      };
+      return;
     }
+    reject(opIndex, op as WorkflowOp, String((op as { type?: unknown }).type).includes('generation') || (op as { type?: unknown }).type === 'execute_group'
+      ? '执行操作不属于 Workflow Mutation Core'
+      : '未知 Workflow operation');
   });
 
-  return { snapshot, runRequests, rejections };
+  return { snapshot, rejections };
 }
 
 export function summarizeWorkflowOps(ops: WorkflowOp[]): string {

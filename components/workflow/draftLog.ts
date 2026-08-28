@@ -3,7 +3,7 @@ import type { WorkflowDraftLogEntry, WorkflowProject } from './types';
 export const WORKFLOW_DRAFT_LOG_LIMIT = 200;
 
 export interface DraftLogEntryInput {
-  source: 'agent' | 'mcp' | 'cli' | 'ui';
+  source: 'ui' | 'cli' | 'agent' | 'operator';
   command: string;
   args: Record<string, unknown>;
   ok: boolean;
@@ -26,6 +26,8 @@ export function describeWorkflowDraftCommand(command: string, args: Record<strin
       return '切换当前项目';
     case 'workflow.project.delete':
       return `删除项目「${nodeId}」`;
+    case 'workflow.apply':
+      return String(args.intent || '批量修改 Workflow');
     case 'workflow.node.create':
       return `创建${type}节点${title ? `「${title}」` : ''}`;
     case 'workflow.node.create-connected':

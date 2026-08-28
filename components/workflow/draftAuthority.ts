@@ -1,23 +1,34 @@
 import { nanoid } from 'nanoid';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
+import { canonicalize } from 'json-canonicalize';
 
 import { applyWorkflowOps } from './ops';
 import type {
   WorkflowConnection,
   WorkflowDraftActor,
   WorkflowDraftChangeSet,
+  WorkflowDocumentOperation,
+  WorkflowMutationEnvelope,
+  WorkflowMutationReceipt,
   WorkflowNode,
-  WorkflowOp,
   WorkflowProject,
   WorkflowSnapshot,
+  WorkflowViewOperation,
 } from './types';
 
 const CHANGE_SET_LIMIT = 100;
+const MUTATION_RECEIPT_LIMIT = 256;
+const DOCUMENT_OPERATION_TYPES = new Set<WorkflowDocumentOperation['type']>([
+  'add_node', 'create_connected_node', 'update_node', 'delete_nodes', 'delete_connections', 'connect_nodes',
+  'move_nodes', 'reorder_nodes', 'group_nodes', 'ungroup_nodes', 'set_batch_primary',
+]);
 
 export interface WorkflowDraftChangeSetRequest {
   id?: string;
   actor: WorkflowDraftActor;
   intent: string;
-  ops: WorkflowOp[];
+  ops: WorkflowDocumentOperation[];
   baseDraftVersion?: number;
   expectedObjectVersions?: Record<string, number>;
 }
@@ -31,7 +42,6 @@ export type WorkflowDraftAuthorityResult = {
   ok: true;
   project: WorkflowProject;
   changeSet: WorkflowDraftChangeSet;
-  runRequests: Array<{ nodeId: string }>;
 } | {
   ok: false;
   error: { code: 'PRECONDITION_FAILED' | 'BAD_REQUEST' | 'NOT_FOUND'; message: string; objectId?: string; currentVersion?: number };
@@ -94,7 +104,10 @@ function appendChangeSet(
   ));
   const nodeChanges = changes(before.nodes, nodes);
   const connectionChanges = changes(before.connections, connections);
-  if (!nodeChanges.length && !connectionChanges.length) return null;
+  const nodeOrderBefore = before.nodes.map(node => node.id);
+  const nodeOrderAfter = nodes.map(node => node.id);
+  const orderChanged = !same(nodeOrderBefore, nodeOrderAfter);
+  if (!nodeChanges.length && !connectionChanges.length && !orderChanged) return null;
   const baseDraftVersion = project.draftVersion || 1;
   const resultDraftVersion = baseDraftVersion + 1;
   const last = project.draftChangeSets?.at(-1);
@@ -107,6 +120,8 @@ function appendChangeSet(
       resultDraftVersion,
       nodeChanges: mergeChangeEntries(last!.nodeChanges, nodeChanges),
       connectionChanges: mergeChangeEntries(last!.connectionChanges, connectionChanges),
+      nodeOrderBefore: last!.nodeOrderBefore || nodeOrderBefore,
+      nodeOrderAfter,
     };
     return {
       project: {
@@ -130,6 +145,7 @@ function appendChangeSet(
     resultDraftVersion,
     nodeChanges,
     connectionChanges,
+    ...(orderChanged ? { nodeOrderBefore, nodeOrderAfter } : {}),
   };
   return {
     project: {
@@ -184,8 +200,157 @@ export function applyWorkflowDraftChangeSet(
       viewport: applied.snapshot.viewport,
     },
     changeSet: recorded.changeSet,
-    runRequests: applied.runRequests,
   };
+}
+
+export type WorkflowMutationResult = {
+  ok: true;
+  project: WorkflowProject;
+  changeSet: WorkflowDraftChangeSet;
+  receipt: WorkflowMutationReceipt;
+} | {
+  ok: false;
+  error: {
+    code: 'BAD_REQUEST' | 'NOT_FOUND' | 'PRECONDITION_FAILED' | 'REVISION_CONFLICT' | 'IDEMPOTENCY_KEY_REUSE';
+    message: string;
+    expectedRevision?: number;
+    actualRevision?: number;
+    objectId?: string;
+    currentVersion?: number;
+  };
+};
+
+const mutationHash = (envelope: WorkflowMutationEnvelope) => bytesToHex(sha256(utf8ToBytes(canonicalize({
+  clientId: envelope.clientId,
+  projectId: envelope.projectId,
+  expectedRevision: envelope.expectedRevision,
+  mutationId: envelope.mutationId,
+  source: envelope.source,
+  intent: envelope.intent,
+  ops: envelope.ops,
+  expectedObjectVersions: envelope.expectedObjectVersions,
+}))));
+
+const mutationActor = (source: WorkflowMutationEnvelope['source']): WorkflowDraftActor => (
+  source === 'promptbar' ? 'ui' : source === 'dsh' ? 'operator' : source
+);
+
+export function applyWorkflowMutation(project: WorkflowProject, envelope: WorkflowMutationEnvelope): WorkflowMutationResult {
+  if (envelope.projectId !== project.id) {
+    return { ok: false, error: { code: 'NOT_FOUND', message: `Workflow 项目不存在：${envelope.projectId}` } };
+  }
+  if (!envelope.mutationId.trim()) return { ok: false, error: { code: 'BAD_REQUEST', message: 'mutationId 不能为空' } };
+  if (!Number.isInteger(envelope.expectedRevision) || envelope.expectedRevision < 0) {
+    return { ok: false, error: { code: 'BAD_REQUEST', message: 'expectedRevision 必须是非负整数' } };
+  }
+  if (!Array.isArray(envelope.ops) || envelope.ops.length === 0) {
+    return { ok: false, error: { code: 'BAD_REQUEST', message: 'ops 至少包含一个 Document Operation' } };
+  }
+  const invalidOperation = envelope.ops.find(op => !op || !DOCUMENT_OPERATION_TYPES.has(op.type));
+  if (invalidOperation) {
+    return { ok: false, error: { code: 'BAD_REQUEST', message: `${String(invalidOperation?.type || invalidOperation)} 不属于 Document Mutation` } };
+  }
+  const requestHash = mutationHash(envelope);
+  const existing = (project.workflowMutationReceipts || []).find(receipt => receipt.mutationId === envelope.mutationId);
+  if (existing) {
+    if (existing.requestHash !== requestHash) {
+      return { ok: false, error: { code: 'IDEMPOTENCY_KEY_REUSE', message: `mutationId 已用于不同载荷：${envelope.mutationId}` } };
+    }
+    const changeSet = project.draftChangeSets?.find(item => item.id === existing.changeSetId);
+    if (!changeSet) return { ok: false, error: { code: 'BAD_REQUEST', message: `Mutation Receipt 缺少 ChangeSet：${existing.changeSetId}` } };
+    return { ok: true, project, changeSet, receipt: { ...existing, replayed: true } };
+  }
+  const currentRevision = project.draftVersion || 1;
+  if (envelope.expectedRevision !== currentRevision) {
+    return {
+      ok: false,
+      error: {
+        code: 'REVISION_CONFLICT',
+        message: `Workflow 草稿版本已变化：期望 ${envelope.expectedRevision}，当前 ${currentRevision}。`,
+        expectedRevision: envelope.expectedRevision,
+        actualRevision: currentRevision,
+      },
+    };
+  }
+  const applied = applyWorkflowDraftChangeSet(project, {
+    id: envelope.mutationId,
+    actor: mutationActor(envelope.source),
+    intent: envelope.intent || '编辑 Workflow',
+    ops: envelope.ops,
+    baseDraftVersion: currentRevision,
+    expectedObjectVersions: envelope.expectedObjectVersions,
+  });
+  if (applied.ok === false) return applied;
+  const receipt: WorkflowMutationReceipt = {
+    mutationId: envelope.mutationId,
+    projectId: project.id,
+    requestHash,
+    previousRevision: currentRevision,
+    revision: applied.project.draftVersion || currentRevision + 1,
+    applied: true,
+    replayed: false,
+    operationResults: envelope.ops.map((op, index) => ({ index, type: op.type, status: 'applied' })),
+    changeSetId: applied.changeSet.id,
+    createdAt: applied.changeSet.at,
+  };
+  return {
+    ok: true,
+    changeSet: applied.changeSet,
+    receipt,
+    project: {
+      ...applied.project,
+      workflowMutationReceipts: [...(project.workflowMutationReceipts || []), receipt].slice(-MUTATION_RECEIPT_LIMIT),
+    },
+  };
+}
+
+export type WorkflowViewOperationResult = { ok: true; project: WorkflowProject } | {
+  ok: false;
+  error: { code: 'BAD_REQUEST'; message: string };
+};
+
+export function applyWorkflowViewOperations(project: WorkflowProject, ops: WorkflowViewOperation[]): WorkflowViewOperationResult {
+  const applied = applyWorkflowOps(snapshot(project), ops);
+  if (applied.rejections.length) {
+    return { ok: false, error: { code: 'BAD_REQUEST', message: applied.rejections.map(item => item.reason).join('；') } };
+  }
+  return {
+    ok: true,
+    project: { ...project, selectedNodeIds: applied.snapshot.selectedNodeIds, viewport: applied.snapshot.viewport },
+  };
+}
+
+export function workflowDocumentOperationsFromFrames(
+  before: WorkflowDraftFrame,
+  after: WorkflowDraftFrame,
+): WorkflowDocumentOperation[] {
+  const beforeNodes = new Map(before.nodes.map(node => [node.id, node]));
+  const afterNodes = new Map(after.nodes.map(node => [node.id, node]));
+  const beforeConnections = new Map(before.connections.map(connection => [connection.id, connection]));
+  const afterConnections = new Map(after.connections.map(connection => [connection.id, connection]));
+  const changedConnectionIds = before.connections
+    .filter(connection => afterConnections.has(connection.id) && !same(connection, afterConnections.get(connection.id)))
+    .map(connection => connection.id);
+  const deletedConnectionIds = before.connections
+    .filter(connection => !afterConnections.has(connection.id))
+    .map(connection => connection.id);
+  const deletedNodeIds = before.nodes.filter(node => !afterNodes.has(node.id)).map(node => node.id);
+  const operations: WorkflowDocumentOperation[] = [];
+  const removedConnectionIds = [...new Set([...deletedConnectionIds, ...changedConnectionIds])];
+  if (removedConnectionIds.length) operations.push({ type: 'delete_connections', ids: removedConnectionIds });
+  if (deletedNodeIds.length) operations.push({ type: 'delete_nodes', ids: deletedNodeIds });
+  after.nodes.filter(node => !beforeNodes.has(node.id)).forEach(node => operations.push({ type: 'add_node', node }));
+  after.nodes.filter(node => beforeNodes.has(node.id) && !same(beforeNodes.get(node.id), node)).forEach(node => {
+    const { id, ...patch } = node;
+    operations.push({ type: 'update_node', id, patch, replaceMetadata: true });
+  });
+  after.connections
+    .filter(connection => !beforeConnections.has(connection.id) || changedConnectionIds.includes(connection.id))
+    .forEach(connection => operations.push({ type: 'connect_nodes', ...connection }));
+  const beforeOrder = before.nodes.map(node => node.id).filter(id => afterNodes.has(id));
+  const afterOrder = after.nodes.map(node => node.id);
+  if (!same(beforeOrder, afterOrder)) operations.push({ type: 'reorder_nodes', ids: afterOrder });
+  return operations;
 }
 
 export function recordWorkflowDraftSnapshotChange(
@@ -194,9 +359,10 @@ export function recordWorkflowDraftSnapshotChange(
   after: WorkflowDraftFrame,
   request: Pick<WorkflowDraftChangeSetRequest, 'id' | 'actor' | 'intent'>,
 ): WorkflowDraftAuthorityResult {
-  const recorded = appendChangeSet(project, before, after, request);
-  if (!recorded) return { ok: false, error: { code: 'BAD_REQUEST', message: '该操作没有修改 Workflow Draft' } };
-  return { ok: true, ...recorded, runRequests: [] };
+  return applyWorkflowDraftChangeSet(project, {
+    ...request,
+    ops: workflowDocumentOperationsFromFrames(before, after),
+  });
 }
 
 function restoredVersion(
@@ -227,7 +393,8 @@ export function undoWorkflowDraftChangeSet(project: WorkflowProject): WorkflowDr
     });
   });
   const existingNodes = new Set(nodeMap.keys());
-  const nodes = [...nodeMap.values()];
+  const nodeOrder = target.nodeOrderBefore || [...nodeMap.keys()];
+  const nodes = [...nodeOrder.filter(id => nodeMap.has(id)).map(id => nodeMap.get(id)!), ...[...nodeMap.values()].filter(node => !nodeOrder.includes(node.id))];
   const connections = [...connectionMap.values()].filter(connection => (
     existingNodes.has(connection.fromNodeId) && existingNodes.has(connection.toNodeId)
   ));
@@ -249,7 +416,6 @@ export function undoWorkflowDraftChangeSet(project: WorkflowProject): WorkflowDr
       draftRedoStack: [...(project.draftRedoStack || []), target.id],
     },
     changeSet,
-    runRequests: [],
   };
 }
 
@@ -284,7 +450,7 @@ export function redoWorkflowDraftChangeSet(project: WorkflowProject): WorkflowDr
     ok: true,
     project: {
       ...project,
-      nodes: [...nodeMap.values()],
+      nodes: [...(target.nodeOrderAfter || [...nodeMap.keys()]).filter(id => nodeMap.has(id)).map(id => nodeMap.get(id)!), ...[...nodeMap.values()].filter(node => !(target.nodeOrderAfter || []).includes(node.id))],
       connections: [...connectionMap.values()].filter(connection => existingNodes.has(connection.fromNodeId) && existingNodes.has(connection.toNodeId)),
       selectedNodeIds: project.selectedNodeIds.filter(id => existingNodes.has(id)),
       draftVersion: resultDraftVersion,
@@ -292,6 +458,5 @@ export function redoWorkflowDraftChangeSet(project: WorkflowProject): WorkflowDr
       draftRedoStack: (project.draftRedoStack || []).slice(0, -1),
     },
     changeSet,
-    runRequests: [],
   };
 }

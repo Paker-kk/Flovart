@@ -24,6 +24,7 @@ export function createWorkflowProject(title = '未命名工作流'): WorkflowPro
     draftChangeSets: [],
     draftRedoStack: [],
     draftVersion: 1,
+    workflowMutationReceipts: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -95,6 +96,7 @@ export function normalizeWorkflowProject(project: WorkflowProject): WorkflowProj
     draftVersion: project.draftVersion || 1,
     draftChangeSets: project.draftChangeSets || [],
     draftRedoStack: project.draftRedoStack || [],
+    workflowMutationReceipts: project.workflowMutationReceipts || [],
     nodes,
     connections,
     selectedNodeIds: project.selectedNodeIds.filter(id => nodeIds.has(id)),

@@ -148,6 +148,7 @@ describe('workflow project persistence', () => {
       draftChangeSets: [],
       draftRedoStack: [],
       draftVersion: 1,
+      workflowMutationReceipts: [],
       createdAt: '2026-01-02T03:04:05.000Z',
       updatedAt: '2026-01-02T03:04:05.000Z',
     });

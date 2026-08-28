@@ -156,12 +156,12 @@ describe('applyWorkflowOps', () => {
     expect(result.snapshot.selectedNodeIds).toEqual([]);
   });
 
-  it('returns generation intents without mutating node content', () => {
+  it('rejects execution requests instead of treating them as mutations', () => {
     const before = snapshot();
-    const result = applyWorkflowOps(before, [{ type: 'run_generation', nodeId: 'b' }]);
+    const result = applyWorkflowOps(before, [{ type: 'run_generation', nodeId: 'b' } as never]);
 
     expect(result.snapshot.nodes).toEqual(before.nodes);
-    expect(result.runRequests).toEqual([{ nodeId: 'b' }]);
+    expect(result.rejections).toEqual([{ opIndex: 0, opType: 'run_generation', reason: '执行操作不属于 Workflow Mutation Core' }]);
   });
 
   it('keeps manual operation links and canonical Input Bindings synchronized', async () => {

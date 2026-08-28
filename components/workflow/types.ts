@@ -1,6 +1,8 @@
 import type { ImageFilters, ProductModelMode } from '../../types';
 
-export type WorkflowNodeType = 'image' | 'text' | 'video' | 'audio' | 'config' | 'script' | 'operation';
+export type BuiltinWorkflowNodeType = 'image' | 'text' | 'video' | 'audio' | 'config' | 'script' | 'operation';
+/** 外部 Node Plugin 可以使用稳定的自定义 type；内置交互仍只对 Builtin 类型做专门处理。 */
+export type WorkflowNodeType = BuiltinWorkflowNodeType | (string & {});
 export type WorkflowNodeStatus = 'idle' | 'loading' | 'success' | 'error';
 export type WorkflowGenerationMode = 'text' | 'image' | 'video' | 'audio';
 export type WorkflowBackgroundMode = 'dots' | 'lines' | 'none';
@@ -140,11 +142,52 @@ export interface WorkflowProviderConfig {
 
 export interface WorkflowArtifactRef {
   taskId: string;
+  /** Runtime 逐步收敛到稳定 Artifact 身份时使用；taskId 暂作为读取适配器字段保留。 */
+  artifactId?: string;
+  outputIndex?: number;
   kind: Extract<WorkflowNodeType, 'image' | 'video' | 'audio'>;
   mimeType?: string;
   sha256?: string;
   byteSize?: number;
   durationSec?: number;
+}
+
+export type WorkflowResourceKind = 'text' | 'image' | 'video' | 'audio';
+export type WorkflowResourceOrigin = 'node' | 'asset' | 'upload';
+export type WorkflowResourceReferenceSource = 'edge' | 'mention' | 'manual';
+export type WorkflowGenerationReferenceRole = 'first_frame' | 'last_frame' | 'reference' | 'character' | 'style' | 'mask' | 'source_video' | 'source_audio';
+
+export type WorkflowResourceLocator =
+  | { kind: 'asset'; assetId: string }
+  | { kind: 'workflow-storage'; storageKey: string }
+  | { kind: 'runtime-artifact'; artifactRef: WorkflowArtifactRef }
+  | { kind: 'remote-url'; href: string }
+  | { kind: 'legacy-href'; href: string }
+  | { kind: 'inline-text'; text: string }
+  | { kind: 'missing'; reason: string };
+
+/** 节点声明给下游的资源；执行层只通过 locator 解析，不猜节点 metadata。 */
+export interface WorkflowResource {
+  resourceId: string;
+  title: string;
+  kind: WorkflowResourceKind;
+  locator: WorkflowResourceLocator;
+  mimeType?: string;
+}
+
+/**
+ * 统一描述一个可被生成节点消费的资源来源。
+ * URL、storageKey 和 artifactRef 属于解析后的执行载荷，不属于引用身份。
+ */
+export interface WorkflowResourceReference {
+  id: string;
+  resourceId: string;
+  resourceOrigin: WorkflowResourceOrigin;
+  sourceId: string;
+  kind: WorkflowResourceKind;
+  source: WorkflowResourceReferenceSource;
+  role?: WorkflowGenerationReferenceRole;
+  connectionId?: string;
 }
 
 export interface CameraParams {
@@ -274,6 +317,12 @@ export interface WorkflowNode {
   metadata: WorkflowNodeMetadata;
 }
 
+/** 节点输出契约：节点自己声明下游可消费的资源，不由 resolver 按 node.type 猜测。 */
+export interface WorkflowNodeDefinition {
+  type: string;
+  output(node: WorkflowNode): WorkflowResource[];
+}
+
 export interface WorkflowConnection {
   id: string;
   fromNodeId: string;
@@ -306,7 +355,7 @@ export interface WorkflowAgentSession {
 export interface WorkflowDraftLogEntry {
   id: string;
   at: string;
-  source: 'agent' | 'mcp' | 'cli' | 'ui';
+  source: 'ui' | 'cli' | 'agent' | 'operator';
   command: string;
   /** 人类可读的中文动作摘要（如「创建图片节点「关键帧·hook-wide」」）。 */
   summary: string;
@@ -316,7 +365,7 @@ export interface WorkflowDraftLogEntry {
   connectionIds?: string[];
 }
 
-export type WorkflowDraftActor = 'agent' | 'mcp' | 'cli' | 'ui';
+export type WorkflowDraftActor = 'ui' | 'cli' | 'agent' | 'operator';
 export type WorkflowDraftChangeSetStatus = 'completed' | 'partial' | 'failed' | 'undone';
 
 export interface WorkflowDraftNodeChange {
@@ -341,10 +390,33 @@ export interface WorkflowDraftChangeSet {
   resultDraftVersion: number;
   nodeChanges: WorkflowDraftNodeChange[];
   connectionChanges: WorkflowDraftConnectionChange[];
+  nodeOrderBefore?: string[];
+  nodeOrderAfter?: string[];
   undoneAt?: string;
   undoneDraftVersion?: number;
   redoneAt?: string;
   redoneDraftVersion?: number;
+}
+
+export type WorkflowMutationSource = 'ui' | 'promptbar' | 'cli' | 'agent' | 'dsh';
+
+export interface WorkflowMutationOperationResult {
+  index: number;
+  type: WorkflowDocumentOperation['type'];
+  status: 'applied';
+}
+
+export interface WorkflowMutationReceipt {
+  mutationId: string;
+  projectId: string;
+  requestHash: string;
+  previousRevision: number;
+  revision: number;
+  applied: true;
+  replayed: boolean;
+  operationResults: WorkflowMutationOperationResult[];
+  changeSetId: string;
+  createdAt: string;
 }
 
 export interface WorkflowProject {
@@ -362,6 +434,7 @@ export interface WorkflowProject {
   draftChangeSets?: WorkflowDraftChangeSet[];
   draftRedoStack?: string[];
   draftVersion?: number;
+  workflowMutationReceipts?: WorkflowMutationReceipt[];
   createdAt: string;
   updatedAt: string;
 }
@@ -375,20 +448,37 @@ export interface WorkflowSnapshot {
   viewport: WorkflowViewport;
 }
 
-export type WorkflowOp =
+export type WorkflowDocumentOperation =
   | { type: 'add_node'; node: WorkflowNode }
   | { type: 'create_connected_node'; fromNodeId: string; node: WorkflowNode }
-  | { type: 'update_node'; id: string; patch?: Partial<Omit<WorkflowNode, 'id'>>; metadata?: WorkflowNodeMetadata }
+  | { type: 'update_node'; id: string; patch?: Partial<Omit<WorkflowNode, 'id'>>; metadata?: WorkflowNodeMetadata; replaceMetadata?: boolean }
   | { type: 'delete_nodes'; ids: string[] }
   | { type: 'delete_connections'; ids?: string[]; all?: boolean }
-  | { type: 'connect_nodes'; id?: string; fromNodeId: string; toNodeId: string }
-  | { type: 'select_nodes'; ids: string[] }
-  | { type: 'set_viewport'; viewport: WorkflowViewport }
-  | { type: 'run_generation'; nodeId: string }
+  | { type: 'connect_nodes'; id?: string; fromNodeId: string; toNodeId: string; kind?: WorkflowConnection['kind']; role?: WorkflowConnection['role']; order?: number }
+  | { type: 'move_nodes'; positions: Array<{ id: string; position: WorkflowPoint }> }
+  | { type: 'reorder_nodes'; ids: string[] }
   | { type: 'group_nodes'; ids: string[]; batchId: string; source?: WorkflowBatchGroupSource }
   | { type: 'ungroup_nodes'; ids: string[] }
-  | { type: 'execute_group'; nodeIds: string[] }
   | { type: 'set_batch_primary'; batchId: string; nodeId: string };
+
+export type WorkflowViewOperation =
+  | { type: 'select_nodes'; ids: string[] }
+  | { type: 'set_viewport'; viewport: WorkflowViewport }
+  | { type: 'focus_node'; nodeId: string; viewport?: WorkflowViewport };
+
+/** Compatibility union for callers that can submit either document or browser-local view operations. */
+export type WorkflowOp = WorkflowDocumentOperation | WorkflowViewOperation;
+
+export interface WorkflowMutationEnvelope {
+  clientId?: string;
+  projectId: string;
+  expectedRevision: number;
+  mutationId: string;
+  source: WorkflowMutationSource;
+  intent?: string;
+  ops: WorkflowDocumentOperation[];
+  expectedObjectVersions?: Record<string, number>;
+}
 
 export interface StylePreset {
   id: string;
