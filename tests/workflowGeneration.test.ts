@@ -3,7 +3,16 @@ import { cancelWorkflowGeneration, runWorkflowGeneration } from '../services/wor
 import { getProductModel } from '../services/productModelCatalog';
 import type { ProductModelMode, UserApiKey } from '../types';
 import type { WorkflowProject } from '../components/workflow/types';
-import { createWorkflowOperationInputBinding, createWorkflowOperationNode, workflowOperationInputConnections } from '../components/workflow/operations';
+import { createWorkflowOperationInputBinding, createWorkflowOperationNode, ensureWorkflowImageGenerateOperation, workflowOperationInputConnections } from '../components/workflow/operations';
+
+vi.mock('../utils/assetStorage', () => ({
+  getAssetById: vi.fn(async (assetId: string) => assetId === 'asset-1'
+    ? { id: 'asset-1', name: '素材图', mimeType: 'image/png', dataUrl: 'data:image/png;base64,QUFB', width: 800, height: 600 }
+    : undefined),
+}));
+vi.mock('../utils/mediaIndexedDB', () => ({
+  readColdMedia: vi.fn(async () => 'data:image/png;base64,QkJC'),
+}));
 
 const imageKey: UserApiKey = {
   id: 'image-key',
@@ -74,8 +83,10 @@ describe('workflow generation', () => {
     source.nodes = [source.nodes[0], operation];
     source.connections = workflowOperationInputConnections(operation);
     let latest = source;
+    let canonicalInput;
     const result = await runWorkflowGeneration(source, operation.id, {
       userApiKeys: [imageKey],
+      onCanonicalInput: input => { canonicalInput = input; },
       executeMedia: vi.fn().mockResolvedValue({ ok: true, elementId: operation.id, capability: 'image', mediaUrl: 'https://output/result', mimeType: 'image/png' }),
       fetchMedia: vi.fn().mockResolvedValue(new Blob(['result'])),
       ingestMedia: vi.fn().mockResolvedValue({ type: 'image', storageKey: 'result-key', name: 'result.png', mimeType: 'image/png', bytes: 6, naturalWidth: 800, naturalHeight: 400 }),
@@ -94,6 +105,7 @@ describe('workflow generation', () => {
       id: 'generated-0', status: 'success', outputNodeIds: [operation.id], snapshot: { renderedPrompt: expect.stringContaining('电影光线'), routeId: 'gpt-image-2' },
     });
     expect(committed?.metadata.operation?.selectedTakeId).toBe('generated-0');
+    expect(canonicalInput).toMatchObject({ nodeId: operation.id, capability: 'text-to-image' });
   });
 
   it('runs a text node directly with text mode and replaces the initiator in place', async () => {
@@ -142,11 +154,10 @@ describe('workflow generation', () => {
     const mappedKey: UserApiKey = {
       ...imageKey,
       models: [{ id: 'gpt-image-2', name: 'GPT Image 2' }],
-      routeMappings: [{
-        target: { kind: 'product-mode', productModelId: 'flovart:gpt-image-2', mode: 'text-to-image' as const },
-        routeId: 'gpt-image-2',
-        order: 0,
-      }],
+      routeMappings: [
+        { target: { kind: 'product-mode', productModelId: 'flovart:gpt-image-2', mode: 'text-to-image' as const }, routeId: 'gpt-image-2', order: 0 },
+        { target: { kind: 'product-mode', productModelId: 'flovart:gpt-image-2', mode: 'image-to-image' as const }, routeId: 'gpt-image-2', order: 0 },
+      ],
     };
     const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'config-1', capability: 'image', mediaUrl: 'https://output/image', mimeType: 'image/png' });
 
@@ -258,7 +269,7 @@ describe('workflow generation', () => {
     expect(references.some((reference: any) => reference.elementId === 'self-video')).toBe(false);
   });
 
-  it('does not pass connected media unless it is explicitly @mentioned', async () => {
+  it('passes connected media without requiring an explicit @mention', async () => {
     const source = project();
     const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'config-1', capability: 'image', mediaUrl: 'https://output/image', mimeType: 'image/png' });
 
@@ -272,7 +283,65 @@ describe('workflow generation', () => {
     });
 
     const references = executeMedia.mock.calls[0][0].references;
-    expect(references).toEqual([]);
+    expect(references).toEqual([expect.objectContaining({ elementId: 'image-1', type: 'image' })]);
+  });
+
+  it('passes a connected image into image-to-video without requiring an explicit @mention', async () => {
+    const source = project();
+    source.nodes[2].metadata = {
+      prompt: '让角色自然运动',
+      config: { mode: 'video', submode: 'image-to-video', modelId: 'flovart:seedance-2' },
+    };
+    const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'config-1', capability: 'video', mediaUrl: 'https://output/video', mimeType: 'video/mp4' });
+
+    await runWorkflowGeneration(source, 'config-1', {
+      userApiKeys: [mappedMediaKey('video', 'flovart:seedance-2', 'seedance-2.0', 'volcengine')],
+      executeMedia,
+      fetchMedia: vi.fn().mockResolvedValue(new Blob(['video'])),
+      ingestMedia: vi.fn().mockResolvedValue({ type: 'video', storageKey: 'result', name: 'result.mp4', mimeType: 'video/mp4', bytes: 5 }),
+      createVideoPoster: vi.fn().mockResolvedValue(null),
+      onProjectChange: vi.fn(),
+    });
+
+    expect(executeMedia.mock.calls[0][0].references).toEqual([
+      expect.objectContaining({ elementId: 'image-1', type: 'image', slotRole: 'first_frame' }),
+    ]);
+  });
+
+  it('preserves an artifact-only image reference for a Runtime-capable video adapter', async () => {
+    const source = project();
+    source.nodes[1].metadata = {
+      artifactRef: { taskId: 'artifact-task-1', kind: 'image', mimeType: 'image/png' },
+      mimeType: 'image/png',
+    };
+    source.nodes[2].metadata = {
+      prompt: '让角色自然运动',
+      config: { mode: 'video', submode: 'image-to-video', modelId: 'flovart:grok-imagine-video-1.5' },
+    };
+    const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'config-1', capability: 'video', mediaUrl: 'https://output/video', mimeType: 'video/mp4' });
+
+    const result = await runWorkflowGeneration(source, 'config-1', {
+      userApiKeys: [{
+        ...mappedMediaKey('video', 'flovart:grok-imagine-video-1.5', 'rhart-video-g/image-to-video', 'runningHub'),
+        defaultModel: 'flovart:grok-imagine-video-1.5',
+        runtimeManaged: { credentialId: 'credential-1' },
+      }],
+      executeMedia,
+      fetchMedia: vi.fn().mockResolvedValue(new Blob(['video'])),
+      ingestMedia: vi.fn().mockResolvedValue({ type: 'video', storageKey: 'result', name: 'result.mp4', mimeType: 'video/mp4', bytes: 5 }),
+      createVideoPoster: vi.fn().mockResolvedValue(null),
+      onProjectChange: vi.fn(),
+    });
+
+    expect(executeMedia).toHaveBeenCalledWith(expect.objectContaining({
+      references: [expect.objectContaining({
+        elementId: 'image-1',
+        slotRole: 'first_frame',
+        href: 'artifact://artifact-task-1',
+        artifactRef: expect.objectContaining({ taskId: 'artifact-task-1' }),
+      })],
+    }));
+    expect(result.nodes.find(node => node.id === 'config-1')?.metadata.error).toBeUndefined();
   });
 
   it('resolves plain PromptBar text @图片1 @图片2 and sends both connected images to the Provider in text order', async () => {
@@ -657,5 +726,82 @@ describe('workflow generation', () => {
     });
     expect(executeMedia).not.toHaveBeenCalled();
     expect(result.nodes.find(node => node.id === 'config-1')?.metadata.error).toContain('需要按顺序引用 2 张图片');
+  });
+
+  it('resolves asset-library reference hrefs to fetchable blob URLs before submitting image-to-image', async () => {
+    const source = project();
+    source.nodes[1].metadata = {
+      sourceType: 'assetLibrary', assetId: 'asset-1',
+      href: 'asset-library:asset-1', mimeType: 'image/png', name: '素材图', naturalWidth: 800, naturalHeight: 600, status: 'success',
+    };
+    source.nodes[2].metadata = { prompt: '@素材图 做成亚克力钥匙扣', mentionedNodeIds: ['image-1'], config: { mode: 'image', modelId: 'flovart:gpt-image-2' } };
+    const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'config-1', capability: 'image', mediaUrl: 'https://output/image', mimeType: 'image/png' });
+    const result = await runWorkflowGeneration(source, 'config-1', {
+      userApiKeys: [imageKey], executeMedia,
+      fetchMedia: vi.fn().mockResolvedValue(new Blob(['result'])),
+      ingestMedia: vi.fn().mockResolvedValue({ type: 'image', storageKey: 'result', name: 'result.png', mimeType: 'image/png', bytes: 6 }),
+      encodeDataUrl: vi.fn().mockResolvedValue('data:image/png;base64,AA=='),
+      onProjectChange: vi.fn(),
+    });
+    const references = executeMedia.mock.calls[0][0].references as Array<{ href: string }>;
+    expect(references.length).toBe(1);
+    expect(references[0].href).toMatch(/^blob:|^data:/);
+    expect(references[0].href).not.toBe('asset-library:asset-1');
+    expect(result.nodes.find(node => node.id === 'config-1')?.metadata.error).toBeUndefined();
+  });
+
+  it('resolves idb/cold-media reference hrefs to fetchable blob URLs before submitting image-to-video', async () => {
+    const source = project();
+    source.nodes = [
+      { id: 'ref-local', type: 'image', title: '本地图', position: { x: 0, y: 0 }, width: 300, height: 200, metadata: { href: 'cold-media:stored-key', mimeType: 'image/png', status: 'success' } },
+      { id: 'video-node', type: 'video', title: '视频生成', position: { x: 420, y: 0 }, width: 360, height: 240, metadata: { prompt: '@本地图 让画面动起来', mentionedNodeIds: ['ref-local'], config: { mode: 'video', submode: 'image-to-video', modelId: 'flovart:veo-3.1' } } },
+    ];
+    source.connections = [{ id: 'a', fromNodeId: 'ref-local', toNodeId: 'video-node' }];
+    const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'video-node', capability: 'video', mediaUrl: 'https://output/video', mimeType: 'video/mp4' });
+    const result = await runWorkflowGeneration(source, 'video-node', {
+      userApiKeys: [mappedMediaKey('video', 'flovart:veo-3.1', 'veo-3.1-generate-preview', 'google')], executeMedia,
+      fetchMedia: vi.fn().mockResolvedValue(new Blob(['video'])),
+      ingestMedia: vi.fn().mockResolvedValue({ type: 'video', storageKey: 'video', name: 'video.mp4', mimeType: 'video/mp4', bytes: 5 }),
+      createVideoPoster: vi.fn().mockResolvedValue(null),
+      onProjectChange: vi.fn(),
+    });
+    const references = executeMedia.mock.calls[0][0].references as Array<{ href: string }>;
+    expect(references.length).toBe(1);
+    expect(references[0].href).toMatch(/^blob:|^data:/);
+    expect(references[0].href).not.toBe('cold-media:stored-key');
+    expect(result.nodes.find(node => node.id === 'video-node')?.metadata.error).toBeUndefined();
+  });
+
+  it('keeps the hidden input node media as the reference for image-to-image after in-place operation conversion', async () => {
+    const source = project();
+    // 图片生成节点自身上传了参考图（storageKey），无独立引用节点
+    source.nodes = [
+      { id: 'image-1', type: 'image', title: '图片 1', position: { x: 420, y: 80 }, width: 360, height: 260, metadata: { prompt: '做成海报', storageKey: 'workflow-media-self', mimeType: 'image/png', status: 'success', config: { mode: 'image', modelId: 'flovart:gpt-image-2' } } },
+    ];
+    source.connections = [];
+    const ids = ['hidden-input-1', 'binding-1'];
+    const prepared = await ensureWorkflowImageGenerateOperation({ project: source, nodeId: 'image-1', createId: () => ids.shift()!, now: '2026-08-05T00:00:00.000Z' });
+    const operationNodeId = prepared.operationNodeId;
+    const operation = prepared.project.nodes.find(node => node.id === operationNodeId)!;
+    expect(operation.type).toBe('operation');
+    expect(operation.metadata.operation?.recipe.parameters.submode).toBe('image-to-image');
+
+    let latest = prepared.project;
+    const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: operationNodeId, capability: 'image', mediaUrl: 'https://output/image', mimeType: 'image/png' });
+    const result = await runWorkflowGeneration(prepared.project, operationNodeId, {
+      userApiKeys: [imageKey], executeMedia,
+      loadMedia: vi.fn().mockResolvedValue(new Blob(['ref'], { type: 'image/png' })),
+      fetchMedia: vi.fn().mockResolvedValue(new Blob(['result'])),
+      ingestMedia: vi.fn().mockResolvedValue({ type: 'image', storageKey: 'result-key', name: 'result.png', mimeType: 'image/png', bytes: 6 }),
+      encodeDataUrl: vi.fn().mockResolvedValue('data:image/png;base64,AA=='),
+      getProject: () => latest,
+      onProjectChange: next => { latest = next; },
+    });
+    const references = executeMedia.mock.calls[0][0].references as Array<{ href: string; elementId: string }>;
+    expect(references.length).toBe(1);
+    expect(references[0].elementId).toBe('hidden-input-1');
+    expect(references[0].href).toMatch(/^blob:/);
+    expect(result.nodes.find(node => node.id === operationNodeId)?.metadata.error).toBeUndefined();
+    expect(result.nodes.find(node => node.id === operationNodeId)?.metadata.status).toBe('success');
   });
 });

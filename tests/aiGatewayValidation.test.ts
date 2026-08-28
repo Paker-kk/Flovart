@@ -18,6 +18,7 @@ import {
     executeUnifiedIgnition,
 } from '../services/aiGateway';
 import { BUILTIN_RUNNINGHUB_MODELS, normalizeRunningHubModelEndpoint } from '../services/runningHubService';
+import { normalizeProviderBaseUrl } from '../services/baseUrl';
 
 function mockJsonResponse(body: unknown, status = 200) {
     return {
@@ -84,6 +85,22 @@ describe('aiGateway - validateApiKey', () => {
                 headers: expect.objectContaining({ Authorization: 'Bearer sk-test-key' }),
             })
         );
+    });
+
+    it('DeepSeek 使用官方根地址调用 /models，并把误填的 /v1 裁回根地址', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue(mockJsonResponse({
+            data: [{ id: 'deepseek-v4-flash' }],
+        }));
+        const result = await validateApiKey('deepseek', 'sk-deepseek-test-key');
+        expect(result.ok).toBe(true);
+        expect(result.effectiveBaseUrl).toBe('https://api.deepseek.com');
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            'https://api.deepseek.com/models',
+            expect.objectContaining({
+                headers: expect.objectContaining({ Authorization: 'Bearer sk-deepseek-test-key' }),
+            }),
+        );
+        expect(normalizeProviderBaseUrl('deepseek', 'https://api.deepseek.com/v1/chat/completions')).toBe('https://api.deepseek.com');
     });
 
     it('RunningHub provider 使用标准模型查询端点验证', async () => {

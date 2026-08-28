@@ -4,7 +4,7 @@
  * 2026 模型名更新：Gemini 3, GPT-5.4, Claude Opus 4.6, Veo 3.1
  */
 import { describe, it, expect } from 'vitest';
-import { diagnoseKeyCapabilities, explainKeyCapabilities, getDynamicParamSchema, inferCapabilityFromModel, inferCapabilityFromModelName, inferProviderFromModel, isGoogleImageEditModel, isGoogleTextToImageModel, supportsMaskImageEditing, supportsReferenceImageEditing } from '../services/aiGateway';
+import { diagnoseKeyCapabilities, explainKeyCapabilities, getDynamicParamSchema, inferCapabilityFromModel, inferCapabilityFromModelName, inferProviderFromKey, inferProviderFromModel, isGoogleImageEditModel, isGoogleTextToImageModel, supportsMaskImageEditing, supportsReferenceImageEditing } from '../services/aiGateway';
 import type { UserApiKey } from '../types';
 
 describe('inferProviderFromModel', () => {
@@ -121,6 +121,14 @@ describe('inferProviderFromModel', () => {
     it('Stability 模型已移除 — 回退到 custom', () => {
         expect(inferProviderFromModel('sdxl-turbo')).toBe('custom');
         expect(inferProviderFromModel('stable-diffusion-xl-1024')).toBe('custom');
+    });
+});
+
+describe('inferProviderFromKey', () => {
+    it('does not guess ambiguous sk keys between OpenAI and DeepSeek', () => {
+        expect(inferProviderFromKey(`sk-${'a'.repeat(40)}`)).toBeNull();
+        expect(inferProviderFromKey(`sk-proj-${'a'.repeat(24)}`)).toBe('openai');
+        expect(inferProviderFromKey(`sk-ant-${'a'.repeat(24)}`)).toBe('anthropic');
     });
 });
 

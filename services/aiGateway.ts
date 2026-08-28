@@ -6,6 +6,11 @@ import { assertRunningHubModelEndpoint } from './runningHubService';
 import { explainReferenceCompatibility, sanitizeProductGenerationParams } from './productModelCatalog';
 import { getRouteSchema, getRouteDurations, type RouteCapabilitySchema, type RouteMediaSpec } from './runningHubRouteCatalog';
 import { runRuntimeMediaGeneration } from './runtimeGeneration';
+import type { WorkflowArtifactRef } from '../components/workflow/types';
+import type { CanonicalGenerationInput, WorkflowGenerationCapability } from '../components/workflow/inputResolver';
+import type { ProviderMaterializedReference } from './providerGenerationAdapter';
+import { validateLegacyProviderRequest } from './providerGenerationAdapter';
+import { executeUserScriptProvider, getUserScriptProviderForKey } from './userScriptProviderAdapter';
 
 function blobToBase64(blob: Blob): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -37,11 +42,12 @@ export type MultimodalSlot = {
     kind: MultimodalSlotKind;
     href: string;
     mimeType: string;
+    artifactRef?: WorkflowArtifactRef;
     role?: MultimodalSlotRole | string;
     label?: string;
 };
 
-type VideoImage = ImageInput & { slotRole?: string; label?: string; sourceName?: string; elementId?: string };
+export type VideoImage = ImageInput & { artifactRef?: WorkflowArtifactRef; slotRole?: string; label?: string; sourceName?: string; elementId?: string };
 
 type ProviderModelMap = { text: string[]; image: string[]; video: string[] };
 
@@ -53,8 +59,75 @@ type IgnitionReference = {
     label?: string;
     sourceName?: string;
     text?: string;
+    artifactRef?: WorkflowArtifactRef;
     elementId?: string;
 };
+
+export class UnsupportedGenerationInputError extends Error {
+    readonly code = 'UNSUPPORTED_INPUT_MODE';
+
+    constructor(message: string) {
+        super(message);
+        this.name = 'UnsupportedGenerationInputError';
+    }
+}
+
+export function buildRuntimeVideoArgs(input: {
+    prompt: string;
+    productModel: string;
+    credentialId: string;
+    options?: {
+        durationSec?: number;
+        aspectRatio?: VideoAspectRatio;
+        resolution?: string;
+        generateAudio?: boolean;
+        generationSubmode?: ProductModelMode;
+        references?: VideoImage[];
+        slots?: MultimodalSlot[];
+    };
+}): Record<string, unknown> {
+    const options = input.options;
+    const base: Record<string, unknown> = {
+        prompt: input.prompt,
+        productModel: input.productModel,
+        credentialId: input.credentialId,
+        durationSec: options?.durationSec,
+        aspectRatio: options?.aspectRatio || '16:9',
+        resolution: options?.resolution || '720p',
+        generateAudio: options?.generateAudio ?? false,
+    };
+    const references = options?.references || [];
+    const slots = options?.slots || [];
+    const mediaSlots = slots.length > 0 ? slots : references.map(reference => ({
+        kind: 'image' as const,
+        href: reference.href,
+        mimeType: reference.mimeType,
+        artifactRef: reference.artifactRef,
+        role: reference.slotRole,
+    }));
+    if (options?.generationSubmode === 'text-to-video') return base;
+    if (options?.generationSubmode === 'image-to-video' && mediaSlots.length === 0) {
+        throw new UnsupportedGenerationInputError('图生视频至少需要 1 张图片。');
+    }
+    if (options?.generationSubmode === 'first-last-frame' && mediaSlots.filter(slot => slot.kind === 'image').length < 2) {
+        throw new UnsupportedGenerationInputError('首尾帧模式需要 2 个可寻址图片 Artifact。');
+    }
+    if (options?.generationSubmode === 'reference-to-video' && mediaSlots.length === 0) {
+        throw new UnsupportedGenerationInputError('全能参考至少需要 1 个可寻址媒体 Artifact。');
+    }
+    if (mediaSlots.length === 0) return base;
+    if (input.productModel !== 'flovart:grok-imagine-video-1.5') {
+        throw new UnsupportedGenerationInputError(`Runtime 当前线路不支持 ${options?.generationSubmode || '参考媒体'} 输入；请切换到支持 Artifact 图生视频的线路。`);
+    }
+    if (mediaSlots.some(slot => slot.kind !== 'image')) {
+        throw new UnsupportedGenerationInputError('Runtime 当前线路只接受图片 Artifact，不支持视频或音频参考输入。');
+    }
+    const sourceImageIds = mediaSlots.map(slot => slot.artifactRef?.taskId).filter((taskId): taskId is string => Boolean(taskId));
+    if (sourceImageIds.length !== mediaSlots.length) {
+        throw new UnsupportedGenerationInputError('Runtime 图生视频需要可寻址 Artifact；当前图片只有预览地址，无法作为生产输入。');
+    }
+    return { ...base, sourceImageIds };
+}
 
 export type ProviderTaskLifecycleEvent =
     | { phase: 'submitted'; providerTaskId: string; submittedAt: number }
@@ -73,11 +146,15 @@ export interface UnifiedIgnitionInput {
     resolution?: string;
     quality?: string;
     generationSubmode?: ProductModelMode;
+    generationCapability?: WorkflowGenerationCapability;
     generateAudio?: boolean;
     watermark?: boolean;
     webSearch?: boolean;
     realPersonCheck?: boolean;
     references?: IgnitionReference[];
+    /** User Script Provider 只能消费这份 canonical manifest，不接收 Canvas/React 状态。 */
+    canonicalInput?: CanonicalGenerationInput;
+    materializedReferences?: readonly ProviderMaterializedReference[];
     signal?: AbortSignal;
     onProgress?: (progress: number, message: string) => void;
     onProviderTaskLifecycle?: (event: ProviderTaskLifecycleEvent) => void | Promise<void>;
@@ -88,6 +165,12 @@ export type UnifiedIgnitionResult =
     | { ok: false; elementId: string; errorMessage: string; capability: ElementMediaCapability };
 
 export type ElementMediaCapability = 'image' | 'video';
+
+function mediaCapabilityForGeneration(capability?: WorkflowGenerationCapability): ElementMediaCapability | undefined {
+    if (capability === 'text-to-image' || capability === 'image-edit') return 'image';
+    if (capability === 'text-to-video' || capability === 'image-to-video' || capability === 'reference-to-video' || capability === 'first-last-frame' || capability === 'video-extension') return 'video';
+    return undefined;
+}
 
 export interface ModelParamSchema {
     hasSeed: boolean;
@@ -118,7 +201,7 @@ export const DEFAULT_PROVIDER_MODELS: Partial<Record<AIProvider, ProviderModelMa
         video: [],
     },
     deepseek: {
-        text: ['deepseek-chat', 'deepseek-reasoner'],
+        text: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'],
         image: [],
         video: [],
     },
@@ -591,7 +674,7 @@ const DEFAULT_BASE_URLS: Record<AIProvider, string> = {
     anthropic: 'https://api.anthropic.com/v1',
     google: 'https://generativelanguage.googleapis.com/v1beta',
     qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    deepseek: 'https://api.deepseek.com/v1',
+    deepseek: 'https://api.deepseek.com',
     siliconflow: 'https://api.siliconflow.cn/v1',
     keling: 'https://api.klingai.com/v1',
     flux: 'https://api.bfl.ml/v1',
@@ -613,8 +696,9 @@ export function inferProviderFromKey(apiKey: string): AIProvider | null {
     if (/^AIzaSy/i.test(trimmed)) return 'google';
     if (/^sk-ant-/i.test(trimmed)) return 'anthropic';
     if (/^sk-or-/i.test(trimmed)) return 'openrouter';
-    if (/^sk-proj-/i.test(trimmed) || /^sk-[a-zA-Z0-9]{20,}$/.test(trimmed)) return 'openai';
-    if (/^sk-[a-f0-9]{32,}$/i.test(trimmed)) return 'deepseek';
+    // OpenAI 与 DeepSeek 的旧版 Key 都可能只以 sk- 开头，不能靠长度或字符集猜 Provider。
+    // 只有带有明确前缀的 Key 才自动切换，其他 Key 由用户选择预设后验证。
+    if (/^sk-proj-/i.test(trimmed)) return 'openai';
     // Stability AI removed — sa- prefix keys no longer auto-detected
     if (/^sk-sf/i.test(trimmed)) return 'siliconflow';
     if (/^xai-/i.test(trimmed)) return 'xai';
@@ -787,6 +871,7 @@ function getImageReferencesForIgnition(references: IgnitionReference[] = []): Vi
         .map(reference => ({
             href: reference.href,
             mimeType: reference.mimeType || 'image/png',
+            artifactRef: reference.artifactRef,
             slotRole: reference.slotRole,
             label: reference.label,
             sourceName: reference.sourceName,
@@ -805,6 +890,7 @@ function getMultimodalSlotsForIgnition(references: IgnitionReference[] = []): Mu
             kind: reference.type,
             href: reference.href,
             mimeType: reference.mimeType || (reference.type === 'audio' ? 'audio/mpeg' : reference.type === 'video' ? 'video/mp4' : 'image/png'),
+            artifactRef: reference.artifactRef,
             role: reference.slotRole,
             label: reference.label || reference.sourceName,
         }));
@@ -3152,15 +3238,7 @@ export async function generateVideoWithProvider(
         const productModel = model.startsWith('flovart:') ? model : (key.defaultModel || model);
         const result = await runRuntimeMediaGeneration({
             command: 'generate.video',
-            args: {
-                prompt,
-                productModel,
-                credentialId: key.runtimeManaged.credentialId,
-                durationSec: options?.durationSec,
-                aspectRatio: options?.aspectRatio || '16:9',
-                resolution: options?.resolution || '720p',
-                generateAudio: options?.generateAudio ?? false,
-            },
+            args: buildRuntimeVideoArgs({ prompt, productModel, credentialId: key.runtimeManaged.credentialId, options }),
             onProgress: options?.onProgress,
             signal: options?.signal,
         });
@@ -3587,8 +3665,9 @@ export async function generateVideoWithProvider(
 }
 
 export async function executeUnifiedIgnition(input: UnifiedIgnitionInput): Promise<UnifiedIgnitionResult> {
-    const capability = inferCapabilityFromModelName(input.modelId);
+    const capability = mediaCapabilityForGeneration(input.generationCapability) || inferCapabilityFromModelName(input.modelId);
     const prompt = input.prompt.trim();
+    const userScriptProvider = getUserScriptProviderForKey(input.apiKeyPayload);
 
     if (!prompt) {
         return { ok: false, elementId: input.elementId, capability, errorMessage: '请输入提示词后再点火。' };
@@ -3607,6 +3686,28 @@ export async function executeUnifiedIgnition(input: UnifiedIgnitionInput): Promi
             realPersonCheck: input.realPersonCheck,
             referenceCount: input.references?.length || 0,
         }, { provider: input.apiKeyPayload?.provider, routeId: input.modelId });
+        if (input.generationCapability) {
+            if (input.generationSubmode && params.mode !== input.generationSubmode) {
+                throw new UnsupportedGenerationInputError(`Provider 线路未实现「${input.generationSubmode}」，不能自动改成「${params.mode || '未知模式'}」。`);
+            }
+            const providerContext = {
+                provider: resolveGenerationProvider(input.modelId, input.apiKeyPayload),
+                routeId: input.modelId,
+                productModelId: input.productModelId,
+            };
+            const providerValidation = userScriptProvider && input.canonicalInput
+                ? userScriptProvider.validate(input.canonicalInput, providerContext)
+                : validateLegacyProviderRequest({
+                    capability: input.generationCapability,
+                    generationSubmode: params.mode,
+                    references: (input.references || [])
+                        .filter((reference): reference is IgnitionReference & { type: 'image' | 'video' | 'audio' } => reference.type === 'image' || reference.type === 'video' || reference.type === 'audio')
+                        .map(reference => ({ type: reference.type, slotRole: reference.slotRole })),
+                }, providerContext);
+            if (!providerValidation.ok) {
+                throw new UnsupportedGenerationInputError(providerValidation.errors[0]?.message || '当前 Provider 线路不支持该生成输入。');
+            }
+        }
         if (capability === 'video') {
             const referenceKinds = (input.references || [])
                 .filter((reference): reference is IgnitionReference & { type: 'image' | 'video' | 'audio' } => reference.type === 'image' || reference.type === 'video' || reference.type === 'audio')
@@ -3615,6 +3716,52 @@ export async function executeUnifiedIgnition(input: UnifiedIgnitionInput): Promi
             if (issue) throw new Error(issue);
         }
         const effectivePrompt = buildPromptWithReferenceBindings(prompt, input.references);
+        if (userScriptProvider) {
+            if (!input.canonicalInput || !input.materializedReferences) {
+                throw new UnsupportedGenerationInputError('User Provider 必须通过 CanonicalGenerationInput 进入 Workflow 生成链。');
+            }
+            const scriptResult = await executeUserScriptProvider(
+                userScriptProvider,
+                input.canonicalInput,
+                input.materializedReferences,
+                {
+                    provider: resolveGenerationProvider(input.modelId, input.apiKeyPayload),
+                    routeId: input.modelId,
+                    productModelId: input.productModelId,
+                },
+                {
+                    credential: input.apiKeyPayload?.key
+                        ? { referenceId: input.apiKeyPayload.id, read: () => input.apiKeyPayload?.key }
+                        : undefined,
+                    signal: input.signal,
+                },
+            );
+            if (capability === 'video') {
+                const mediaUrl = scriptResult.result.mediaUrl;
+                if (!mediaUrl) throw new Error(scriptResult.result.text || 'User Provider 未返回视频结果。');
+                let videoBlob: Blob;
+                let mimeType = scriptResult.result.mimeType || 'video/mp4';
+                if (mediaUrl.startsWith('data:')) {
+                    const parsed = parseDataUrl(mediaUrl, mimeType);
+                    videoBlob = createBlobFromBase64(parsed.base64, parsed.mimeType);
+                    mimeType = parsed.mimeType;
+                } else {
+                    const response = await fetch(mediaUrl, { signal: input.signal });
+                    if (!response.ok) throw new Error(`User Provider 视频结果下载失败 (${response.status})`);
+                    videoBlob = await response.blob();
+                    mimeType = videoBlob.type || mimeType;
+                }
+                return { ok: true, elementId: input.elementId, mediaUrl: URL.createObjectURL(videoBlob), mimeType, capability };
+            }
+            const imageResult = scriptResult.result.mediaUrl;
+            if (!imageResult) {
+                return { ok: false, elementId: input.elementId, capability, errorMessage: scriptResult.result.text || 'User Provider 未返回图片结果。' };
+            }
+            const image = imageResult.startsWith('data:')
+                ? decodeDataUrlImage(imageResult)
+                : await fetchImageUrlToBase64(imageResult);
+            return { ok: true, elementId: input.elementId, mediaUrl: `data:${image.newImageMimeType};base64,${image.newImageBase64}`, mimeType: image.newImageMimeType, capability };
+        }
         if (capability === 'video') {
             const videoRefs = getImageReferencesForIgnition(input.references);
             const videoSlots = getMultimodalSlotsForIgnition(input.references);

@@ -1,21 +1,22 @@
 import { nanoid } from 'nanoid';
-import { getUpstreamData } from '../components/workflow/ops';
 import { CAMERA_MOVEMENTS, createWorkflowNode, STYLE_PRESETS } from '../components/workflow/constants';
-import { createWorkflowVideoPoster, discardWorkflowMediaRecord, fitWorkflowMediaSize, ingestWorkflowMedia, releaseWorkflowMediaRecord, type WorkflowMediaRecord } from '../components/workflow/media';
-import { filterSeedanceReferences, filterWorkflowInputIds, getWorkflowInputNodes, resolveWorkflowMentionIds, sortReferencesByOrder, toWorkflowMentionItems } from '../components/workflow/references';
-import { workflowMediaStorage } from '../components/workflow/storage';
+import { buildCanonicalGenerationInput, resolveWorkflowInputs, type CanonicalGenerationInput, type WorkflowAssetReferenceInput } from '../components/workflow/inputResolver';
+import { promptIntentFromNode, type PromptIntent } from '../components/workflow/promptIntent';
+import { createWorkflowVideoPoster, discardWorkflowMediaRecord, fitWorkflowMediaSize, ingestWorkflowMedia, isWorkflowMediaKeyReferenced, releaseWorkflowMediaRecord, type WorkflowMediaRecord } from '../components/workflow/media';
 import type { WorkflowGenerationMode, WorkflowNode, WorkflowProject } from '../components/workflow/types';
 import type { ProductModelMode, UserApiKey } from '../types';
 import { executeUnifiedIgnition, generateTextWithProvider, SeedanceSubmissionUnknownError, type UnifiedIgnitionInput, type UnifiedIgnitionResult } from './aiGateway';
 import { getGenerationCapability } from './generationCapabilities';
 import { runPreflight } from './promptPreflight';
-import { explainReferenceCompatibility, getEffectiveReferenceLimits, getProductModel, getRoutedImageModes, getRoutedVideoModes } from './productModelCatalog';
+import { getProductModel, getRoutedImageModes, getRoutedVideoModes } from './productModelCatalog';
 import { usePromptHistoryStore } from '../stores/usePromptHistoryStore';
 import { refundApiUsage, reserveApiUsage, updateApiUsage } from '../utils/usageMonitor';
-import { getPromptReferenceAliases } from '../utils/promptReferenceClipboard';
 import { resolveRouteMappingForSubmit, type RouteFallbackResolution } from './routeMapping';
+import { requireWorkflowResourceHref } from './workflowResourceResolver';
 import { beginWorkflowOperationTake, completeWorkflowOperationTake } from '../components/workflow/operations';
 import { validateWorkflowOperationOutputs } from '../components/workflow/operationRegistry';
+import type { ProviderMaterializedReference } from './providerGenerationAdapter';
+import { resolveProviderGenerationExtension } from './userScriptProviderAdapter';
 
 export interface WorkflowHistoryPayload {
   name?: string;
@@ -32,10 +33,15 @@ export interface WorkflowGenerationRuntime {
   confirmRouteFallback?: (resolution: RouteFallbackResolution) => boolean | Promise<boolean>;
   executeMedia?: (input: UnifiedIgnitionInput) => Promise<UnifiedIgnitionResult>;
   executeText?: typeof generateTextWithProvider;
+  runId?: string;
+  onCanonicalInput?: (input: CanonicalGenerationInput) => void;
+  /** 可由 PromptBar/Agent 传入；未提供时从当前 Draft 节点生成同一稳定意图投影。 */
+  promptIntent?: PromptIntent;
   getProject?: () => WorkflowProject | null;
   onProjectChange?: (project: WorkflowProject) => void | Promise<void>;
   saveHistory?: (payload: WorkflowHistoryPayload) => void | Promise<void>;
   createId?: () => string;
+  assets?: readonly WorkflowAssetReferenceInput[];
   loadMedia?: (storageKey: string) => Promise<Blob | null>;
   fetchMedia?: (href: string) => Promise<Blob>;
   ingestMedia?: (file: File) => Promise<WorkflowMediaRecord>;
@@ -62,6 +68,30 @@ function modeFor(node: WorkflowNode): WorkflowGenerationMode {
   return node.metadata.config?.mode || 'image';
 }
 
+async function materializeCanonicalReferences(
+  input: CanonicalGenerationInput,
+  runtime: WorkflowGenerationRuntime,
+  temporaryUrls: string[],
+  allowArtifactReference: boolean,
+): Promise<ProviderMaterializedReference[]> {
+  return Promise.all(input.references.map(async ({ resource, role, label, order }) => {
+    const kind = resource.kind as 'image' | 'video' | 'audio';
+    const href = await requireWorkflowResourceHref(resource, { loadMedia: runtime.loadMedia }, temporaryUrls, { allowArtifactReference });
+    return {
+      resourceId: resource.resourceId,
+      type: kind,
+      href,
+      artifactRef: resource.artifactRef,
+      mimeType: resource.mimeType,
+      label: label || resource.title,
+      sourceName: resource.title,
+      elementId: resource.sourceNodeId,
+      role,
+      order,
+    };
+  }));
+}
+
 function patchInitiator(project: WorkflowProject, nodeId: string, metadata: Record<string, unknown>): WorkflowProject {
   return { ...project, nodes: project.nodes.map(node => node.id === nodeId ? { ...node, metadata: { ...node.metadata, ...metadata } } : node) };
 }
@@ -83,17 +113,6 @@ async function toDataUrl(blob: Blob): Promise<string> {
     reader.onerror = () => reject(reader.error || new Error('无法读取生成结果'));
     reader.readAsDataURL(blob);
   });
-}
-
-async function resolveMediaHref(node: WorkflowNode, runtime: WorkflowGenerationRuntime, cleanup: string[]) {
-  if (node.metadata.storageKey) {
-    const blob = await (runtime.loadMedia || workflowMediaStorage.get)(node.metadata.storageKey);
-    if (!blob) return null;
-    const href = URL.createObjectURL(blob);
-    cleanup.push(href);
-    return href;
-  }
-  return node.metadata.href || null;
 }
 
 async function mediaResult(result: Extract<UnifiedIgnitionResult, { ok: true }>, mode: 'image' | 'video', runtime: WorkflowGenerationRuntime) {
@@ -142,7 +161,7 @@ export async function runWorkflowGeneration(project: WorkflowProject, nodeId: st
 
   cancelWorkflowGeneration(project.id, nodeId);
   const key = requestKey(project.id, nodeId);
-  const requestId = nanoid();
+  const requestId = runtime.runId || nanoid();
   const controller = new AbortController();
   activeRequests.set(key, { requestId, controller, runtime });
   let current = patchInitiator(canonical(runtime, project), nodeId, { status: 'loading', error: undefined, progress: 0, generationRequestId: requestId, generationStartedAt: Date.now(), generationMessage: undefined });
@@ -170,25 +189,21 @@ export async function runWorkflowGeneration(project: WorkflowProject, nodeId: st
       throw new Error(`Workflow ${mode === 'video' ? '视频' : '图片'}生成仅支持平台预设产品模型，请重新选择模型。`);
     }
     const selectionRef = productModel?.id || modelRef;
+    const source = canonical(runtime, current);
+    const promptIntent = runtime.promptIntent?.targetNodeId === initiating.id
+      ? runtime.promptIntent
+      : promptIntentFromNode(initiating, 'generate');
+    const resolvedInputs = resolveWorkflowInputs(initiating, source.nodes, source.connections, { assets: runtime.assets, promptIntent });
     let productMode: ProductModelMode = (config.submode as ProductModelMode | undefined)
       || (mode === 'video' ? 'text-to-video' : 'text-to-image');
-    // 未显式选择 submode 时，只根据 PromptBar 中真正 @ 提及的输入切换模式；普通连线不能偷偷改变 Provider 契约。
+    // 未显式选择 submode 时，只从同一份 ResolvedNodeInputs 推导输入模式。
     if (!config.submode && productModel) {
-      const earlySource = canonical(runtime, current);
-      const earlyInputs = getWorkflowInputNodes(initiating, earlySource.nodes, earlySource.connections);
-      const earlyMentionedIds = filterWorkflowInputIds(resolveWorkflowMentionIds(
-        initiating.metadata.prompt || '',
-        initiating.metadata.mentionedNodeIds || [],
-        toWorkflowMentionItems(earlyInputs),
-      ), initiating.id, earlySource.connections);
-      const earlyMedia = earlyMentionedIds
-        .map(id => earlySource.nodes.find(node => node.id === id))
-        .filter((node): node is WorkflowNode => Boolean(node && (node.type === 'image' || node.type === 'video' || node.type === 'audio')));
-      if (mode === 'image' && earlyMedia.some(node => node.type === 'image') && productModel.capabilities.modes.includes('image-to-image')) {
+      const earlyMedia = resolvedInputs.references.map(reference => reference.resource);
+      if (mode === 'image' && earlyMedia.some(resource => resource.kind === 'image') && productModel.capabilities.modes.includes('image-to-image')) {
         productMode = 'image-to-image';
       } else if (mode === 'video' && earlyMedia.length > 0) {
-        const imageCount = earlyMedia.filter(node => node.type === 'image').length;
-        const needsGeneralReference = earlyMedia.some(node => node.type === 'video' || node.type === 'audio') || imageCount > 1;
+        const imageCount = earlyMedia.filter(resource => resource.kind === 'image').length;
+        const needsGeneralReference = earlyMedia.some(resource => resource.kind === 'video' || resource.kind === 'audio') || imageCount > 1;
         if (needsGeneralReference && productModel.capabilities.modes.includes('reference-to-video')) productMode = 'reference-to-video';
         else if (imageCount > 0 && productModel.capabilities.modes.includes('image-to-video')) productMode = 'image-to-video';
       }
@@ -200,14 +215,15 @@ export async function runWorkflowGeneration(project: WorkflowProject, nodeId: st
       runtime.userApiKeys,
       runtime.confirmRouteFallback,
     );
-    if (mode === 'video' && productModel && config.submode) {
+    const providerExtension = resolveProviderGenerationExtension(resolved.key);
+    if (providerExtension.kind === 'official' && mode === 'video' && productModel && config.submode) {
       const routedModes = getRoutedVideoModes(productModel.id, resolved.key.provider, resolved.routeId);
       if (!routedModes.includes(config.submode as ProductModelMode)) {
         const label = config.submode === 'first-last-frame' ? '首尾帧' : config.submode === 'reference-to-video' ? '全能参考' : config.submode === 'image-to-video' ? '图生视频' : '文生视频';
         throw new Error(`当前 API 线路不支持${label}，请更换生成方式或重新映射支持该能力的 Provider。`);
       }
     }
-    if (mode === 'image' && productModel && config.submode) {
+    if (providerExtension.kind === 'official' && mode === 'image' && productModel && config.submode) {
       const routedModes = getRoutedImageModes(productModel.id, resolved.key.provider, resolved.routeId);
       if (!routedModes.includes(config.submode as ProductModelMode)) {
         const label = config.submode === 'image-to-image' ? '图生图' : '文生图';
@@ -215,23 +231,15 @@ export async function runWorkflowGeneration(project: WorkflowProject, nodeId: st
       }
     }
 
-    const source = canonical(runtime, current);
-    const upstream = getUpstreamData(initiating, source.nodes, source.connections);
-    const inputNodes = getWorkflowInputNodes(initiating, source.nodes, source.connections);
-    const mentionedIds = filterWorkflowInputIds(resolveWorkflowMentionIds(
-      initiating.metadata.prompt || '',
-      initiating.metadata.mentionedNodeIds || [],
-      toWorkflowMentionItems(inputNodes),
-    ), initiating.id, source.connections);
-    const relatedIds = mentionedIds;
-    const related = relatedIds.map(id => source.nodes.find(node => node.id === id)).filter((node): node is WorkflowNode => Boolean(node));
-    const mediaLabels = mode === 'text' ? related.filter(node => node.type === 'image' || node.type === 'video' || node.type === 'audio').map(node => `[参考媒体: ${node.title} (${node.type})]`) : [];
+    const mediaLabels = mode === 'text'
+      ? resolvedInputs.resources.filter(resource => resource.kind !== 'text').map(resource => `[参考媒体: ${resource.title} (${resource.kind})]`)
+      : [];
     const stylePreset = config.styleId ? STYLE_PRESETS.find(s => s.id === config.styleId) : undefined;
     const cameraPrefix = config.camera ? [config.camera.camera, config.camera.lens, config.camera.focalLength, config.camera.aperture].filter(Boolean).join(', ') : '';
     const movement = mode === 'video' && config.cameraMovement ? CAMERA_MOVEMENTS.find(m => m.id === config.cameraMovement) : undefined;
     const movementKeyword = movement?.promptKeyword || (mode === 'video' ? config.customMovement : '');
     const promptPrefix = [stylePreset?.promptPrefix, cameraPrefix, movementKeyword].filter(Boolean).join(', ');
-    const prompt = [promptPrefix, initiating.metadata.prompt, initiating.metadata.content, ...upstream.textContents, ...mediaLabels]
+    const prompt = [promptPrefix, resolvedInputs.prompt, ...resolvedInputs.texts.map(resource => resource.text), ...mediaLabels]
       .map(value => value?.trim()).filter(Boolean).join('\n\n');
     if (!prompt) throw new Error('请填写提示词，或连接一个包含文本的上游节点。');
 
@@ -254,68 +262,60 @@ export async function runWorkflowGeneration(project: WorkflowProject, nodeId: st
     }
 
     const capability = getGenerationCapability(runtime.userApiKeys, mode, selectionRef);
-    const promptReferenceAliases = getPromptReferenceAliases(initiating.metadata.richTextDocument);
-    const mediaSources = [...new Map(related.filter(node => node.type === 'image' || node.type === 'video' || node.type === 'audio').map(node => [node.id, node])).values()];
-    const routeReferenceLimits = (mode === 'video' || mode === 'image') && productModel
-      ? getEffectiveReferenceLimits(productModel.id, productMode, { provider: resolved.key.provider, routeId: resolved.routeId })
-      : null;
-    if (routeReferenceLimits) {
-      const issue = explainReferenceCompatibility(productModel!.id, productMode, mediaSources.map(node => node.type as 'image' | 'video' | 'audio'), { provider: resolved.key.provider, routeId: resolved.routeId });
-      if (issue) throw new Error(issue);
-    }
-    const autoReferences = (await Promise.all(mediaSources.map(async node => {
-      const kind = node.type as 'image' | 'video' | 'audio';
-      if (routeReferenceLimits ? routeReferenceLimits[kind] === 0 : !capability.supportsReferences.includes(kind)) return null;
-      const href = await resolveMediaHref(node, runtime, temporaryUrls);
-      return href ? { type: node.type as 'image' | 'video' | 'audio', href, mimeType: node.metadata.mimeType, label: promptReferenceAliases[node.id] || node.title, sourceName: node.title, elementId: node.id, slotRole: node.type === 'video' ? 'reference_video' as const : node.type === 'audio' ? 'reference_audio' as const : 'reference_image' as const } : null;
-    }))).filter(Boolean) as NonNullable<UnifiedIgnitionInput['references']>;
-
-    const seedanceRefs = filterSeedanceReferences(config.seedanceRefs, initiating.id, source.connections);
-    const seedanceRefIds = [
-      ...seedanceRefs.imageRefs,
-      ...seedanceRefs.videoRefs,
-      ...seedanceRefs.audioRefs,
-    ];
-    const seedanceReferences = seedanceRefIds.length > 0 ? (await Promise.all(seedanceRefIds.map(async id => {
-      const node = source.nodes.find(n => n.id === id);
-      if (!node) return null;
-      const href = await resolveMediaHref(node, runtime, temporaryUrls);
-      return href ? { type: node.type as 'image' | 'video' | 'audio', href, mimeType: node.metadata.mimeType, label: promptReferenceAliases[node.id] || node.title, sourceName: node.title, elementId: node.id, slotRole: node.type === 'video' ? 'reference_video' as const : node.type === 'audio' ? 'reference_audio' as const : 'reference_image' as const } : null;
-    }))).filter(Boolean) as NonNullable<UnifiedIgnitionInput['references']> : [];
-
-    const seenIds = new Set<string>();
-    const deduped = [...seedanceReferences, ...autoReferences].filter(ref => {
-      if (!ref.elementId) return true;
-      if (seenIds.has(ref.elementId)) return false;
-      seenIds.add(ref.elementId);
-      return true;
-    });
-    // 按 PromptBar 参考图 chip 面板的拖拽顺序重排 Provider 引用，决定首帧/尾帧等角色分配
-    let references = sortReferencesByOrder(deduped, ref => ref.elementId || '', initiating.metadata.imageReferenceOrder);
-    if (mode === 'video' && config.submode) {
-      const imageReferences = references.filter(reference => reference.type === 'image');
-      if (config.submode === 'image-to-video' && imageReferences.length < 1) throw new Error('图生视频至少需要引用 1 张图片。');
-      if (config.submode === 'reference-to-video' && references.length < 1) throw new Error('全能参考至少需要引用 1 个媒体节点。');
-      if (config.submode === 'first-last-frame' && imageReferences.length < 2) throw new Error('首尾帧模式需要按顺序引用 2 张图片。');
-      if (config.submode === 'text-to-video') references = [];
-      if (config.submode === 'image-to-video') references = imageReferences.map((reference, index) => ({ ...reference, slotRole: index === 0 ? 'first_frame' : 'reference_image' }));
-      if (config.submode === 'first-last-frame') references = [
-        { ...imageReferences[0], slotRole: 'first_frame' },
-        { ...imageReferences[1], slotRole: 'last_frame' },
-      ];
-      if (config.submode === 'reference-to-video') references = references.map(reference => ({
-        ...reference,
-        slotRole: reference.type === 'video' ? 'reference_video' : reference.type === 'audio' ? 'reference_audio' : 'reference_image',
-      }));
-    }
-    if (mode === 'image') {
-      if (productMode === 'image-to-image') {
-        if (references.length < 1) throw new Error('图生图至少需要引用 1 个媒体节点。');
-        references = references.filter(reference => reference.type === 'image').map(reference => ({ ...reference, slotRole: 'reference_image' as const }));
-      } else {
-        references = [];
+    let effectiveAspectRatio = config.aspectRatio as UnifiedIgnitionInput['aspectRatio'];
+    if (config.preserveReferenceAspectRatio && resolvedInputs.references.some(reference => reference.resource.kind === 'image' && reference.resource.available)) {
+      const firstImageReference = resolvedInputs.references.find(reference => reference.resource.kind === 'image' && reference.resource.available);
+      if (firstImageReference) {
+        const refNode = source.nodes.find(node => node.id === firstImageReference.resource.sourceNodeId);
+        const naturalWidth = refNode?.metadata.naturalWidth;
+        const naturalHeight = refNode?.metadata.naturalHeight;
+        if (naturalWidth && naturalHeight && naturalHeight > 0) {
+          const targetRatio = naturalWidth / naturalHeight;
+          const candidates = (capability.aspectRatios || []).filter(ratio => ratio !== 'adaptive');
+          const matched = candidates.length > 0
+            ? candidates.reduce<{ ratio: string; diff: number }>((best, ratio) => {
+                const [w, h] = ratio.split(':').map(Number);
+                if (!w || !h) return best;
+                const diff = Math.abs(w / h - targetRatio);
+                return diff < best.diff ? { ratio, diff } : best;
+              }, { ratio: candidates[0], diff: Infinity }).ratio
+            : undefined;
+          if (matched) effectiveAspectRatio = matched as UnifiedIgnitionInput['aspectRatio'];
+        }
       }
     }
+    const canonicalInput = buildCanonicalGenerationInput({
+      targetNode: initiating,
+      inputs: resolvedInputs,
+      prompt: effectivePrompt,
+      mode,
+      submode: productMode,
+      parameters: {
+        modelId: selectionRef,
+        aspectRatio: effectiveAspectRatio,
+        durationSec: config.durationSec,
+        resolution: config.resolution,
+        quality: config.quality,
+        generateAudio: config.generateAudio,
+        watermark: config.watermark,
+      },
+    });
+    const inputError = canonicalInput.diagnostics.find(item => item.severity === 'error');
+    if (inputError) throw new Error(inputError.message);
+    runtime.onCanonicalInput?.(canonicalInput);
+    const providerContext = {
+      provider: resolved.key.provider,
+      routeId: resolved.routeId,
+      productModelId: selectionRef,
+    };
+    if (mode !== 'text') {
+      const providerValidation = providerExtension.generation.validate(canonicalInput, providerContext);
+      if (!providerValidation.ok) throw new Error(providerValidation.errors[0]?.message || '当前 Provider 线路不支持该生成输入。');
+    }
+    const materializedReferences = await materializeCanonicalReferences(canonicalInput, runtime, temporaryUrls, Boolean(resolved.key.runtimeManaged));
+    const providerRequest = providerExtension.generation.serialize(canonicalInput, materializedReferences, providerContext);
+    const generationSubmode = providerRequest.generationSubmode;
+    const references = providerRequest.references;
 
     const createId = runtime.createId || nanoid;
     if (isImageOperation) {
@@ -378,39 +378,18 @@ export async function runWorkflowGeneration(project: WorkflowProject, nodeId: st
         });
         await publish(runtime, current);
       }
-      // 保留参考图原始比例：图生图 / 图生视频开启后，根据第一张图片参考节点的 naturalWidth/Height 计算最接近的支持比例，覆盖用户在 PromptBar 中选择的比例。
-      let effectiveAspectRatio = config.aspectRatio as UnifiedIgnitionInput['aspectRatio'];
-      if (config.preserveReferenceAspectRatio && references.some(ref => ref.type === 'image' && ref.href)) {
-        const firstImageRef = references.find(ref => ref.type === 'image' && ref.href);
-        if (firstImageRef && firstImageRef.elementId) {
-          const refNode = source.nodes.find(node => node.id === firstImageRef.elementId);
-          const naturalWidth = refNode?.metadata.naturalWidth;
-          const naturalHeight = refNode?.metadata.naturalHeight;
-          if (naturalWidth && naturalHeight && naturalHeight > 0) {
-            const targetRatio = naturalWidth / naturalHeight;
-            const candidates = (capability.aspectRatios || []).filter(ratio => ratio !== 'adaptive');
-            const matched = candidates.length > 0
-              ? candidates.reduce<{ ratio: string; diff: number }>((best, ratio) => {
-                  const [w, h] = ratio.split(':').map(Number);
-                  if (!w || !h) return best;
-                  const diff = Math.abs(w / h - targetRatio);
-                  return diff < best.diff ? { ratio, diff } : best;
-                }, { ratio: candidates[0], diff: Infinity }).ratio
-              : undefined;
-            if (matched) effectiveAspectRatio = matched as UnifiedIgnitionInput['aspectRatio'];
-          }
-        }
-      }
-
       let result: UnifiedIgnitionResult;
       try {
         const provider = (runtime.executeMedia || executeUnifiedIgnition)({
           elementId: nodeId, prompt: effectivePrompt, modelId: resolved.routeId, apiKeyPayload: resolved.key,
-          productModelId: selectionRef,
-          generationSubmode: config.submode,
-          aspectRatio: effectiveAspectRatio, durationSec: config.durationSec,
-          resolution: config.resolution, quality: config.quality, generateAudio: config.generateAudio, watermark: config.watermark,
+          productModelId: providerRequest.productModelId,
+          generationCapability: providerRequest.capability,
+          generationSubmode,
+          aspectRatio: providerRequest.aspectRatio as UnifiedIgnitionInput['aspectRatio'], durationSec: providerRequest.durationSec,
+          resolution: providerRequest.resolution, quality: providerRequest.quality, generateAudio: providerRequest.generateAudio, watermark: providerRequest.watermark,
           webSearch: config.webSearch, realPersonCheck: config.realPersonCheck, references,
+          canonicalInput,
+          materializedReferences,
           signal: controller.signal,
            onProgress: (progress, message) => {
             if (!stillActive()) return;
@@ -526,7 +505,12 @@ export async function runWorkflowGeneration(project: WorkflowProject, nodeId: st
             : node),
         };
         if (previousStorageKey && previousStorageKey !== record.storageKey) {
-          await discardWorkflowMediaRecord(previousStorageKey);
+          // 旧图可能同时被隐藏输入、克隆节点或撤销历史引用（storageKey 无引用计数），
+          // 只有确认无任何其它持有者时才物理删除，否则交给 prune 按可达性回收。
+          const latestProject = canonical(runtime, current);
+          if (!isWorkflowMediaKeyReferenced(previousStorageKey, [latestProject])) {
+            await discardWorkflowMediaRecord(previousStorageKey);
+          }
         }
         // 新生成结果在 commit success 之前必须留在 pendingReferences 里保活：
         // 非批量路径会把新 storageKey 提前写进 `current`（节点状态仍是 loading），
