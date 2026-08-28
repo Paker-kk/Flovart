@@ -95,8 +95,6 @@ export async function createWorkflowOperationNode(input: WorkflowOperationRecipe
   const node = createWorkflowNode(input.id, 'operation', input.position, {
     prompt: recipe.promptDocument.text,
     richTextDocument: recipe.promptDocument.richTextDocument,
-    mentionedNodeIds: recipe.inputBindings.map(binding => binding.sourceNodeId),
-    imageReferenceOrder: recipe.inputBindings.filter(binding => binding.role !== 'prompt_context').map(binding => binding.sourceNodeId),
     config,
     status: 'idle',
     operation: { capabilityId: input.capabilityId, recipe, takes: [] },
@@ -144,8 +142,6 @@ export function updateWorkflowOperationRecipe(
       ...node.metadata,
       prompt: nextRecipe.promptDocument.text,
       richTextDocument: nextRecipe.promptDocument.richTextDocument,
-      mentionedNodeIds: inputBindings.map(binding => binding.sourceNodeId),
-      imageReferenceOrder: inputBindings.filter(binding => binding.role !== 'prompt_context').map(binding => binding.sourceNodeId),
       config: capability.id === 'image.generate@1'
         ? { ...node.metadata.config, ...parameters, mode: capability.mediaType, modelId: nextRecipe.productModelId }
         : { ...node.metadata.config, operationParameters: parameters, mode: capability.mediaType, modelId: nextRecipe.productModelId },
@@ -258,26 +254,8 @@ export function updateWorkflowOperationFromMetadata(
   const operation = node.metadata.operation;
   if (!operation) return { ...node, metadata: { ...node.metadata, ...patch, config: patch.config ? { ...node.metadata.config, ...patch.config } : node.metadata.config } };
   const config = patch.config ? { ...node.metadata.config, ...patch.config } : node.metadata.config;
-  const inputBindings = patch.mentionedNodeIds === undefined && patch.imageReferenceOrder === undefined
-    ? operation.recipe.inputBindings
-    : (() => {
-        const mentioned = patch.mentionedNodeIds ?? node.metadata.mentionedNodeIds ?? operation.recipe.inputBindings.map(binding => binding.sourceNodeId);
-        const mentionedIds = new Set(mentioned);
-        const mediaOrder = patch.imageReferenceOrder ?? node.metadata.imageReferenceOrder ?? operation.recipe.inputBindings
-          .filter(binding => binding.role !== 'prompt_context')
-          .map(binding => binding.sourceNodeId);
-        const existing = new Map(operation.recipe.inputBindings.map(binding => [binding.sourceNodeId, binding]));
-        const contexts = operation.recipe.inputBindings.filter(binding => binding.role === 'prompt_context'
-          && (patch.mentionedNodeIds === undefined || mentionedIds.has(binding.sourceNodeId)));
-        const orderedMediaIds = [...new Set([
-          ...mediaOrder.filter(id => mentionedIds.has(id)),
-          ...mentioned.filter(id => existing.get(id)?.role !== 'prompt_context'),
-        ])];
-        return [
-          ...contexts,
-          ...orderedMediaIds.map(sourceNodeId => existing.get(sourceNodeId)).filter((binding): binding is WorkflowOperationInputBinding => Boolean(binding)),
-        ].map((binding, index) => ({ ...binding, order: index }));
-      })();
+  // Input Bindings 只由连接变更（connect/delete/reorder）驱动，metadata 补丁不携带引用数组
+  const inputBindings = operation.recipe.inputBindings;
   const parameters = operation.capabilityId === 'image.generate@1'
     ? compactRecord(generationParameters({ ...node, metadata: { ...node.metadata, config } }))
     : config?.operationParameters || operation.recipe.parameters;
@@ -298,8 +276,6 @@ export function updateWorkflowOperationFromMetadata(
       ...patch,
       prompt: updated.metadata.operation?.recipe.promptDocument.text,
       richTextDocument: updated.metadata.operation?.recipe.promptDocument.richTextDocument,
-      mentionedNodeIds: updated.metadata.operation?.recipe.inputBindings.map(binding => binding.sourceNodeId),
-      imageReferenceOrder: updated.metadata.operation?.recipe.inputBindings.filter(binding => binding.role !== 'prompt_context').map(binding => binding.sourceNodeId),
       config: updated.metadata.config,
       operation: updated.metadata.operation,
     },
@@ -338,8 +314,7 @@ export async function ensureWorkflowImageGenerateOperation(input: {
     .filter(connection => connection.toNodeId === source.id)
     .map(connection => input.project.nodes.find(node => node.id === connection.fromNodeId))
     .filter((node): node is WorkflowNode => Boolean(node));
-  const order = source.metadata.imageReferenceOrder || upstream.map(node => node.id);
-  const orderIndex = new Map(order.map((id, index) => [id, index]));
+  const orderIndex = new Map(upstream.map((node, index) => [node.id, index]));
   const candidates = sourceHasMedia
     ? [{ ...source, id: hiddenInputId! } as WorkflowNode]
     : upstream;

@@ -2,18 +2,16 @@ import { BookOpen } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { AssetFolder, AssetLibrary, UserApiKey, GenerationMode, PromptEnhanceMode, PromptEnhanceResult } from '../../types';
 import { PromptBar } from '../PromptBar';
-import type { MentionData } from '../MediaMentionExtension';
+import { extractMentions, type MentionData } from '../MediaMentionExtension';
 import type { AssetSuggestion } from '../MentionList';
 import type { ReferencePickerWorkflowItem } from '../studio/AssetReferencePicker';
 import { resolveWorkflowDefaultModel } from '../../services/workflowPromptPolicy';
 import { getWorkflowOperationCapability, parseWorkflowOperationParameters, type WorkflowOperationCapability } from './operationRegistry';
 import { createPromptIntent, type PromptIntent, type PromptIntentAction } from './promptIntent';
 import {
-  applyImageReferenceOrder,
   filterWorkflowInputIds,
   getOrderedImageReferences,
   getWorkflowInputNodes,
-  reconcileImageReferenceOrder,
   resolveWorkflowMentionIds,
   toImageReferenceChips,
   toWorkflowMentionItems,
@@ -68,7 +66,7 @@ const modeFor = (node: WorkflowNode, config?: WorkflowGenerationConfig): Generat
   return mode === 'text' || mode === 'video' ? mode : 'image';
 };
 
-export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme, language, userApiKeys, dynamicModelOptions, onOpenSettings, onEnhancePrompt, isEnhancingPrompt, onChange, onPromptIntent, onRun, onStop, focusSignal, onDisconnectReference, assetFolders, assetItems, assetLibrary, onSelectAsset, onSelectWorkflowReference, onAddReferenceFiles, onResolvePastedMentions, onPasteUnresolvedMentions, skillEnabled, width = 880 }: {
+export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme, language, userApiKeys, dynamicModelOptions, onOpenSettings, onEnhancePrompt, isEnhancingPrompt, onChange, onPromptIntent, onRun, onStop, focusSignal, onDisconnectReference, onReorderReference, assetFolders, assetItems, assetLibrary, onSelectAsset, onSelectWorkflowReference, onAddReferenceFiles, onResolvePastedMentions, onPasteUnresolvedMentions, skillEnabled, width = 880 }: {
   node: WorkflowNode;
   nodes: WorkflowNode[];
   connections?: WorkflowConnection[];
@@ -88,6 +86,8 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
   focusSignal?: number;
     /** 断开当前节点到指定上游节点的连线（由 Workflow 层执行 applyOps delete_connections） */
   onDisconnectReference?: (fromNodeId: string) => void;
+  /** 拖拽排序 chip 时以新的节点顺序重排连接（由 Workflow 层执行 reorder_connections op） */
+  onReorderReference?: (nextIds: string[]) => void;
   /** 个人素材库根文件夹（扁平数组，parentId=null 表示根级） */
   assetFolders?: AssetFolder[];
   /** 个人素材库条目（轻量索引，不含原图 dataUrl） */
@@ -122,6 +122,11 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
     ...getOrderedImageReferences(node, nodes, connections),
     ...getWorkflowInputNodes(node, nodes, connections).filter(item => item.type === 'text'),
   ]);
+  const keepConnectedMentions = (plainText: string, ids: string[]) => {
+    const resolved = filterWorkflowInputIds(resolveWorkflowMentionIds(plainText, ids, mentionItems), node.id, connections);
+    const operationInputIds = node.metadata.operation?.recipe.inputBindings.map(binding => binding.sourceNodeId) || [];
+    return [...new Set([...operationInputIds, ...resolved])];
+  };
   const allowedReferenceTypes = operationCapability
     ? new Set(operationCapability.inputRoles.flatMap(input => input.nodeTypes))
     : null;
@@ -137,10 +142,8 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
     description: item.metadata.content?.trim().slice(0, 36) || item.type,
   }));
   const orderedImageRefs = getOrderedImageReferences(node, nodes, connections);
-  const referenceChips = toImageReferenceChips(orderedImageRefs, node.metadata.mentionedNodeIds);
-  const reconciledOrder = reconcileImageReferenceOrder(node.metadata.imageReferenceOrder, orderedImageRefs);
-  const currentOrder = node.metadata.imageReferenceOrder || [];
-  const orderDrifted = reconciledOrder.length !== currentOrder.length || reconciledOrder.some((id, i) => id !== currentOrder[i]);
+  const documentMentionIds = node.metadata.richTextDocument ? extractMentions(node.metadata.richTextDocument).map(item => item.id) : [];
+  const referenceChips = toImageReferenceChips(orderedImageRefs, keepConnectedMentions(node.metadata.prompt || '', documentMentionIds));
   const lastPromptIntentRef = useRef<PromptIntent | null>(null);
 
   const promptMention = (id: string) => {
@@ -165,39 +168,29 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
     onPromptIntent?.(intent);
   };
 
-  // 连线增删或顺序失效时，自动同步 imageReferenceOrder 到节点 metadata（新增节点追加在尾部，断开的 id 被剔除）
-  useEffect(() => {
-    if (!orderDrifted) return;
-    onChange({ imageReferenceOrder: reconciledOrder });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderDrifted, reconciledOrder.join('|')]);
-
   const handleReorder = (nextIds: string[]) => {
-    const next = applyImageReferenceOrder(node.metadata.imageReferenceOrder, nextIds, orderedImageRefs);
-    if (next) {
-      emitPromptIntent(node.metadata.prompt || '', next, 'reorder_reference');
-      onChange({ imageReferenceOrder: next });
-    }
+    emitPromptIntent(node.metadata.prompt || '', nextIds, 'reorder_reference');
+    onReorderReference?.(nextIds);
   };
 
   const handleRemoveReference = (fromNodeId: string) => {
-    const remainingOrder = (node.metadata.imageReferenceOrder || orderedImageRefs.map(item => item.id)).filter(id => id !== fromNodeId);
-    const remainingMentions = (node.metadata.mentionedNodeIds || []).filter(id => id !== fromNodeId);
-    emitPromptIntent(node.metadata.prompt || '', remainingMentions, 'remove_reference');
-    onChange({ imageReferenceOrder: remainingOrder, mentionedNodeIds: remainingMentions });
+    const remaining = keepConnectedMentions(node.metadata.prompt || '', documentMentionIds).filter(id => id !== fromNodeId);
+    emitPromptIntent(node.metadata.prompt || '', remaining, 'remove_reference');
     onDisconnectReference?.(fromNodeId);
   };
 
   const handlePromptInput = (plainText: string, document: Record<string, unknown>, mentionedElementIds: string[]) => {
-    const mentionedNodeIds = keepConnectedMentions(plainText, mentionedElementIds);
-    emitPromptIntent(plainText, mentionedNodeIds);
-    onChange({ prompt: plainText, richTextDocument: document as typeof node.metadata.richTextDocument, mentionedNodeIds });
+    const mentionIds = keepConnectedMentions(plainText, mentionedElementIds);
+    emitPromptIntent(plainText, mentionIds);
+    onChange({ prompt: plainText, richTextDocument: document as typeof node.metadata.richTextDocument });
   };
   const latestPromptIntent = () => {
     const previous = lastPromptIntentRef.current?.targetNodeId === node.id ? lastPromptIntentRef.current : undefined;
     return {
       text: previous?.text ?? node.metadata.prompt ?? '',
-      ids: previous ? previous.mentions.map(mention => mention.id || mention.assetId).filter((id): id is string => Boolean(id)) : (node.metadata.mentionedNodeIds || []),
+      ids: previous
+        ? previous.mentions.map(mention => mention.id || mention.assetId).filter((id): id is string => Boolean(id))
+        : keepConnectedMentions(node.metadata.prompt || '', documentMentionIds),
     };
   };
   const handleGenerate = () => {
@@ -240,11 +233,6 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
   // The model is filled once; subsequent user selection remains authoritative.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.modelId, defaultMappedModelId]);
-  const keepConnectedMentions = (plainText: string, ids: string[]) => {
-    const resolved = filterWorkflowInputIds(resolveWorkflowMentionIds(plainText, ids, mentionItems), node.id, connections);
-    const operationInputIds = node.metadata.operation?.recipe.inputBindings.map(binding => binding.sourceNodeId) || [];
-    return [...new Set([...operationInputIds, ...resolved])];
-  };
   const translatedPrompts = t('quickPrompts');
   const prompts = Array.isArray(translatedPrompts) ? translatedPrompts.filter((item): item is { name: string; value: string } => Boolean(item) && typeof item.name === 'string' && typeof item.value === 'string') : [];
   const promptAssets = prompts.map((item, index) => promptAssetFromQuickPrompt({ id: `quick:${index}`, title: item.name, text: item.value, modality: generationMode === 'keyframe' ? 'image' : generationMode }));
@@ -272,15 +260,11 @@ export function WorkflowNodePromptBar({ node, nodes, connections = [], t, theme,
         prompt={node.metadata.prompt || ''}
         promptDocument={node.metadata.richTextDocument}
         setPrompt={prompt => handlePromptInput(prompt, { type: 'doc', content: prompt ? [{ type: 'paragraph', content: [{ type: 'text', text: prompt }] }] : [] }, [])}
-        onPromptInputChange={({ plainText, document, mentionedElementIds }) => {
-          const mentionedNodeIds = keepConnectedMentions(plainText, mentionedElementIds);
-          const currentMentionIds = node.metadata.mentionedNodeIds || [];
-          const sameMentions = mentionedNodeIds.length === currentMentionIds.length
-            && mentionedNodeIds.every((id, index) => id === currentMentionIds[index]);
+        onPromptInputChange={({ plainText, document }) => {
           const sameDocument = !node.metadata.richTextDocument
             || JSON.stringify(document) === JSON.stringify(node.metadata.richTextDocument);
-          if (plainText === (node.metadata.prompt || '') && sameMentions && sameDocument) return;
-          handlePromptInput(plainText, document, mentionedElementIds);
+          if (plainText === (node.metadata.prompt || '') && sameDocument) return;
+          handlePromptInput(plainText, document, extractMentions(document).map(item => item.id));
         }}
         onResolvePastedMentions={onResolvePastedMentions}
         onPasteUnresolvedMentions={onPasteUnresolvedMentions}

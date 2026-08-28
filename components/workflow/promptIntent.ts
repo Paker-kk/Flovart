@@ -76,7 +76,8 @@ export function promptIntentFromNode(node: WorkflowNode, requestedAction: Prompt
     text: node.metadata.prompt || node.metadata.content || '',
     mentions: [
       ...documentMentions(node.metadata.richTextDocument),
-      ...(node.metadata.mentionedNodeIds || []).map(id => ({ id })),
+      // Operation 节点的全部输入绑定始终参与生成，不作为文本选择过滤
+      ...(node.metadata.operation?.recipe.inputBindings || []).map(binding => ({ id: binding.sourceNodeId })),
     ],
     requestedAction,
   });

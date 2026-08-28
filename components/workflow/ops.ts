@@ -2,7 +2,7 @@ import { nanoid } from 'nanoid';
 import { resolveWorkflowInputs } from './inputResolver';
 import { getWorkflowOperationInputRoleForNodeType, validateWorkflowOperationInputBindings } from './operationRegistry';
 import { createWorkflowOperationInputBinding, updateWorkflowOperationFromMetadata, updateWorkflowOperationRecipe, workflowOperationInputConnections } from './operations';
-import type { WorkflowConnection, WorkflowNode, WorkflowOp, WorkflowOperationInputRole, WorkflowSnapshot } from './types';
+import type { WorkflowConnection, WorkflowNode, WorkflowOp, WorkflowOperationInputBinding, WorkflowOperationInputRole, WorkflowSnapshot } from './types';
 
 export interface WorkflowOpResult {
   snapshot: WorkflowSnapshot;
@@ -292,13 +292,33 @@ export function applyWorkflowOps(initial: WorkflowSnapshot, ops: WorkflowOp[]): 
       };
       return;
     }
-    if (op.type === 'reorder_nodes') {
-      const nodes = new Map(snapshot.nodes.map(node => [node.id, node]));
-      if (op.ids.length !== nodes.size || new Set(op.ids).size !== nodes.size || op.ids.some(id => !nodes.has(id))) {
-        reject(opIndex, op, '节点顺序必须完整且不能重复');
+    if (op.type === 'reorder_connections') {
+      const byId = new Map(snapshot.connections.map(connection => [connection.id, connection]));
+      if (op.ids.length !== byId.size || new Set(op.ids).size !== byId.size || op.ids.some(id => !byId.has(id))) {
+        reject(opIndex, op, '连接顺序必须完整且不能重复');
         return;
       }
-      snapshot = { ...snapshot, nodes: op.ids.map(id => nodes.get(id)!) };
+      const reordered = op.ids.map(id => byId.get(id)!);
+      // Operation 节点：bindings 顺序跟随连接数组顺序，role 保持不变
+      const sourceOrderByTarget = new Map<string, string[]>();
+      for (const connection of reordered) {
+        const sources = sourceOrderByTarget.get(connection.toNodeId) || [];
+        sources.push(connection.fromNodeId);
+        sourceOrderByTarget.set(connection.toNodeId, sources);
+      }
+      let nodes = snapshot.nodes;
+      for (const node of snapshot.nodes) {
+        const operation = node.metadata.operation;
+        const orderedSources = sourceOrderByTarget.get(node.id);
+        if (!operation || !orderedSources) continue;
+        const existing = new Map(operation.recipe.inputBindings.map(binding => [binding.sourceNodeId, binding]));
+        const reorderedBindings = orderedSources
+          .map(sourceNodeId => existing.get(sourceNodeId))
+          .filter((binding): binding is WorkflowOperationInputBinding => Boolean(binding))
+          .map((binding, index) => ({ ...binding, order: index }));
+        nodes = nodes.map(item => item.id === node.id ? updateWorkflowOperationRecipe(item, { inputBindings: reorderedBindings }) : item);
+      }
+      snapshot = { ...snapshot, nodes, connections: reordered };
       return;
     }
     if (op.type === 'select_nodes') {

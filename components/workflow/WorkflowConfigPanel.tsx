@@ -1,6 +1,5 @@
 import { ChevronDown, Play } from 'lucide-react';
 import { createContext, useContext, useMemo, type CSSProperties, type ReactNode } from 'react';
-import { extractMentions } from '../MediaMentionExtension';
 import type { MentionItem } from '../MentionList';
 import RichPromptEditor from '../RichPromptEditor';
 import type { GenerationCapability, GenerationMode } from '../../services/generationCapabilities';
@@ -10,7 +9,7 @@ import { modelRefModelId } from '../../utils/modelRefs';
 import type { WorkflowConnection, WorkflowNode, WorkflowNodeMetadata, WorkflowRichPromptDocument } from './types';
 import type { StudioMediaItem } from '../studio/StudioMediaBrowser';
 import { CAMERA_MOVEMENTS, CAMERA_OPTIONS, STYLE_PRESETS } from './constants';
-import { EMPTY_SEEDANCE_REFERENCES, filterSeedanceReferences, filterWorkflowInputIds, getWorkflowInputNodes, toWorkflowMentionItems } from './references';
+import { EMPTY_SEEDANCE_REFERENCES, filterSeedanceReferences, getWorkflowInputNodes, toWorkflowMentionItems } from './references';
 import { SeedanceSlotPicker } from './SeedanceSlotPicker';
 
 type CapabilityResolver = (mode: GenerationMode, modelId?: string) => GenerationCapability;
@@ -66,7 +65,6 @@ export function WorkflowConfigPanel({ node, nodes, connections = [], onChange, o
   const inputNodes = nodes ? getWorkflowInputNodes(node, nodes, connections) : [];
   const mentionItems: MentionItem[] = toWorkflowMentionItems(inputNodes);
   const seedanceRefs = filterSeedanceReferences(config.seedanceRefs, node.id, connections);
-  const keepConnectedMentions = (ids: string[]) => filterWorkflowInputIds(ids, node.id, connections);
 
   return (
     <div data-workflow-overlay data-testid="workflow-config-panel" className="workflow-config" onPointerDown={event => event.stopPropagation()} onWheel={event => event.stopPropagation()}>
@@ -135,7 +133,7 @@ export function WorkflowConfigPanel({ node, nodes, connections = [], onChange, o
           initialDocument={node.metadata.richTextDocument}
           placeholder="输入提示词，按 @ 引用节点"
           onSubmit={onRun}
-          onTextChange={(prompt, richTextDocument) => onChange({ prompt, richTextDocument: richTextDocument as WorkflowRichPromptDocument, mentionedNodeIds: keepConnectedMentions(extractMentions(richTextDocument).map(item => item.id)) })}
+          onTextChange={(prompt, richTextDocument) => onChange({ prompt, richTextDocument: richTextDocument as WorkflowRichPromptDocument })}
         />
       </div> : <textarea value={node.metadata.prompt || ''} placeholder="输入提示词；上游文本会自动合并" onChange={event => onChange({ prompt: event.target.value })} />}
       {capability.resolutions.length > 0 && (

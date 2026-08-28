@@ -32,8 +32,6 @@ export function buildWorkflowPromptPasteOps({
   const ops: WorkflowDocumentOperation[] = [];
   const virtualNodes = [...nodes];
   const virtualConnections = [...connections];
-  const referenceOrder = [...(target.metadata.imageReferenceOrder || [])];
-  const mentionedNodeIds = [...(target.metadata.mentionedNodeIds || [])];
   let createdAssetCount = 0;
   const resolvedMentions = mentions.map(mention => {
     let source = virtualNodes.find(node => node.id === mention.id);
@@ -76,8 +74,6 @@ export function buildWorkflowPromptPasteOps({
       ops.push({ type: 'connect_nodes', fromNodeId: source.id, toNodeId: targetNodeId });
       virtualConnections.push({ id: `prompt-paste:${source.id}:${targetNodeId}`, fromNodeId: source.id, toNodeId: targetNodeId });
     }
-    if (source.type !== 'text' && !referenceOrder.includes(source.id)) referenceOrder.push(source.id);
-    if (!mentionedNodeIds.includes(source.id)) mentionedNodeIds.push(source.id);
     return {
       ...mention,
       id: source.id,
@@ -87,12 +83,5 @@ export function buildWorkflowPromptPasteOps({
       assetId: source.metadata.assetId || mention.assetId,
     };
   });
-  if (resolvedMentions.some(Boolean)) {
-    ops.push({
-      type: 'update_node',
-      id: targetNodeId,
-      metadata: { imageReferenceOrder: referenceOrder, mentionedNodeIds },
-    });
-  }
   return { ops, resolvedMentions };
 }

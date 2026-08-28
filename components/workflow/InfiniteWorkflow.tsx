@@ -938,12 +938,6 @@ export function InfiniteWorkflow({
     for (const conn of upstreamConn) {
       const upstreamNode = snapshot.nodes.find(n => n.id === conn.fromNodeId);
       if (upstreamNode?.metadata.assetId === assetId && upstreamNode.metadata.sourceType === 'assetLibrary') {
-        const order = targetNode.metadata.imageReferenceOrder || [];
-        const mentions = targetNode.metadata.mentionedNodeIds || [];
-        if (!order.includes(upstreamNode.id) || !mentions.includes(upstreamNode.id)) applyOps([{ type: 'update_node', id: fromNodeId, metadata: {
-          imageReferenceOrder: [...order.filter(id => id !== upstreamNode.id), upstreamNode.id],
-          mentionedNodeIds: [...mentions.filter(id => id !== upstreamNode.id), upstreamNode.id],
-        } }]);
         return upstreamNode.id;
       }
     }
@@ -965,14 +959,9 @@ export function InfiniteWorkflow({
       status: 'success',
     });
 
-    const currentOrder = targetNode.metadata.imageReferenceOrder || [];
-    const newOrder = [...currentOrder, nodeId];
-    const currentMentions = targetNode.metadata.mentionedNodeIds || [];
-
     const ops: WorkflowDocumentOperation[] = [
       { type: 'add_node', node: newNode },
       { type: 'connect_nodes', fromNodeId: nodeId, toNodeId: fromNodeId },
-      { type: 'update_node', id: fromNodeId, metadata: { imageReferenceOrder: newOrder, mentionedNodeIds: [...currentMentions, nodeId] } },
     ];
 
     const success = applyOps(ops);
@@ -985,12 +974,21 @@ export function InfiniteWorkflow({
     const source = snapshot.nodes.find(node => node.id === nodeId);
     if (!target || !source || source.id === target.id || !['image', 'video', 'audio'].includes(source.type)) return undefined;
     const alreadyConnected = snapshot.connections.some(connection => connection.fromNodeId === nodeId && connection.toNodeId === targetNodeId);
-    const nextOrder = [...(target.metadata.imageReferenceOrder || []).filter(id => id !== nodeId), nodeId];
-    const nextMentions = [...(target.metadata.mentionedNodeIds || []).filter(id => id !== nodeId), nodeId];
     const ops: WorkflowDocumentOperation[] = [];
     if (!alreadyConnected) ops.push({ type: 'connect_nodes', fromNodeId: nodeId, toNodeId: targetNodeId });
-    ops.push({ type: 'update_node', id: targetNodeId, metadata: { imageReferenceOrder: nextOrder, mentionedNodeIds: nextMentions } });
     return applyOps(ops) ? nodeId : undefined;
+  }, [applyOps, currentSnapshot]);
+
+  const handleReorderReferences = useCallback((targetNodeId: string, nextIds: string[]) => {
+    const snapshot = currentSnapshot();
+    const inputConnections = snapshot.connections.filter(connection => connection.toNodeId === targetNodeId);
+    const inputById = new Map(inputConnections.map(connection => [connection.fromNodeId, connection]));
+    const ordered = nextIds.map(id => inputById.get(id)).filter((connection): connection is NonNullable<typeof connection> => Boolean(connection));
+    const orderedIds = new Set(ordered.map(connection => connection.id));
+    const remaining = inputConnections.filter(connection => !orderedIds.has(connection.id));
+    const others = snapshot.connections.filter(connection => connection.toNodeId !== targetNodeId);
+    // 连接顺序即引用顺序；其他连接保持原位，目标节点输入按 nextIds 重排
+    return applyOps([{ type: 'reorder_connections', ids: [...others, ...ordered, ...remaining].map(connection => connection.id) }]);
   }, [applyOps, currentSnapshot]);
 
   const handleAddReferenceFiles = useCallback(async (files: File[], targetNodeId: string) => {
@@ -1009,13 +1007,8 @@ export function InfiniteWorkflow({
         const x = target.position.x + target.width / 2 + (index - (records.length - 1) / 2) * (size.width + 24) - size.width / 2;
         return { ...createWorkflowNode(nanoid(), type, { x, y: target.position.y - size.height - 100 }, { ...metadata, status: 'success' }), ...size, freeResize: false };
       });
-      const ids = nodes.map(item => item.id);
       const ops: WorkflowDocumentOperation[] = nodes.map(node => ({ type: 'add_node', node }));
-      ids.forEach(id => ops.push({ type: 'connect_nodes', fromNodeId: id, toNodeId: targetNodeId }));
-      ops.push({ type: 'update_node', id: targetNodeId, metadata: {
-        imageReferenceOrder: [...(target.metadata.imageReferenceOrder || []), ...ids],
-        mentionedNodeIds: [...(target.metadata.mentionedNodeIds || []), ...ids],
-      } });
+      nodes.forEach(node => ops.push({ type: 'connect_nodes', fromNodeId: node.id, toNodeId: targetNodeId }));
       if (!applyOps(ops)) throw new Error('参考图节点连接失败');
       records.forEach(record => releaseWorkflowMediaRecord(record.storageKey));
     } catch (error) {
@@ -1067,7 +1060,7 @@ export function InfiniteWorkflow({
       const newNode = createWorkflowNode(nodeId, mode, {
         x: originX + col * (nodeWidth + gapX),
         y: startY + row * (nodeHeight + gapY),
-      }, { prompt, status: 'idle', referenceNodeIds: [scriptNodeId] });
+      }, { prompt, status: 'idle' });
       newNode.title = `分镜 ${shot.index + 1}`;
       ops.push({ type: 'add_node', node: newNode });
       ops.push({ type: 'connect_nodes', fromNodeId: scriptNodeId, toNodeId: nodeId });
@@ -1192,7 +1185,7 @@ export function InfiniteWorkflow({
       const newNode = createWorkflowNode(nodeId, command.mode, {
         x: startX + col * (nodeWidth + gapX),
         y: startY + row * (nodeHeight + gapY),
-      }, { prompt, status: 'idle', referenceNodeIds: sourceIds.length > 0 ? sourceIds : undefined, mentionedNodeIds: sourceIds.length > 0 ? sourceIds : undefined });
+      }, { prompt, status: 'idle' });
       newNode.title = `${command.label} ${i + 1}`;
       ops.push({ type: 'add_node', node: newNode });
       for (const sourceId of sourceIds) {
@@ -2344,7 +2337,7 @@ export function InfiniteWorkflow({
           <WorkflowConfigPanel node={selectedNodeData[0]} nodes={project.nodes} connections={project.connections} onChange={metadata => applyOps([{ type: 'update_node', id: selectedNodeData[0].id, metadata }])} onRun={() => onRunNode(selectedNodeData[0].id)} onStop={onStopNode ? () => onStopNode(selectedNodeData[0].id) : undefined} />
         </div>}
         {selectedNodeData.length === 1 && ['image', 'video', 'text', 'operation'].includes(selectedNodeData[0].type) && <div data-workflow-overlay style={{ position: 'absolute', zIndex: 69, left: promptLeft, top: promptTop }}>
-      <WorkflowNodePromptBar width={promptWidth} node={selectedNodeData[0]} nodes={project.nodes} connections={project.connections} t={t} theme={theme} language={language} userApiKeys={userApiKeys} dynamicModelOptions={dynamicModelOptions} onOpenSettings={onOpenSettings} onEnhancePrompt={onEnhancePrompt} isEnhancingPrompt={isEnhancingPrompt} onChange={metadata => applyOps([{ type: 'update_node', id: selectedNodeData[0].id, metadata }])} onPromptIntent={intent => { promptIntentRef.current = intent; }} onRun={() => { const intent = promptIntentRef.current?.targetNodeId === selectedNodeData[0].id ? promptIntentRef.current : undefined; promptIntentRef.current = null; onRunNode(selectedNodeData[0].id, intent || undefined); }} onStop={onStopNode ? () => onStopNode(selectedNodeData[0].id) : undefined} focusSignal={promptFocusSignal} onDisconnectReference={fromNodeId => { const targetId = selectedNodeData[0].id; const conn = project.connections.find(c => c.toNodeId === targetId && c.fromNodeId === fromNodeId); if (!conn) return; applyOps([{ type: 'delete_connections', ids: [conn.id] }]); }} assetFolders={assetFolders} assetItems={assetSuggestions} assetLibrary={assetLibrary} onSelectWorkflowReference={selectedNodeData[0] ? (nodeId => handleSelectWorkflowReference(nodeId, selectedNodeData[0].id)) : undefined} onAddReferenceFiles={selectedNodeData[0] ? (files => handleAddReferenceFiles(files, selectedNodeData[0].id)) : undefined} onSelectAsset={selectedNodeData[0] ? (assetId => handleSelectAsset(assetId, selectedNodeData[0].id)) : undefined} onResolvePastedMentions={mentions => handleResolvePastedMentions(mentions, selectedNodeData[0].id)} onPasteUnresolvedMentions={labels => setNotice(`未能唯一匹配引用：${labels.map(label => `@${label}`).join('、')}，已保留为普通文字。`)} skillEnabled={false} />
+      <WorkflowNodePromptBar width={promptWidth} node={selectedNodeData[0]} nodes={project.nodes} connections={project.connections} t={t} theme={theme} language={language} userApiKeys={userApiKeys} dynamicModelOptions={dynamicModelOptions} onOpenSettings={onOpenSettings} onEnhancePrompt={onEnhancePrompt} isEnhancingPrompt={isEnhancingPrompt} onChange={metadata => applyOps([{ type: 'update_node', id: selectedNodeData[0].id, metadata }])} onPromptIntent={intent => { promptIntentRef.current = intent; }} onRun={() => { const intent = promptIntentRef.current?.targetNodeId === selectedNodeData[0].id ? promptIntentRef.current : undefined; promptIntentRef.current = null; onRunNode(selectedNodeData[0].id, intent || undefined); }} onStop={onStopNode ? () => onStopNode(selectedNodeData[0].id) : undefined} focusSignal={promptFocusSignal} onDisconnectReference={fromNodeId => { const targetId = selectedNodeData[0].id; const conn = project.connections.find(c => c.toNodeId === targetId && c.fromNodeId === fromNodeId); if (!conn) return; applyOps([{ type: 'delete_connections', ids: [conn.id] }]); }} onReorderReference={nextIds => handleReorderReferences(selectedNodeData[0].id, nextIds)} assetFolders={assetFolders} assetItems={assetSuggestions} assetLibrary={assetLibrary} onSelectWorkflowReference={selectedNodeData[0] ? (nodeId => handleSelectWorkflowReference(nodeId, selectedNodeData[0].id)) : undefined} onAddReferenceFiles={selectedNodeData[0] ? (files => handleAddReferenceFiles(files, selectedNodeData[0].id)) : undefined} onSelectAsset={selectedNodeData[0] ? (assetId => handleSelectAsset(assetId, selectedNodeData[0].id)) : undefined} onResolvePastedMentions={mentions => handleResolvePastedMentions(mentions, selectedNodeData[0].id)} onPasteUnresolvedMentions={labels => setNotice(`未能唯一匹配引用：${labels.map(label => `@${label}`).join('、')}，已保留为普通文字。`)} skillEnabled={false} />
         </div>}
       </>}
       {minimapOpen && <WorkflowMiniMap nodes={project.nodes.filter(node => node.isVisible !== false)} viewport={project.viewport} onCenter={(x, y) => {

@@ -291,14 +291,6 @@ function plainTextMentionInputs(prompt: string, resources: WorkflowMediaResource
     .map(match => ({ id: match.resourceId, label: match.label }));
 }
 
-function orderMediaResources(resources: WorkflowMediaResource[], targetNode: WorkflowNode): WorkflowMediaResource[] {
-  const order = new Map((targetNode.metadata.imageReferenceOrder || []).map((id, index) => [id, index]));
-  return resources
-    .map((resource, index) => ({ resource, index }))
-    .sort((a, b) => (order.get(a.resource.sourceNodeId) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.resource.sourceNodeId) ?? Number.MAX_SAFE_INTEGER) || a.index - b.index)
-    .map(item => item.resource);
-}
-
 function assetResource(mention: WorkflowMentionReferenceInput, asset: WorkflowAssetReferenceInput): ResolvedWorkflowResource {
   const kind = resourceKindFromMention(mention, asset) || 'image';
   const resource: WorkflowResource = {
@@ -451,10 +443,10 @@ export function resolveWorkflowInputs(
     });
   });
 
-  const orderedGraph = orderMediaResources(graphResources.filter(isMediaResource), targetNode);
+  const graphMedia = graphResources.filter(isMediaResource);
   const resources = dedupeResources([
     ...graphResources.filter(resource => resource.kind === 'text'),
-    ...orderedGraph,
+    ...graphMedia,
   ]);
   const media = resources.filter(isMediaResource);
   const graphByNodeId = new Map<string, ResolvedWorkflowResource>();
@@ -468,7 +460,7 @@ export function resolveWorkflowInputs(
 
   const assetById = new Map((options?.assets || []).map(asset => [asset.id, asset]));
   const references = new Map<string, ReferenceAccumulator>();
-  orderedGraph.forEach((resource, order) => {
+  graphMedia.forEach((resource, order) => {
     addReference(references, resource, mediaOrigin(resource), order, diagnostics, {});
   });
 
@@ -511,13 +503,9 @@ export function resolveWorkflowInputs(
   };
 
   mentionInputs.forEach(addMention);
-  if (!promptIntent) (targetNode.metadata.mentionedNodeIds || []).forEach(id => addMention({ id }));
   plainTextMentionInputs(prompt, media).forEach(addMention);
 
-  const orderedResources = [
-    ...resources.filter(resource => resource.kind === 'text'),
-    ...orderMediaResources(resources.filter(isMediaResource), targetNode),
-  ];
+  const orderedResources = resources;
   const hasMentionSelection = mentionIdentities.size > 0;
   const resolvedReferences = [...references.values()]
     .filter(reference => reference.resource.available)

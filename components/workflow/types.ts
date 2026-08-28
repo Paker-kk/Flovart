@@ -234,10 +234,6 @@ export interface WorkflowNodeMetadata {
   content?: string;
   prompt?: string;
   richTextDocument?: WorkflowRichPromptDocument;
-  mentionedNodeIds?: string[];
-  referenceNodeIds?: string[];
-  /** 参考图 chip 面板顺序：上游 image/video/audio 节点 id 数组，拖拽排序只改这里 */
-  imageReferenceOrder?: string[];
   /** 节点来源类型。'assetLibrary' = 来源于素材库 @ 菜单创建的引用节点实例 */
   sourceType?: 'assetLibrary';
   /** 当 sourceType='assetLibrary' 时，对应 AssetItem.id，用于按 storageKey 反查 dataUrl */
@@ -457,6 +453,7 @@ export type WorkflowDocumentOperation =
   | { type: 'connect_nodes'; id?: string; fromNodeId: string; toNodeId: string; kind?: WorkflowConnection['kind']; role?: WorkflowConnection['role']; order?: number }
   | { type: 'move_nodes'; positions: Array<{ id: string; position: WorkflowPoint }> }
   | { type: 'reorder_nodes'; ids: string[] }
+  | { type: 'reorder_connections'; ids: string[] }
   | { type: 'group_nodes'; ids: string[]; batchId: string; source?: WorkflowBatchGroupSource }
   | { type: 'ungroup_nodes'; ids: string[] }
   | { type: 'set_batch_primary'; batchId: string; nodeId: string };
