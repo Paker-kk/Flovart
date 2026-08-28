@@ -208,7 +208,7 @@ describe('workflow node overlays', () => {
 
   it('blocks an @ media type that the final Provider route cannot receive', () => {
     const videoNode = createWorkflowNode('veo-reference', 'video', { x: 0, y: 0 }, {
-      prompt: '跟随 @配乐 的节奏', mentionedNodeIds: ['audio-ref'],
+      prompt: '跟随 @配乐 的节奏',
       config: { mode: 'video', modelId: 'flovart:veo-3.1', submode: 'reference-to-video', durationSec: 8, resolution: '720p' },
     });
     const audioNode = createWorkflowNode('audio-ref', 'audio', { x: 0, y: 240 }, { href: 'https://cdn.example.com/music.mp3', mimeType: 'audio/mpeg' });

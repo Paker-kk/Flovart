@@ -179,7 +179,7 @@ describe('applyWorkflowOps', () => {
 
     const edited = applyWorkflowOps(connected.snapshot, [{
       type: 'update_node', id: operation.id,
-      metadata: { prompt: '参考 @图片1 生成海报', mentionedNodeIds: [source.id], imageReferenceOrder: [source.id] },
+      metadata: { prompt: '参考 @图片1 生成海报' },
     }]);
     expect(edited.snapshot.connections[0]).toMatchObject({ id: 'operation-input', role: 'reference_image', order: 0 });
     expect(edited.snapshot.nodes.find(node => node.id === operation.id)?.metadata.operation?.recipe).toMatchObject({
@@ -187,14 +187,33 @@ describe('applyWorkflowOps', () => {
       inputBindings: [expect.objectContaining({ id: 'operation-input', sourceNodeId: source.id })],
     });
 
-    const unmentioned = applyWorkflowOps(edited.snapshot, [{
-      type: 'update_node', id: operation.id, metadata: { mentionedNodeIds: [], imageReferenceOrder: [] },
-    }]);
-    expect(unmentioned.snapshot.connections).toEqual([]);
-    expect(unmentioned.snapshot.nodes.find(node => node.id === operation.id)?.metadata.operation?.recipe.inputBindings).toEqual([]);
-
     const disconnected = applyWorkflowOps(connected.snapshot, [{ type: 'delete_connections', ids: ['operation-input'] }]);
     expect(disconnected.snapshot.connections).toEqual([]);
     expect(disconnected.snapshot.nodes.find(node => node.id === operation.id)?.metadata.operation?.recipe.inputBindings).toEqual([]);
+  });
+
+  it('reorders the connections array and keeps operation bindings in step', async () => {
+    const first = createWorkflowNode('source-first', 'image', { x: 0, y: 0 });
+    const second = createWorkflowNode('source-second', 'image', { x: 0, y: 160 });
+    const operation = await createWorkflowOperationNode({
+      id: 'operation', capabilityId: 'image.generate@1', position: { x: 420, y: 0 }, parameters: { count: 1 }, inputBindings: [],
+    });
+    const initial = { ...snapshot(), nodes: [first, second, operation] };
+    const connected = applyWorkflowOps(initial, [
+      { type: 'connect_nodes', id: 'first-edge', fromNodeId: first.id, toNodeId: operation.id },
+      { type: 'connect_nodes', id: 'second-edge', fromNodeId: second.id, toNodeId: operation.id },
+    ]);
+    expect(connected.snapshot.connections.map(connection => connection.id)).toEqual(['first-edge', 'second-edge']);
+
+    const reordered = applyWorkflowOps(connected.snapshot, [{ type: 'reorder_connections', ids: ['second-edge', 'first-edge'] }]);
+
+    expect(reordered.snapshot.connections.map(connection => connection.id)).toEqual(['second-edge', 'first-edge']);
+    expect(reordered.snapshot.nodes.find(node => node.id === operation.id)?.metadata.operation?.recipe.inputBindings).toEqual([
+      expect.objectContaining({ sourceNodeId: second.id, order: 0 }),
+      expect.objectContaining({ sourceNodeId: first.id, order: 1 }),
+    ]);
+
+    const incomplete = applyWorkflowOps(connected.snapshot, [{ type: 'reorder_connections', ids: ['first-edge'] }]);
+    expect(incomplete.rejections).toEqual([expect.objectContaining({ opType: 'reorder_connections', reason: '连接顺序必须完整且不能重复' })]);
   });
 });

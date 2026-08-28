@@ -8,7 +8,7 @@ describe('workflow input resolver', () => {
   it('turns connected nodes into typed resource references without needing @ mentions', () => {
     const image = createWorkflowNode('image-a', 'image', { x: 0, y: 0 }, { artifactRef: { taskId: 'artifact-a', kind: 'image', mimeType: 'image/png' } });
     const text = createWorkflowNode('text-b', 'text', { x: 0, y: 120 }, { content: '让角色回头' });
-    const target = createWorkflowNode('video-c', 'video', { x: 420, y: 0 }, { prompt: '电影感', imageReferenceOrder: ['image-a'], config: { mode: 'video', submode: 'image-to-video', modelId: 'flovart:seedance-2' } });
+    const target = createWorkflowNode('video-c', 'video', { x: 420, y: 0 }, { prompt: '电影感', config: { mode: 'video', submode: 'image-to-video', modelId: 'flovart:seedance-2' } });
     const connections: WorkflowConnection[] = [
       { id: 'image-link', fromNodeId: image.id, toNodeId: target.id },
       { id: 'text-link', fromNodeId: text.id, toNodeId: target.id },
@@ -214,16 +214,15 @@ describe('workflow input resolver', () => {
     expect(canonical).not.toHaveProperty('seedanceRefs');
   });
 
-  it('maps legacy imageReferenceOrder into canonical reference order', () => {
+  it('orders canonical references by the connections array order', () => {
     const first = createWorkflowNode('first', 'image', { x: 0, y: 0 }, { href: 'https://cdn.example.com/first.png' });
     const second = createWorkflowNode('second', 'image', { x: 0, y: 120 }, { href: 'https://cdn.example.com/second.png' });
     const target = createWorkflowNode('target', 'video', { x: 420, y: 0 }, {
-      imageReferenceOrder: ['second', 'first'],
       config: { mode: 'video', submode: 'image-to-video' },
     });
     const inputs = resolveWorkflowInputs(target, [first, second, target], [
-      { id: 'first-edge', fromNodeId: 'first', toNodeId: 'target' },
       { id: 'second-edge', fromNodeId: 'second', toNodeId: 'target' },
+      { id: 'first-edge', fromNodeId: 'first', toNodeId: 'target' },
     ]);
     const canonical = buildCanonicalGenerationInput({ targetNode: target, inputs, prompt: '让画面动起来', mode: 'video', submode: 'image-to-video' });
 

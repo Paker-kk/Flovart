@@ -76,7 +76,7 @@ describe('workflow operation records', () => {
     const project = createWorkflowProject('图片链路');
     const source = createWorkflowNode('reference-1', 'image', { x: 0, y: 0 }, { storageKey: 'image-1', status: 'success' });
     const target = createWorkflowNode('generator-1', 'image', { x: 420, y: 0 }, {
-      prompt: '参考 @图片1 生成海报', mentionedNodeIds: ['reference-1'], imageReferenceOrder: ['reference-1'],
+      prompt: '参考 @图片1 生成海报',
       config: { mode: 'image', modelId: 'flovart:gpt-image-2', count: 1 },
     });
     project.nodes = [source, target];

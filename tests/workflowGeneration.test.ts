@@ -226,7 +226,6 @@ describe('workflow generation', () => {
 
   it('uses mentioned durable media, filters unsupported references, and persists generated blobs', async () => {
     const source = project();
-    source.nodes[2].metadata.mentionedNodeIds = ['image-1'];
     source.nodes[1].metadata = { storageKey: 'stored-image', mimeType: 'image/png' };
     const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'config-1', capability: 'image', mediaUrl: 'https://output/image.png', mimeType: 'image/png' });
     const ingestMedia = vi.fn().mockResolvedValue({ type: 'image', storageKey: 'generated-key', name: 'result.png', mimeType: 'image/png', bytes: 10, naturalWidth: 640, naturalHeight: 480 });
@@ -240,7 +239,7 @@ describe('workflow generation', () => {
     expect(ingestMedia).toHaveBeenCalled();
   });
 
-  it('passes only connected @mentioned media refs, never unconnected mentions or the initiating media node itself', async () => {
+  it('passes only connected media refs, never unconnected nodes or the initiating media node itself', async () => {
     const source = project();
     source.nodes = [
       { id: 'ref-a', type: 'image', title: '参考 A', position: { x: 0, y: 0 }, width: 120, height: 90, metadata: { href: 'https://cdn.example.com/a.png', mimeType: 'image/png' } },
@@ -252,7 +251,6 @@ describe('workflow generation', () => {
       { id: 'a', fromNodeId: 'ref-a', toNodeId: 'self-video' },
       { id: 'b', fromNodeId: 'ref-b', toNodeId: 'self-video' },
     ];
-    source.nodes[3].metadata.mentionedNodeIds = ['ref-a', 'ref-b', 'ref-c'];
     const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'self-video', capability: 'video', mediaUrl: 'https://output/video', mimeType: 'video/mp4' });
 
     await runWorkflowGeneration(source, 'self-video', {
@@ -351,7 +349,6 @@ describe('workflow generation', () => {
     source.nodes.push({ id: 'image-2', type: 'image', title: '图片2', position: { x: 0, y: 440 }, width: 300, height: 200, metadata: { href: 'data:image/png;base64,BB==', mimeType: 'image/png' } });
     source.connections.push({ id: 'c', fromNodeId: 'image-2', toNodeId: 'config-1' });
     target.metadata.prompt = '让 @图片2 参考 @图片1 的构图';
-    target.metadata.mentionedNodeIds = undefined;
     const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'config-1', capability: 'image', mediaUrl: 'https://output/image', mimeType: 'image/png' });
 
     await runWorkflowGeneration(source, 'config-1', {
@@ -381,7 +378,6 @@ describe('workflow generation', () => {
           ],
         }],
       },
-      mentionedNodeIds: ['image-1'],
       config: { mode: 'video', modelId: 'flovart:seedance-2', submode: 'reference-to-video' },
     };
     const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'config-1', capability: 'video', mediaUrl: 'https://output/video', mimeType: 'video/mp4' });
@@ -414,7 +410,6 @@ describe('workflow generation', () => {
     );
     target.metadata = {
       prompt: '@图片1 @图片2 @图片3 作为连续镜头参考',
-      mentionedNodeIds: ['image-1', 'image-2', 'image-3'],
       config: { mode: 'video', modelId: 'flovart:veo-3.1-fast', submode: 'image-to-video' },
     };
     const routeId = 'rhart-video-v3.1-fast/image-to-video';
@@ -430,10 +425,9 @@ describe('workflow generation', () => {
     ]);
   });
 
-  it('ignores stale hidden referenceNodeIds when there is no visible connection or @mention', async () => {
+  it('ignores stale unconnected nodes when there is no visible connection or @mention', async () => {
     const source = project();
     source.nodes.push({ id: 'stale', type: 'image', title: '旧隐藏引用', position: { x: 0, y: 440 }, width: 120, height: 90, metadata: { href: 'https://cdn.example.com/stale.png', mimeType: 'image/png' } });
-    source.nodes[2].metadata.referenceNodeIds = ['stale'];
     source.connections = source.connections.filter(connection => connection.fromNodeId !== 'image-1');
     const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'config-1', capability: 'image', mediaUrl: 'https://output/image', mimeType: 'image/png' });
 
@@ -482,7 +476,6 @@ describe('workflow generation', () => {
   });
   it('merges direct upstream inputs and creates a connected result node', async () => {
     const source = project();
-    source.nodes[2].metadata.mentionedNodeIds = ['image-1'];
     const executeMedia = vi.fn(async input => {
       input.onProgress?.(42, 'generating');
       return { ok: true as const, elementId: 'config-1', capability: 'image' as const, mediaUrl: 'data:image/png;base64,RESULT', mimeType: 'image/png' };
@@ -534,7 +527,6 @@ describe('workflow generation', () => {
       { id: 'audio-ref', type: 'audio', title: '音频参考', position: { x: 0, y: 0 }, width: 100, height: 100, metadata: { href: 'data:audio/mp3;base64,AA==', mimeType: 'audio/mp3' } },
     );
     source.connections.push({ id: 'video-link', fromNodeId: 'video-ref', toNodeId: 'config-1' }, { id: 'audio-link', fromNodeId: 'audio-ref', toNodeId: 'config-1' });
-    source.nodes[2].metadata.mentionedNodeIds = ['image-1', 'video-ref', 'audio-ref'];
     const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'config-1', capability: 'image', mediaUrl: 'https://output/image', mimeType: 'image/png' });
     const result = await runWorkflowGeneration(source, 'config-1', {
       userApiKeys: [imageKey], executeMedia,
@@ -549,7 +541,6 @@ describe('workflow generation', () => {
     source.nodes[2].metadata.config = { mode: 'video', modelId: 'flovart:seedance-2' };
     source.nodes.push({ id: 'audio-ref', type: 'audio', title: '配乐', position: { x: 0, y: 0 }, width: 100, height: 100, metadata: { href: 'data:audio/mp3;base64,AA==', mimeType: 'audio/mp3' } });
     source.connections.push({ id: 'audio-link', fromNodeId: 'audio-ref', toNodeId: 'config-1' });
-    source.nodes[2].metadata.mentionedNodeIds = ['audio-ref'];
     const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'config-1', capability: 'video', mediaUrl: 'https://output/video', mimeType: 'video/mp4' });
     await runWorkflowGeneration(source, 'config-1', {
       userApiKeys: [mappedMediaKey('video', 'flovart:seedance-2', 'seedance-2.0', 'volcengine')], executeMedia,
@@ -560,7 +551,7 @@ describe('workflow generation', () => {
 
   it('describes connected media by label for text generation without claiming media transport', async () => {
     const source = project();
-    source.nodes[0].metadata = { prompt: '写说明', config: { mode: 'text' }, mentionedNodeIds: ['image-1'] };
+    source.nodes[0].metadata = { prompt: '写说明', config: { mode: 'text' } };
     source.connections.push({ id: 'image-to-text', fromNodeId: 'image-1', toNodeId: 'text-1' });
     const executeText = vi.fn().mockResolvedValue('完成');
     await runWorkflowGeneration(source, 'text-1', {
@@ -646,7 +637,7 @@ describe('workflow generation', () => {
     const source = project();
     source.nodes.push({ id: 'image-2', type: 'image', title: '尾帧', position: { x: 0, y: 440 }, width: 300, height: 200, metadata: { href: 'data:image/png;base64,BB==', mimeType: 'image/png' } });
     source.connections.push({ id: 'c', fromNodeId: 'image-2', toNodeId: 'config-1' });
-    source.nodes[2].metadata = { prompt: '平滑转场', mentionedNodeIds: ['image-1', 'image-2'], config: { mode: 'video', submode: 'first-last-frame', modelId: 'flovart:veo-3.1' } };
+    source.nodes[2].metadata = { prompt: '平滑转场', config: { mode: 'video', submode: 'first-last-frame', modelId: 'flovart:veo-3.1' } };
     const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'config-1', capability: 'video', mediaUrl: 'https://output/video', mimeType: 'video/mp4' });
 
     await runWorkflowGeneration(source, 'config-1', {
@@ -674,12 +665,10 @@ describe('workflow generation', () => {
         { id: 'audio-1-link', fromNodeId: 'audio-1', toNodeId: 'config-1' },
       );
       source.nodes[2].metadata = {
-        prompt: '让角色自然运动',
-        mentionedNodeIds: submode === 'text-to-video' ? []
-          : submode === 'image-to-video' ? ['image-1']
-            : submode === 'first-last-frame' ? ['image-1', 'image-2']
-              : ['image-1', 'image-2', 'video-1', 'audio-1'],
-        imageReferenceOrder: ['image-1', 'image-2', 'video-1', 'audio-1'],
+        prompt: submode === 'text-to-video' ? '让角色自然运动'
+          : submode === 'image-to-video' ? '让 @图片1 动起来'
+            : submode === 'first-last-frame' ? '@图片1 @图片2 作为首尾帧'
+              : '@图片1 @图片2 @视频1 @音频1 作为参考',
         config: { mode: 'video', submode, modelId: 'flovart:seedance-2' },
       };
       const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'config-1', capability: 'video', mediaUrl: 'https://output/video', mimeType: 'video/mp4' });
@@ -708,7 +697,7 @@ describe('workflow generation', () => {
 
   it('rejects a video PromptBar mode that the mapped Provider route cannot execute', async () => {
     const source = project();
-    source.nodes[2].metadata = { prompt: '平滑转场', mentionedNodeIds: ['image-1'], config: { mode: 'video', submode: 'first-last-frame', modelId: 'flovart:kling-video-3' } };
+    source.nodes[2].metadata = { prompt: '平滑转场', config: { mode: 'video', submode: 'first-last-frame', modelId: 'flovart:kling-video-3' } };
     const executeMedia = vi.fn();
     const result = await runWorkflowGeneration(source, 'config-1', {
       userApiKeys: [mappedMediaKey('video', 'flovart:kling-video-3', 'kling-video-3.0', 'keling')], executeMedia, onProjectChange: vi.fn(),
@@ -719,7 +708,7 @@ describe('workflow generation', () => {
 
   it('rejects first-last-frame before submission when the second image is missing', async () => {
     const source = project();
-    source.nodes[2].metadata = { prompt: '平滑转场', mentionedNodeIds: ['image-1'], config: { mode: 'video', submode: 'first-last-frame', modelId: 'flovart:veo-3.1' } };
+    source.nodes[2].metadata = { prompt: '平滑转场', config: { mode: 'video', submode: 'first-last-frame', modelId: 'flovart:veo-3.1' } };
     const executeMedia = vi.fn();
     const result = await runWorkflowGeneration(source, 'config-1', {
       userApiKeys: [mappedMediaKey('video', 'flovart:veo-3.1', 'veo-3.1-generate-preview', 'google')], executeMedia, onProjectChange: vi.fn(),
@@ -734,7 +723,7 @@ describe('workflow generation', () => {
       sourceType: 'assetLibrary', assetId: 'asset-1',
       href: 'asset-library:asset-1', mimeType: 'image/png', name: '素材图', naturalWidth: 800, naturalHeight: 600, status: 'success',
     };
-    source.nodes[2].metadata = { prompt: '@素材图 做成亚克力钥匙扣', mentionedNodeIds: ['image-1'], config: { mode: 'image', modelId: 'flovart:gpt-image-2' } };
+    source.nodes[2].metadata = { prompt: '@素材图 做成亚克力钥匙扣', config: { mode: 'image', modelId: 'flovart:gpt-image-2' } };
     const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'config-1', capability: 'image', mediaUrl: 'https://output/image', mimeType: 'image/png' });
     const result = await runWorkflowGeneration(source, 'config-1', {
       userApiKeys: [imageKey], executeMedia,
@@ -754,7 +743,7 @@ describe('workflow generation', () => {
     const source = project();
     source.nodes = [
       { id: 'ref-local', type: 'image', title: '本地图', position: { x: 0, y: 0 }, width: 300, height: 200, metadata: { href: 'cold-media:stored-key', mimeType: 'image/png', status: 'success' } },
-      { id: 'video-node', type: 'video', title: '视频生成', position: { x: 420, y: 0 }, width: 360, height: 240, metadata: { prompt: '@本地图 让画面动起来', mentionedNodeIds: ['ref-local'], config: { mode: 'video', submode: 'image-to-video', modelId: 'flovart:veo-3.1' } } },
+      { id: 'video-node', type: 'video', title: '视频生成', position: { x: 420, y: 0 }, width: 360, height: 240, metadata: { prompt: '@本地图 让画面动起来', config: { mode: 'video', submode: 'image-to-video', modelId: 'flovart:veo-3.1' } } },
     ];
     source.connections = [{ id: 'a', fromNodeId: 'ref-local', toNodeId: 'video-node' }];
     const executeMedia = vi.fn().mockResolvedValue({ ok: true, elementId: 'video-node', capability: 'video', mediaUrl: 'https://output/video', mimeType: 'video/mp4' });

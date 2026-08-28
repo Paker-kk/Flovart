@@ -41,14 +41,6 @@ describe('workflow prompt reference paste', () => {
     ]);
     expect(result.ops).toEqual([
       { type: 'connect_nodes', fromNodeId: source.id, toNodeId: target.id },
-      {
-        type: 'update_node',
-        id: target.id,
-        metadata: {
-          imageReferenceOrder: [source.id],
-          mentionedNodeIds: [source.id],
-        },
-      },
     ]);
   });
 
@@ -103,14 +95,6 @@ describe('workflow prompt reference paste', () => {
         }),
       }),
       { type: 'connect_nodes', fromNodeId: 'restored-character-node', toNodeId: target.id },
-      {
-        type: 'update_node',
-        id: target.id,
-        metadata: {
-          imageReferenceOrder: ['restored-character-node'],
-          mentionedNodeIds: ['restored-character-node'],
-        },
-      },
     ]);
   });
 });

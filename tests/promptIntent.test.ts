@@ -32,7 +32,6 @@ describe('PromptIntent contract', () => {
     });
     const target = createWorkflowNode('target', 'image', { x: 420, y: 0 }, {
       prompt: '旧 Prompt',
-      mentionedNodeIds: ['missing-node'],
       config: { mode: 'image', submode: 'image-to-image' },
     });
     const promptIntent = createPromptIntent({
@@ -56,7 +55,10 @@ describe('PromptIntent contract', () => {
   it('projects an existing node into the same intent shape for compatibility callers', () => {
     const node = createWorkflowNode('target', 'video', { x: 0, y: 0 }, {
       prompt: '让画面动起来',
-      mentionedNodeIds: ['image-1'],
+      richTextDocument: {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'mediaMention', attrs: { id: 'image-1' } }] }],
+      },
     });
     expect(promptIntentFromNode(node, 'generate')).toEqual({
       targetNodeId: 'target',
