@@ -1,10 +1,11 @@
 # Status and diagnostics
 
-Inspect the registry and runtime before mutation:
+Inspect readiness before mutation:
 
 ```bash
-npm run flovart:cli -- command.list --json
 npm run flovart:cli -- status --json
+npm run flovart:cli -- start --open --json   # only when status is not ready
+npm run flovart:cli -- workflow.inspect --json
 npm run flovart:cli -- provider.status --json
 ```
 
@@ -14,7 +15,7 @@ Use `doctor` when the browser bridge, host setup, or Workflow generation surface
 npm run flovart:cli -- doctor --json
 ```
 
-Read a command schema instead of copying old options:
+When an unfamiliar compatibility command or contract mismatch occurs, read its schema instead of copying old options:
 
 ```bash
 npm run flovart:cli -- command.schema --command workflow.inspect --json

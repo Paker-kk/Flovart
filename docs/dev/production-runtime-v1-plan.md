@@ -1,24 +1,25 @@
-# Production Runtime V1 实施规划
+# Production Runtime V1 设计与剩余迁移
 
 ## 状态
 
-本文件是已确认方向的实施规划。S0.1 Canonical Contract + Runtime Kernel 已实现并进入待测试状态；S0.2 及后续批次仍未实现，不得把规划内容当作现有能力。架构决策见：
+本文件定义 Production Runtime 的目标接口、状态机、删除门槛与剩余迁移顺序；不再保存逐文件施工历史。命令实际可用性必须以 `command.list` 为准，不得从阶段文字推断。Agent 调度边界由 ADR 0061、0062 与 Agent 设计包定义，本文只负责 Runtime Authority、Task、Artifact 与 Provider Worker。
+
+当前已形成安全本地 Control Plane、持久 Task/Event、Artifact、首批 Provider Route、Production Dry Run 与 Workflow Projection 基线；尚未完成的重点是删除所有 legacy-only 执行轨、扩大 Provider-neutral Capability 覆盖、完成 Draft Authority 切换，以及发行态恢复/打包验收。
 
 - [ADR 0002：制作执行保持本地优先](../adr/0002-local-first-production-execution.md)
 - [ADR 0010：Artifact 使用稳定 ID 与内容寻址](../adr/0010-use-content-addressed-local-artifacts.md)
 - [ADR 0023：统一制作执行、授权与状态契约](../adr/0023-centralize-production-execution-contract.md)
 - [ADR 0025：统一 Production Skill 契约与包边界](../adr/0025-standardize-production-skill-packages.md)
 - [ADR 0027：使用 Schema 驱动的统一 Route Mapping](../adr/0027-use-schema-driven-route-mapping.md)
-- [ADR 0052：使用一个负责的 Flovart Agent 与临时 Specialist](../adr/0052-use-one-accountable-flovart-agent-with-specialists.md)
+- [ADR 0061：使用外部导演台与内置制作组](../adr/0061-use-external-director-and-internal-production-crew.md)
 - [ADR 0058：以 AI 原生 Workflow Draft 驱动画布](../adr/0058-use-ai-native-workflow-draft.md)
-- [Flovart Agent V1 实施规划](flovart-agent-v1-plan.md)
+- [Agent 架构设计包](../design/agent/README.md)
 - [Production Runtime 数据契约](production-runtime-data-contract.md)
-- [Production Runtime S0/S1 施工清单](production-runtime-s0-s1-work-items.md)
 - [领域词汇](../../CONTEXT.md)
 
 ## V1 目标
 
-让内置 Flovart Agent 或接入的外部 Coding Agent 使用可选 Production Skill，并通过 Flovart Skill 或同一 Runtime 契约提交生产意图，立即拿到持久任务句柄，在 WebUI 关闭、CLI 断开或 Desktop Runtime 重启后继续查询、观察、取消或恢复；Provider 凭据始终不离开 Desktop Runtime 与受控 Provider Worker。
+让 External Coding Agent Harness 经 Operation Skill + CLI 把有界意图交给 Flovart Production Crew，并立即拿到持久任务句柄；WebUI 关闭、CLI 断开或 Desktop Runtime 重启后仍可查询、观察、取消或恢复，Provider 凭据始终不离开 Desktop Runtime 与受控 Provider Worker。
 
 首个可放行垂直切片定义为：
 
@@ -28,7 +29,7 @@
 4. Provider 结果被下载并写入 Artifact Store。
 5. Runtime 以带 revision 的原子操作更新 Workflow Project。
 6. 关闭 WebUI或重启 Desktop Runtime 后，任务和结果仍可查询。
-7. CLI、MCP 与 WebUI 从同一 Runtime Module 得到一致状态。
+7. CLI、WebUI 与 Production Crew 从同一 Runtime Module 得到一致状态。
 
 图片切片通过后，再按同一接口增加视频、语音、音乐、渲染和验证；不先造一套无法证明恢复语义的全命令表。
 
@@ -38,17 +39,17 @@
 - Production Skill 不接触 Provider Secret、Provider HTTP endpoint 或任意 Shell。
 - Desktop 或已配对 Web 项目不让 WebUI 继续承担长任务执行权威；纯 Web 模式仍明确受标签页生命周期与浏览器密钥边界限制。
 - 不为尚未存在的远程 Runtime、集群调度或跨设备同步预留复杂抽象。
-- 不直接依赖仍在变化的 MCP Tasks 实验接口；MCP 是 Runtime 的 Adapter。
+- 不向 Coding Agent 暴露 MCP Server，也不让外部 Harness 的模型工具直接依赖 Runtime 私有协议；DeepSeek Embedded Client 只按 ADR 0062 通过 Harness Host 的受限同源代理调用 Workflow 命令子集，Workspace Token 不进入浏览器。
 - 本轮规划不恢复或重写 Canvas、Table、Workflow 的视觉界面。
 
-## 当前阻断
+## 剩余缺口
 
-1. CLI 同时存在 local、shadow file-state 和 browser file-bridge 三条执行路径，没有唯一 Production Authority。
-2. Tauri `BridgeQueue` 是内存队列，只把 enqueue/complete 摘要写入 `sync_log`，没有实际的持久 Task、租约和重启恢复。
-3. 当前固定端口 HTTP 可以读取原始 API Key，也没有启动期 Bearer Token 鉴权。
-4. `workflow.node.run` 把 Prompt、引用解析、预算、Provider、下载、Artifact 和图更新揉成一个浏览器内复合操作。
-5. CLI registry、MCP 描述、Flovart Skill 文档和真实命令集存在漂移。
-6. 当前 Workflow Project 真相仍偏向浏览器持久化，Runtime 无法在 WebUI 关闭时安全提交 revision 更新。
+1. `command.list` 仍包含 legacy-only 命令和旧安装文案；可写路径尚未全部切到同一 ProductionRuntime/Workspace Authority。
+2. 浏览器 Provider 执行、旧 Agent Route 与 Runtime Capability 仍有重叠，尚未形成单一 Production Authority。
+3. Workflow Draft 仍以浏览器本地权威为主，Desktop Authority Transfer、revision CAS 与 Runtime 重启后的完整恢复需要实机闭环。
+4. ProviderAttempt、Submission Unknown、远端取消、实际账单和 Artifact 恢复语义只在部分 Route 落地。
+5. ProductionRun 的 speech、music、render、verify 与发布 Gate 尚未形成完整可发行短片链路。
+6. Runtime Release Bundle、固定 Crew Node Runtime、升级回滚和跨平台安装仍需发行态验证。
 
 ## 深 Module 与 seam
 
@@ -68,10 +69,10 @@ streamEvents(afterEventId)     -> RuntimeEventStream
 
 ```mermaid
 flowchart LR
-    Agent["Coding Agent"] --> CLI["CLI Adapter"]
-    MCP["MCP v1 Adapter"] --> RC["Runtime Client"]
+    Agent["External Harness"] --> CLI["CLI Facade"]
     CLI --> RC
     UI["Tauri WebUI Adapter"] --> PR["ProductionRuntime"]
+    CREW["Production Crew"] --> PR
     EXT["Native Host Adapter"] --> RC
     RC --> PR
     PR --> DB["SQLite State + Event Ledger"]
@@ -85,7 +86,7 @@ flowchart LR
 | Adapter | 用途 | 约束 |
 | --- | --- | --- |
 | Tauri WebUI Adapter | 主窗口调用 Runtime | 使用 Tauri capability/permission，只传类型化命令 |
-| Local HTTP Adapter | CLI、MCP 和本机 Agent | 随机 loopback 端口、启动期 Bearer Token、协议握手 |
+| Local HTTP Adapter | CLI、TUI 与 Production Crew 内部客户端 | 随机 loopback 端口、启动期 Bearer Token、协议握手；不是外部 Harness 的公开接口 |
 | Native Host Adapter | Chrome/Edge 扩展 | 从 Runtime Discovery Record 发现端口，不读取 Secret |
 | In-Memory Adapter | Runtime 集成测试 | 与生产 Adapter 使用同一 Interface，不测试内部实现 |
 | Provider Worker Adapter | Runtime 调用现有 TypeScript Provider 能力 | 私有 JSONL stdio，只在请求执行时注入所需 Secret |
@@ -147,7 +148,7 @@ flowchart LR
 
 | 层 | 示例 | 谁可以调用 |
 | --- | --- | --- |
-| Production Intent | `production.run`、`workflow.node.run`、`generate.image`、`generate.video` | Agent、CLI、MCP、WebUI |
+| Production Intent | `production.run`、`workflow.node.run`、`generate.image`、`generate.video` | External Harness（经 CLI）、Production Crew、WebUI |
 | Atomic Runtime | `workflow.node.move`、`workflow.connect`、`artifact.import`、`capability.submit` | Flovart Skill、第一方 UI、受控 operator |
 | Private Provider IPC | `provider.submit`、`provider.poll`、`provider.cancel` | 仅 Desktop Runtime |
 
@@ -215,7 +216,7 @@ Runtime SQLite 结构应单独记录在 `docs/content/docs/runtime/runtime-stora
 3. 启动时生成随机 Token，将 PID、端口、协议版本和 Token 写入当前用户受保护的 Runtime Discovery Record。
 4. Local HTTP Adapter 除 `/status` 最小健康信息外全部要求 `Authorization: Bearer ...`。
 5. WebUI 优先通过 Tauri command 调用同一 Runtime Module，并用 capability/permission 限制窗口与命令。
-6. Keyring Interface 只提供 metadata、resolve-for-worker 和 delete；不向 HTTP、CLI、MCP 或 WebUI返回 Secret。
+6. Keyring Interface 只提供 metadata、resolve-for-worker 和 delete；不向 HTTP、CLI、Production Crew 或 WebUI 返回 Secret。
 7. Provider Worker stdout 只允许协议 JSON；日志写 stderr，并对 token、Authorization、URL query 和 data URL 脱敏。
 
 ## Canonical Registry
@@ -233,16 +234,17 @@ Runtime SQLite 结构应单独记录在 `docs/content/docs/runtime/runtime-stora
 
 - `flovart command.list/schema`
 - CLI 参数与 `--help`
-- MCP tool schema
 - Flovart Skill 命令参考
-- WebUI Agent action schema
+- WebUI 与 Production Crew action schema
 - Contract tests
 
-不要再手工维护 CLI registry、MCP Zod 推断和 Skill 命令表三份真相。
+不要再手工维护 CLI registry、Crew tool schema 和 Skill 命令表多份真相。
 
 ## 实施切片
 
-### S0：安全 Control Plane
+状态只表示本地基线，不替代 `command.list`、自动测试与真实运行验收。
+
+### S0：安全 Control Plane（基线已存在，继续收口）
 
 范围：
 
@@ -254,11 +256,11 @@ Runtime SQLite 结构应单独记录在 `docs/content/docs/runtime/runtime-stora
 验收：
 
 - 无 Token 的所有状态写入和命令提交返回 401。
-- CLI、MCP、普通网页和本机无 Origin 请求均无法读取 Secret。
+- CLI、Production Crew、普通网页和本机无 Origin 请求均无法读取 Secret。
 - WebUI 与 CLI 调用同一测试命令，得到相同 command/event ID。
 - Desktop Runtime 未启动时，CLI 返回明确的 `RUNTIME_UNAVAILABLE` 和启动建议。
 
-### S1：持久图片生成 tracer bullet
+### S1：持久图片生成 tracer bullet（基线已存在，继续统一权威）
 
 范围：
 
@@ -276,7 +278,7 @@ Runtime SQLite 结构应单独记录在 `docs/content/docs/runtime/runtime-stora
 - Desktop Runtime 在 submitted/polling 阶段重启后继续查询同一 external job。
 - 结果 Artifact、Workflow node 和 generation history 指向同一来源记录。
 
-### S2：持久视频生成
+### S2：持久视频生成（部分 Route 已接入）
 
 范围：
 
@@ -286,12 +288,12 @@ Runtime SQLite 结构应单独记录在 `docs/content/docs/runtime/runtime-stora
 
 验收：
 
-- 关闭 CLI/MCP 不取消 Provider Job。
+- 关闭 CLI、TUI 或 WebUI 不取消 Provider Job。
 - `task.cancel` 不虚报 Provider 已取消。
 - 视频下载、校验和 Artifact 物化可断点恢复或安全重试。
 - `video.status` 被 `task.get` 取代或成为只读别名，不再形成第二套任务模型。
 
-### S3：ProductionRun 编排
+### S3：ProductionRun 编排（Dry Run 与 Projection 已有基线）
 
 范围：
 
@@ -306,7 +308,7 @@ Runtime SQLite 结构应单独记录在 `docs/content/docs/runtime/runtime-stora
 - 所有费用预留与 ProviderAttempt 可追溯到 StageRun。
 - Production Skill 只能声明 Capability Requirement，不能指定 Secret 或任意 endpoint。
 
-### S4：完整短片能力
+### S4：完整短片能力（剩余主链）
 
 范围：
 
@@ -322,15 +324,11 @@ Runtime SQLite 结构应单独记录在 `docs/content/docs/runtime/runtime-stora
 - 经用户单独批准后再运行最小付费 Provider Smoke Test。
 - 最终 MP4 具有预期视频/音频流、时长、分辨率和可播放性。
 
-### S5：MCP Tasks 渐进增强
+### S5：Production Crew 与 Agent 控制面接入（见 Agent 设计包）
 
-只有当项目采用的 MCP TypeScript SDK 稳定支持 Tasks 后再做：
-
-- Runtime Task ID 映射为 MCP Task ID。
-- `task.get/list/cancel/result` 映射到标准 MCP Tasks。
-- 不改变 ProductionRuntime、SQLite 或 Provider Worker。
-
-在此之前，MCP v1 工具直接返回 Flovart `TaskReceipt`，并暴露普通的 task 查询工具。
+- Workspace Operator 只提交受限 Intent，并获得 `TaskReceipt` 或 `Workspace Operator Receipt`。
+- Agent Workspace 根据 Director Binding、Task/Event、审批和 Artifact 构建可重建投影，不保存主聊天镜像。
+- 外部 Harness 始终经 CLI 查询、取消和恢复；接入不改变 ProductionRuntime、SQLite 或 Provider Worker 的权威边界。
 
 ## 文件落点
 
@@ -350,9 +348,8 @@ runtime/contracts/
   schemas/            versioned input/output JSON Schema
 
 tools/flovart/
-  runtime-client.js   CLI/MCP 共用客户端
+  runtime-client.js   CLI 与第一方本地客户端共用
   cli.js              参数/输出 Adapter
-  mcp-server.js       MCP v1 Adapter
   provider-worker/    私有 JSONL worker
 ```
 
@@ -364,13 +361,13 @@ tools/flovart/
 
 | 层次 | 必测内容 |
 | --- | --- |
-| Contract | registry 对 CLI、MCP、WebUI schema 生成一致 |
+| Contract | registry 对 CLI、WebUI 与 Production Crew schema 生成一致 |
 | Runtime integration | command receipt、幂等冲突、事务、lease、重启、事件续传 |
 | Provider fake | success、failed、timeout、cancel、submission unknown、重复 webhook/poll |
 | Artifact | 内容哈希去重、原子写入、损坏检测、来源关系 |
 | Workflow | revision CAS、节点目标不存在、重复结果、不覆盖并发编辑 |
 | Security | 无 Token、错误 Token、过期 Discovery Record、Secret 脱敏 |
-| Desktop E2E | WebUI 关闭/重开、Runtime 重启、CLI/MCP 继续观察同一 Task |
+| Desktop E2E | WebUI 关闭/重开、Runtime 重启、CLI 继续观察同一 Task |
 
 真实 Provider Smoke Test 必须单独请求费用批准，不能进入默认 CI。
 
@@ -387,30 +384,28 @@ tools/flovart/
 
 保留 `export.project` 作为用户主动导出路径；是否导入现有浏览器项目数据，需要在实施前单独确认，不默认写旧数据迁移层。
 
-## 首轮施工批次
+## 当前收口顺序
 
-首轮只覆盖 S0 与 S1，并按可独立验证的纵向批次提交：
+1. **统一调用方**：把仍为 legacy-only 的 Provider/Workflow 写路径切到 Canonical Registry、Workspace Authority 与 ProductionRuntime。
+2. **恢复语义**：补齐 ProviderAttempt、Submission Unknown、远端取消、账单和 Artifact 重启恢复。
+3. **Draft Authority**：完成 Browser → Desktop 显式转移、revision CAS 与 ProductionSpec Revision 冻结。
+4. **完整短片 Capability**：落地 speech、music、render、verify 与发布 Gate，并以最小 VOX ProductionSpec 验收。
+5. **发行闭环**：验证 Runtime Release Bundle、固定 Node Runtime、升级回滚、Windows/macOS/Linux 安装和 CLI-only 降级。
 
-1. **安全握手切片**：CLI 与 Workflow WebUI 分别通过 Local HTTP Adapter 和 Tauri Adapter 调用同一个 `runtime.status`；实现随机端口、Discovery Record、Bearer 校验和协议版本错误，删除 HTTP Secret 读取。
-2. **持久 Task 切片**：加入 internal-only 的测试 capability，通过正式 `submit/get/list/cancel/events` Interface 验证 receipt 先持久化、幂等冲突、lease、Runtime 重启与 `Last-Event-ID` 续传。
-3. **Fake 图片全链路**：`generate.image` 生成 ProductionRun、StageRun、ProviderAttempt 和 Artifact，使用 Provider Fake 更新一个带 expected revision 的 Workflow node；WebUI 关闭期间任务仍完成。
-4. **真实图片 Adapter**：选择一条已验证、低成本图片 Route 接入 Provider Worker，确保 Route Preflight、Secret 注入、Submission Unknown 和结果物化复用 Fake 已验证的 Runtime Interface；真实 Smoke Test 另行批准费用。
-5. **统一调用方并删除旧轨**：CLI、MCP 与 Workflow 全部切换 RuntimeClient；删除 file bridge、Tauri BridgeQueue、browser command 轮询和三份命令 Schema 真相，以 canonical registry 重新生成文档和测试。
-
-每个批次都必须保持测试可运行；第五批次完成前可以在开发分支短暂共存，但不能把双 Production Authority 作为可发布状态。
+每个切片都必须保持当前已验证命令可运行；切换完成后在同一批次删除旧轨，不发布双 Production Authority。
 
 ## 放行门
 
-S0 与 S1 同时满足以下条件后，才进入视频和 ProductionRun：
+以下条件全部满足后，才能宣称 Production Runtime V1 完成：
 
 1. Production Authority 只有一个。
-2. Secret 无法通过 CLI、MCP、HTTP 或 WebUI 读回。
+2. Secret 无法通过 CLI、Production Crew、HTTP 或 WebUI 读回。
 3. 所有写命令有持久 idempotency receipt。
 4. Task 在 WebUI 关闭和 Runtime 重启后仍可恢复。
 5. Runtime Event Stream 可以从已知事件 ID 续传。
 6. ProviderAttempt 对 submission unknown 不自动重提。
 7. Workflow 更新使用 revision CAS。
-8. CLI、MCP、WebUI 和 Skill 文档来自同一 registry。
+8. CLI、Production Crew、WebUI 和 Operation Skill 文档来自同一 registry。
 9. 聚焦测试、Rust 测试、TypeScript 类型检查和 Desktop E2E 分别通过。
 10. todo 完成项移动到 pending-test；用户确认后再进入正式功能文档。
 
@@ -423,4 +418,4 @@ S0 与 S1 同时满足以下条件后，才进入视频和 ProductionRun：
 5. 用户可以在已支持 Provider Adapter Family 内验证本地 BYOK Route，但未知协议必须新增受审 Adapter。
 6. 每个 ProductionSession 在 V1 中至多绑定一个 Bound Production Skill；无绑定时直接使用 ProductionSpec Core。
 7. Runtime/TUI 持续监控长任务，仅通过 Agent Intervention Event 唤醒 Coding Agent。
-8. S0/S1 图片底座放行后，下一条产品验收是 15 秒 VOX 端到端短片。
+8. 完整产品验收固定包含 15 秒 VOX 端到端短片，并覆盖 WebUI/Harness 断线与 Runtime 重启恢复。

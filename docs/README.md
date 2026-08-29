@@ -1,21 +1,24 @@
-# Flovart 文档索引
+# Flovart 文档
 
-## 产品与进度
+这里是面向使用者的精简入口。仓库中的 ADR、Agent 设计稿、Runtime 契约和后端契约仍作为有效内部资料保留，但不在公开入口逐篇展开。
+
+## 使用与产品
 
 - [快速开始](overview/quick-start.md) / [Getting Started](overview/quick-start.en.md)
 - [Skill 使用手册](overview/skill-guide.md)
 - [功能特性](content/docs/overview/features.mdx) / [Features](content/docs/overview/features.en.mdx)
+
+## 项目状态
+
 - [后续待办](content/docs/progress/todo.mdx)
 - [待测试确认](content/docs/progress/pending-test.mdx)
-- [领域词与工作区边界](../CONTEXT.md)
+
+以上共 7 个公开页面入口：中英文快速开始、中英文功能页、Skill 手册、Todo 与 Pending Test。
+
+## 内部设计与开发者索引
+
+- [AI 与开发者完整索引](index.md)
+- [Agent 十份设计文档](design/agent/README.md)
 - [架构决策记录](adr/README.md)
 
-## 开发者文档
-
-- [AI 文档索引](index.md)
-- [Workflow CLI](../skills/flovart/commands/workflow.md)
-- [后端数据库结构](content/docs/backend/backend-database.mdx)
-- [接口响应规则](content/docs/backend/api-response.mdx)
-- [Enterprise 接口](content/docs/backend/enterprise-api.mdx)
-
-现行产品由 Workflow、Table 与 Agent 三部分组成：Workflow 负责生成编排，Table 负责节点式媒体处理，Agent 负责空间化任务协作。旧 Canvas / Art 只会出现在历史变更与待测试记录中，不再作为第四个功能入口。
+现行产品由 Workflow、Table 与 Agent 三部分组成：Workflow 负责生成编排，Table 负责节点式媒体处理，Agent 的目标形态是“外部导演 Harness + 唯一内置 Workspace Operator”的制作现场控制面；Production Crew 只是执行组件集合。旧 Canvas / Art 只保留在 Git 历史，不再作为第四个功能入口或现行文档分类。

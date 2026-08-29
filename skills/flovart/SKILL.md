@@ -1,6 +1,6 @@
 ---
 name: flovart
-description: Operate Flovart Workflow projects, nodes, providers, product models, assets, and generation jobs through the deterministic local CLI or its MCP wrapper. Use when an agent needs to inspect or change Flovart production state, run image or video generation, diagnose provider readiness, or export project metadata. The current CLI command surface covers Workflow, not Table; never invent removed Canvas or Element commands, and do not claim Table automation until it appears in command.list.
+description: Operate Flovart Workflow projects, nodes, providers, product models, assets, and generation jobs through the deterministic local CLI. Use when an agent needs to inspect or change Flovart production state, run image or video generation, diagnose provider readiness, or export project metadata. The current CLI command surface covers Workflow, not Table; never invent removed Canvas or Element commands, and do not claim Table automation until it appears in command.list.
 ---
 
 # Flovart CLI
@@ -13,14 +13,17 @@ npx flovart-cli <command> --json
 
 Source contributors may use `npm run flovart:cli -- <command> --json` inside the repository.
 
-Treat these outputs as the only source of truth for names and arguments:
+Start a normal session with readiness, not registry discovery:
 
 ```bash
-npx flovart-cli command.list --json
-npx flovart-cli command.schema --command <command> --json
+npx flovart-cli status --json
+npx flovart-cli start --open --json   # only when status is not ready
+npx flovart-cli workflow.inspect --json
 ```
 
-If this file or another reference disagrees with the registry, trust the registry and stop using the stale command.
+Poll `status --json` until the local Agent, WebUI, and visible Browser Workflow are ready. Use `command.list` / `command.schema` only for bootstrap, an unfamiliar compatibility command, or a contract mismatch; they are never part of the normal model-facing loop. If this file or another reference disagrees with the registry, trust the registry and stop using the stale command.
+
+For normal Agent work, use the stable surface (`status`, `workflow.inspect`, `workflow.selection.get`, `workflow.apply`, `workflow.node.run`). `command.list` and `command.schema` are bootstrap/discovery/debug tools, not a second model-facing tool surface.
 
 ## Product boundary
 
@@ -37,6 +40,29 @@ If this file or another reference disagrees with the registry, trust the registr
 - Do not invent private HTTP calls, scrape the UI, or add another protocol server.
 - Inspect before mutation, send explicit prompts and typed arguments, and retry only the smallest failed node or job.
 - Do not submit a duplicate long-running job until its current status is known.
+- The stable Agent Canvas contract is `workflow.inspect` → `workflow.selection.get` when selection context is needed → `workflow.apply` for structured document operations → `workflow.node.run` for execution.
+- Granular Workflow commands remain compatibility adapters. A Browser-bound command with no visible browser fails with `WORKSPACE_UNAVAILABLE`; it never falls back to a hidden/native graph.
+- The Agent defaults to the current Browser binding, must fail explicitly when it is unavailable, and must not treat React/localforage Workflow graph data as an authority or re-parse Provider details.
+
+## Host Projection
+
+The Core contract is independent of the calling Host. `host.list` performs PATH-only discovery of Agent Identities and reports available Distribution Targets and Runtime Surfaces; it never reads login state or credentials. `init --target <target>` installs the Skill into a Distribution Target such as `codex-skill`, `codebuddy-code-skill`, `claude-code-skill`, or `opencode-skill`.
+
+Codex is the current professional golden path. CodeBuddy Code is a compatible coding-agent projection; DeepSeek Harness keeps its explicit native Plugin projection. WorkBuddy is a future mainstream, skill-mediated projection and is not a Director Runtime Binding. Do not add it to `director.bind` or put Host-specific logic in Workflow Core.
+
+For external Coding Agent Workflow calls, include the current Host Identity as
+transport metadata: Codex uses `--agent-identity codex`, Claude Code uses
+`--agent-identity claude-code`, and OpenCode uses `--agent-identity opencode`.
+This value is not a Workflow field. The first tagged `workflow.inspect` claims
+the Host writer; a different Host must be explicitly activated in Flovart before
+it can write. Add `--host-session-id` only when the Host provides a stable
+session identity.
+
+## Skill roles
+
+- This `flovart` Skill is the capability/SOP layer: readiness, command discovery, Workflow inspect, structured mutation, execution and recovery. It is not a Runtime or a second state store.
+- A Production Skill is a separate creative SOP: it contributes briefs, beats, style rules and review gates, then hands a provider-neutral ProductionSpec to Flovart. It must not hold credentials, call Provider HTTP, or mutate Workflow state directly.
+- A `PromptAsset` is a reusable provider-neutral prompt plus modality, tags, model hints and reference-role requirements. Treat its text as input to PromptBar/Director planning; Provider wire fields and API keys stay outside the asset.
 
 ## Setup
 
@@ -55,26 +81,24 @@ npx flovart-cli provider.begin-setup --purpose both --json
 
 Ask the user to enter credentials in the local Runtime/WebUI. Never request a key in chat.
 
-## MCP wrapper
+## Install
 
-Register the same MCP server when the host supports MCP:
+Flovart exposes no MCP server to coding agents. The canonical local CLI is the only agent-facing interface. Install this SKILL as a coding-agent attachment:
 
 ```bash
-npx flovart-cli init --host codex
+npx flovart-cli init --target project-skill
 ```
 
-Use `--host claude|opencode|cursor|windsurf|vscode|all` for another host. It exposes the same canonical registry through stdio. MCP tool names replace dots and hyphens with underscores. The MCP wrapper does not expand the command surface.
+This writes `.agents/skills/flovart/SKILL.md` into the current project. Use `--target codex-skill`, `--target codebuddy-code-skill`, `--target claude-code-skill`, or `--target opencode-skill` for an explicit projection. Never use legacy shadow/file-bridge, Canvas, or Element commands.
 
 ## Operating workflow
 
-1. Read `command.list`, then read the schema for each command you will call.
-2. Run `status` and `provider.status`.
-3. Select or create a Workflow project with `workflow.project.*`.
-4. Inspect the redacted graph with `workflow.inspect`.
-5. Create, update, connect, move, resize, or select nodes using registered `workflow.*` commands.
-6. Run a config node with `workflow.node.run`, or use `generate.image`, `generate.images-batch`, or `generate.video` when their schemas match the task.
-7. Use `workflow.node.stop` or `video.status` for active work.
-8. Re-inspect and return project, node, connection, artifact, and job IDs plus any remaining user action.
+1. Run `status`; if it is not ready, use `start --open --json` and poll again.
+2. Inspect the redacted graph with `workflow.inspect`; use `workflow.selection.get` when the current selection is part of the intent.
+3. Give every write command a stable `--idempotency-key`; for `workflow.apply`, also provide the matching `--mutation-id`.
+4. Prefer one `workflow.apply` call with structured `operations` for a batch; use granular `workflow.*` commands only when their schemas are the smallest compatibility adapter.
+5. Run a config node with `workflow.node.run`; direct Runtime generation commands remain CLI-only capability commands, not additional model tools.
+6. Re-inspect and return project, node, connection, artifact, and job IDs plus any remaining user action.
 
 Example discovery and graph setup:
 

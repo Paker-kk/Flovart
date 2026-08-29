@@ -10,7 +10,7 @@ Flovart is a local-first AI creation system with three distinct workspaces: Work
 | --- | --- | --- |
 | **Workflow** | Orchestrates prompts, references, generation models, node dependencies, job state, and results for image and video production. | A usable foundation exists; interaction and runtime contracts are still converging. |
 | **Table** | Organizes agent storyboards and media preprocessing nodes that turn source media into reusable references. | The official entry point is integrated; the node workbench is still a placeholder. |
-| **Agent** | Organizes the built-in Flovart Agent, Codex threads, task state, project context, and artifacts as spatial panels. | The main entry and built-in Agent changes are still pending user verification and are not presented here as confirmed features. |
+| **Agent** | Acts as the production-crew control surface for Director Bindings, execution state, approvals, receipts, context, and artifacts. | The target architecture is designed; the current built-in-main-agent implementation still needs migration. |
 
 The removed Canvas and Art workspaces are not a fourth product surface.
 
@@ -39,14 +39,21 @@ The main Table implementation is not complete. These planned capabilities must n
 
 ## Agent
 
-Agent is neither a Workflow chat drawer nor another generation graph. It uses movable panels for the main conversation, external Codex tasks, status, context, and artifacts; its spatial canvas only handles layout, focus, zoom, and restoration. The current built-in Flovart Agent, visible Workflow tools, and spatial-layout changes remain in [Pending verification](../progress/pending-test.mdx) until the user confirms them.
+Agent is neither a Workflow chat drawer, a mirror of an external harness conversation, nor another generation graph. Its target form is a spatial production control surface with movable panels for Director Bindings, intents, status, approvals, Workspace Operator receipts, and artifacts. The canonical conversation, overall goal, and cross-task scheduling remain in the independently running External Coding Agent Harness. The current code still follows the older “built-in main Flovart Agent plus Codex subtasks” direction; its migration is listed in the [backlog](../progress/todo.mdx).
+
+The product has exactly two AI roles: the external director harness and the single built-in Workspace Operator. Production Crew is only a group name for the Operator plus deterministic dispatch/runtime capabilities and provider workers; it is not a third agent. Even model-based expert review is a stateless one-shot Review Tool.
 
 ## CLI and external agents
 
-- External coding agents can call typed Flovart capabilities through an Operation Skill, CLI, or MCP, but they are not alternate built-in Flovart Agent personas.
+- The External Coding Agent Harness is the director. Coding Agent Projections learn Flovart through an Operation Skill and call typed capabilities through the public CLI; the target public boundary provides no coding-agent MCP server. The internal MCP transport still present in the legacy Managed/Codex adapter is migration code scheduled for deletion, not a supported integration path.
+- Codex is the current professional golden path; DeepSeek Harness keeps an explicit native Plugin projection; CodeBuddy Code, Claude Code, OpenCode, and Pi remain compatible through the stable Skill + CLI contract. WorkBuddy is a future mainstream, skill-mediated projection and is outside the current Director Binding scope.
+- The target deep DeepSeek experience is a dedicated Flovart Profile with a Host/Client Plugin. DeepSeek Harness remains the application shell, canonical conversation, and default director; a fixed Flovart Dock opens the complete Workflow/Table/Agent Production Control surface in the central workspace, lightweight overlays handle approvals/status/artifacts, and the right-side Agent Bridge manages connections plus single-director handoff, with a standalone-window fallback. The Host still executes model tools through the CLI; the Client uses a scoped local channel only for UI, events, and recovery. This has not passed real installation and recovery acceptance and must not be presented as shipped.
 - Flovart CLI is the deterministic actuator; `command.list` and `command.schema` are the source of truth for command names and options.
-- Current automation is Workflow-first. Agents must not invent Canvas, Element, or Table commands or bypass the CLI with private HTTP calls.
+- The CLI may use a versioned local protocol internally, but external models do not consume it directly. Only the trusted DeepSeek Client Plugin may consume a short-lived, capability-scoped UI/event subset.
+- Current automation is Workflow-first. A harness must not invent Canvas, Element, or Table commands or bypass the CLI with private HTTP calls.
 - Users configure provider credentials; CLI and agent output must never read or expose API keys.
+
+See the [Agent architecture design package](../../../design/agent/README.md) for the target, protocol boundary, migration plan, and acceptance gates.
 
 ## Local-first boundaries
 

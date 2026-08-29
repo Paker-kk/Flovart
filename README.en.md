@@ -58,39 +58,39 @@
 
 ## What is Flovart?
 
-Flovart is a local-first AI video production system centered on one built-in **Flovart Agent**. It has three official workspaces: **Workflow** owns multi-node generation orchestration; **Table** focuses on one media item or Workflow node at a time; **Agent** organizes the main conversation, optional external coding-agent subtasks, project context, and artifacts. They share providers, assets, and artifact semantics without restoring the removed Canvas or Art system.
+Flovart is a local-first AI video production system with exactly two AI roles: the user's external **Coding Agent Harness** is the director, and Flovart's single lightweight **Workspace Operator** is the built-in execution agent. `Production Crew` is only a group name for the Operator and deterministic tools/services such as dispatchers and runtime workers; it is not a third agent.
 
-The system separates video production into four stable responsibilities:
+**Workflow** owns multi-node generation orchestration, **Table** focuses media preprocessing, and **Agent** is the spatial production control surface. They share providers, assets, and artifact semantics without restoring the removed Canvas or Art system.
 
-| Role | Responsibility |
-| --- | --- |
-| **Flovart Agent** | The one built-in production agent users collaborate with directly: it understands the brief, selects methods, supervises execution, and restores the main conversation. |
-| **Production Skill** | A production method loaded by Flovart Agent that defines style, shot language, stages, checkpoints, and acceptance criteria. |
-| **Flovart Runtime / CLI** | The deterministic execution layer: operates registered capabilities and persists tasks and artifacts without asking the agent to guess HTTP calls or manipulate the UI. |
-| **Provider Adapter** | Exclusively owns model routing, credential injection, submission, and polling; Production Skills never access API keys. |
+| Name | Nature | Responsibility |
+| --- | --- | --- |
+| **External Coding Agent Harness** | External AI role | The director: owns the canonical conversation, overall goal, long-range plan, cross-task scheduling, and final recommendations. |
+| **Workspace Operator** | Only built-in AI role | The execution agent: inspects local state, selects typed tools, and returns a receipt inside one bounded intent. |
+| **Production Crew** | Execution group, not an agent | Collective name for the Operator, dispatcher, runtime workers, and workspace tools. |
+| **Production Skill** | Production method, not an agent | Defines style, shot language, stages, checkpoints, and acceptance criteria. |
+| **Runtime / CLI / Provider Adapter** | Deterministic tools and services | Execute registered capabilities, persist tasks and artifacts, protect credentials, and manage provider lifecycles. |
 
-In one line: **Workflow orchestrates generation, Table focuses preprocessing, and Agent understands, executes, and supervises production in a spatial task interface.**
+In one line: **the external harness directs, one built-in Operator executes, and everything else is a tool or service.**
 
 ```mermaid
 flowchart LR
-  B["Creative brief"] --> A["Flovart Agent<br/>One built-in main agent"]
-  A --> S["Production Skill<br/>Reusable production method"]
-  A --> C["Flovart Runtime / CLI<br/>Deterministic execution"]
-  X["Codex / OpenCode<br/>Optional external subtask"] -.-> C
-  C <--> W["Workflow<br/>Nodes / status / artifacts"]
-  C <--> T["Table<br/>Media preprocessing"]
-  C --> M["Provider Adapters<br/>Image / video / audio"]
-  W --> A
-  T --> A
+  B["Creative brief"] --> D["External Coding Agent Harness<br/>Director / canonical conversation"]
+  D -->|"Operation Skill + CLI"| O["Workspace Operator<br/>Only built-in execution agent"]
+  S["Production Skill<br/>Reusable production method"] --> O
+  O <--> W["Workflow<br/>Nodes / status / artifacts"]
+  O <--> T["Table<br/>Media preprocessing"]
+  O --> R["Runtime / Dispatcher / Provider<br/>Tools and services"]
+  O --> A["Agent Workspace<br/>Binding / status / approvals / receipts"]
 ```
 
 ## Why this architecture?
 
-- **Separated responsibilities**: Workflow owns multi-node generation orchestration; Table processes one input at a time; Agent spatially organizes Codex threads and task state, so generation, processing, and conversation are not forced back into one cluttered surface.
+- **Exactly two AI roles**: the external harness owns the overall plan while the internal Operator micro-plans only inside one intent; crew services, workers, and review tools add no agent personas.
+- **Separated responsibilities**: Workflow owns multi-node orchestration, Table processes media, and Agent shows the production floor without folding the canonical conversation into the same surface.
 - **BYOK and multi-model**: users configure their own credentials while provider adapters connect image, video, and text models.
 - **Recoverable production**: the CLI returns JSON status so an agent can poll, retry, and resume instead of relying on one long conversation.
 - **Reusable style**: a Production Skill captures production knowledge so the same visual language and process can be applied across projects.
-- **Composable roles**: writing, storyboarding, visual generation, voice, editing, and quality control can be owned by Production Skills and optional specialist subtasks while sharing one Workflow.
+- **Composable capabilities**: writing, storyboarding, visual generation, voice, editing, and quality control use typed tools; optional model-based review remains a one-shot Review Tool.
 
 ## Production Skill ecosystem
 
@@ -103,9 +103,9 @@ Flovart will define the minimum integration contract for Production Skills and p
 - checkpoints, recovery, human approval, and final acceptance;
 - artifact lineage, model policy, cost controls, and safety boundaries.
 
-[VOX Skill](https://github.com/avabbbb/vox-director) is the first stylized Production Skill reference; its upstream repository and technical invocation handle remain `vox-director`. The goal is to combine Flovart Agent, Production Skills, and the user's providers into a reusable end-to-end film workflow.
+[VOX Skill](https://github.com/avabbbb/vox-director) is the first stylized Production Skill reference; its upstream repository and technical invocation handle remain `vox-director`. The goal is to combine an external director harness, Flovart's Production Crew, Production Skills, and the user's providers into a reusable end-to-end film workflow.
 
-> The Production Skill contract, Skill Creator template, TUI `/commands`, and real-time event monitoring are still under development. The new Table and Agent surfaces are being implemented.
+> Codex, DeepSeek Harness, Claude Code (CC), OpenCode, and Pi are all in the official external-director support scope. Their model tools share the same Operation Skill + local CLI baseline, and Flovart exposes no MCP server. Codex and DeepSeek Harness receive deep session/event work first; DeepSeek additionally targets a dedicated Profile with a Host/Client Plugin that contributes a fixed Flovart Dock, central production workspace, lightweight overlays, single-director Agent Bridge, and standalone-window fallback inside the Harness shell. Architecture migration, plugin integration, and real five-host acceptance remain in progress.
 
 ## Current capabilities and boundaries
 
@@ -114,16 +114,26 @@ Flovart will define the minimum integration contract for Production Skills and p
 | Workflow node orchestration, local projects, and assets | Foundation available |
 | Table workspace entry point | Integrated; currently a placeholder |
 | Table single-media / node preprocessing | In design and implementation |
-| Agent spatial task workspace | In design and implementation |
+| Agent spatial task workspace | Older built-in-main-agent UI integrated; migration to the crew control surface is in progress |
 | Multi-provider BYOK, text-to-image, image-to-image, and text-to-video | Foundation available |
 | Workflow CLI, command schemas, and JSON status | Converging |
-| Codex and OpenCode host adapters | Priority work |
+| Codex / DeepSeek Harness / Claude Code / OpenCode / Pi | All five are in scope; Operation Skill + CLI is the common model-tool baseline, Codex/DeepSeek deep integration comes first, and the DeepSeek Flovart Dock plugin still requires real-host acceptance |
 | Production Skill contract and UGC ecosystem | In design and implementation |
 | TUI `/xxxx` shortcuts, job subscriptions, and resumable runs | Planned |
 
 The creator runtime is primarily TypeScript and Node.js. Go + Gin + GORM belong to the enterprise control plane for organizations, RBAC, audit, and private deployment management; Go is not the creative runtime.
 
 ## Quick start
+
+### Coding Agent / CLI
+
+```bash
+npx flovart-cli install
+npx flovart-cli init --target codex
+npx flovart-cli start --open
+```
+
+`install` downloads and verifies the versioned Runtime + Agent Toolkit. `init --target codex` installs the Flovart Skill and automatic-open entry under `.agents/skills/`; startup prepares the visible Workflow without asking the user to copy a URL, token, or port. Use the matching target for Claude Code or OpenCode. Flovart exposes no MCP server to coding agents; they operate through the local CLI.
 
 ### Start the frontend
 
@@ -134,23 +144,34 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:11451> and configure your own model-service credentials in Settings.
+Open <http://localhost:37522> and configure your own model-service credentials in Settings.
 
 ### Inspect the Workflow CLI
 
 ```bash
+npm run flovart:cli -- status --json
+npm run flovart:cli -- start --open --json  # only when status is not ready
+npm run flovart:cli -- workflow.inspect --json
+```
+
+For compatibility or contract debugging, inspect the machine registry:
+
+```bash
 npm run flovart:cli -- command.list --json
-npm run flovart:cli -- command.schema --command workflow.node.run --json
+npm run flovart:cli -- command.schema --command workflow.inspect --json
 npm run flovart:cli -- workflow.project.list --json
 ```
 
-The CLI accepts explicit commands only. External agents should inspect `command.list` and `command.schema` before operating Workflow; they should not invent internal HTTP calls or scrape the UI.
+The CLI accepts explicit commands only. The normal external-agent path is `status`, `start --open` when needed, then `workflow.inspect`; `command.list` and `command.schema` are for bootstrap, compatibility diagnosis, and debugging. External agents should not invent internal HTTP calls or scrape the UI.
+
+Coding Agent projections carry their own Agent Identity on Workflow commands (for example, Codex uses `--agent-identity codex`). The first tagged inspect claims the Host writer; switching Hosts must be explicit in Flovart's Host Picker.
 
 More documentation:
 
 - [Getting Started](docs/overview/quick-start.en.md)
 - [Features](docs/content/docs/overview/features.en.mdx)
 - [Roadmap](docs/content/docs/progress/todo.mdx)
+- [Agent architecture: external director and internal production crew](docs/design/agent/README.md)
 - [AI documentation index](docs/index.md)
 
 ## Local-first and security

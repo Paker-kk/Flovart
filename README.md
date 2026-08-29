@@ -58,39 +58,39 @@
 
 ## Flovart 是什么？
 
-Flovart 是以唯一内置 **Flovart Agent** 为协作入口的本地优先 AI 视频制作系统，包含三个正式工作区：**Workflow** 负责多节点生成编排，**Table** 一次专注处理一个媒体或 Workflow 节点，**Agent** 组织主对话、可选外部 Coding Agent 子任务、项目上下文和产物。三者共享 Provider、素材和产物语义，但不恢复已经删除的旧 Canvas / Art 系统。
+Flovart 是本地优先的 AI 视频制作系统。系统只有两个 AI 角色：用户选择的外部 **Coding Agent Harness** 是导演台，Flovart 唯一内置的轻量 **Workspace Operator** 是执行 Agent。`Production Crew` 只是 Operator 与 Dispatcher、Runtime Worker 等普通工具/服务的集合名，不是第三个 Agent。
 
-它把视频制作拆成四种稳定职责：
+三个正式工作区中，**Workflow** 负责多节点生成编排，**Table** 专注媒体预处理，**Agent** 是制作现场的空间控制面；三者共享 Provider、素材和产物语义，但不恢复已经删除的旧 Canvas / Art 系统。
 
-| 角色 | 职责 |
-| --- | --- |
-| **Flovart Agent** | 用户唯一直接协作的内置制作 Agent：理解 Brief、选择方法、监督执行并恢复主对话。 |
-| **Production Skill** | Flovart Agent 可加载的制作方法：定义风格、镜头语言、制作步骤、检查点和验收标准。 |
-| **Flovart Runtime / CLI** | 确定性执行层：按注册表操作能力、保存任务与产物，不让 Agent 猜 HTTP 或操纵 UI。 |
-| **Provider Adapter** | 独占模型路由、凭据注入、提交和轮询；Production Skill 不接触 API Key。 |
+| 名称 | 性质 | 职责 |
+| --- | --- | --- |
+| **External Coding Agent Harness** | 外部 AI 角色 | 导演台：持有主对话、总体目标、长程计划、跨任务调度和最终建议，并独立于 Flovart 生命周期运行。 |
+| **Workspace Operator** | 唯一内置 AI 角色 | 执行 Agent：只在单次有界 Intent 内读取现场、选择类型化工具并返回结构化回执。 |
+| **Production Crew** | 执行组件集合，不是 Agent | Operator、Dispatcher、Runtime Worker 与 Workspace Tool 的统称。 |
+| **Production Skill** | 制作方法，不是 Agent | 定义风格、镜头语言、制作步骤、检查点和验收标准。 |
+| **Runtime / CLI / Provider Adapter** | 确定性工具与服务，不是 Agent | 执行注册能力、保存任务与产物、保护凭据并管理 Provider 生命周期。 |
 
-一句话：**Workflow 编排生成，Table 专注预处理，Agent 在空间任务界面里理解、执行和监督制作。**
+一句话：**外部 Harness 当导演，一个内置 Operator 负责执行；其余都是工具和服务。**
 
 ```mermaid
 flowchart LR
-  B["创作 Brief"] --> A["Flovart Agent<br/>唯一内置主 Agent"]
-  A --> S["Production Skill<br/>可复用制作方法"]
-  A --> C["Flovart Runtime / CLI<br/>确定性执行"]
-  X["Codex / OpenCode<br/>可选外部子任务"] -.-> C
-  C <--> W["Workflow<br/>节点 / 状态 / 产物"]
-  C <--> T["Table<br/>媒体预处理"]
-  C --> M["Provider Adapters<br/>图像 / 视频 / 音频"]
-  W --> A
-  T --> A
+  B["创作 Brief"] --> D["External Coding Agent Harness<br/>导演台 / 主会话"]
+  D -->|"Operation Skill + CLI"| O["Workspace Operator<br/>唯一内置执行 Agent"]
+  S["Production Skill<br/>可复用制作方法"] --> O
+  O <--> W["Workflow<br/>节点 / 状态 / 产物"]
+  O <--> T["Table<br/>媒体预处理"]
+  O --> R["Runtime / Dispatcher / Provider<br/>工具与服务"]
+  O --> A["Agent Workspace<br/>绑定 / 状态 / 审批 / 回执"]
 ```
 
 ## 为什么采用这套架构？
 
-- **职责分离**：Workflow 负责多节点生成编排；Table 一次只处理一个输入；Agent 使用空间面板组织 Codex 线程和任务状态，避免把生成、处理和对话重新堆进同一张杂乱界面。
+- **只有两个 AI 角色**：外部 Harness 持有总体计划，内置 Operator 只在一个 Intent 内微规划；制作组、Worker 与评审工具都不增加 Agent 人格。
+- **职责分离**：Workflow 负责多节点生成编排；Table 处理媒体；Agent 只展示制作组现场，避免把生成、处理和主对话重新堆进同一张界面。
 - **BYOK 与多模型**：凭据由用户配置，Flovart 通过 Provider 适配层调用图像、视频和文本模型。
 - **可恢复**：CLI 返回 JSON 状态，Agent 可以轮询、重试、续跑，而不是依赖一次长对话完成整部短片。
 - **风格可复用**：制作经验写进 Production Skill，同一种视觉语言和制作流程可以被不同项目重复调用。
-- **能力可组合**：编剧、分镜、视觉生成、配音、剪辑和质检可以由 Production Skill 与可选专业子任务承担，共享同一个 Workflow。
+- **能力可组合**：编剧、分镜、视觉生成、配音、剪辑和质检由类型化 Tool 承担；可选模型评审也只是一次性 Review Tool。
 
 ## Production Skill 生态
 
@@ -103,11 +103,11 @@ Flovart 将规定 Production Skill 的最小对接契约，并通过 Skill Creat
 - 检查点、失败恢复、人工确认和最终验收；
 - 产物血缘、模型策略、成本与安全边界。
 
-[VOX Skill](https://github.com/avabbbb/vox-director) 是首个风格化 Production Skill 参考案例；上游仓库和技术调用句柄仍为 `vox-director`。目标是让用户组合“Flovart Agent + Production Skill + 自己的 Provider”，复用完整的风格化短片工作流。
+[VOX Skill](https://github.com/avabbbb/vox-director) 是首个风格化 Production Skill 参考案例；上游仓库和技术调用句柄仍为 `vox-director`。目标是让用户组合“外部导演台 + Flovart 制作组 + Production Skill + 自己的 Provider”，复用完整的风格化短片工作流。
 
 第一次使用可直接阅读 [Skill 使用手册](docs/overview/skill-guide.md)，无需先学习 CLI 或 ProductionSpec。
 
-> 基础 CLI/TUI、Flovart Skill 和 Codex/OpenCode 等 Host 配置已接入；Production Skill 社区契约、实时事件订阅和断点续跑仍在建设中。
+> 正式支持范围包含 Codex、DeepSeek Harness、Claude Code（CC）、OpenCode、Pi 五个外部导演台；五者的模型工具统一使用 Operation Skill + 本机 CLI（不暴露 MCP 服务）。Codex 与 DeepSeek Harness 优先做 Session Binding 和事件投影；DeepSeek 额外采用专用 Profile + Host/Client Plugin，在 Harness 主壳中提供固定 Flovart Dock、中央制作工作区、快速弹层、Agent Bridge 单导演交接与独立窗口降级。目标架构、插件体验与五宿主实机验收仍在进行中。
 
 ## 当前能力与边界
 
@@ -115,10 +115,10 @@ Flovart 将规定 Production Skill 的最小对接契约，并通过 Skill Creat
 | --- | --- |
 | Workflow 节点编排、本地项目与素材 | 已有基础 |
 | Table 单一媒体 / 节点预处理 | 基础界面与 Workflow 往返已接入；处理能力持续扩展 |
-| Agent 空间任务工作区 | 主体界面已接入；持久任务与事件订阅待完善 |
+| Agent 空间任务工作区 | 旧内置主 Agent 界面已接入；向制作组控制面迁移中 |
 | 多 Provider BYOK、文生图、图生图、文生视频 | 已有基础 |
 | Workflow CLI、命令 Schema、JSON 状态 | 基础能力已接入 |
-| Codex / OpenCode 等 Host 适配 | 基础 MCP/Skill 配置已接入 |
+| Codex / DeepSeek Harness / Claude Code / OpenCode / Pi | 五者均在正式支持范围；Operation Skill + CLI 是共同模型工具基线，Codex/DeepSeek 深度集成优先，DeepSeek Flovart Dock 插件尚待实机验收 |
 | Production Skill 契约与 UGC 生态 | 设计与实现中 |
 | TUI 快捷命令 | 基础能力已接入；任务订阅与断点续跑待完善 |
 
@@ -134,15 +134,15 @@ Flovart 将规定 Production Skill 的最小对接契约，并通过 Skill Creat
 
 ### Coding Agent / CLI
 
-Node.js 20+ 用户可直接安装并启动版本化 Agent Toolkit：
+Node.js 22.19+ 用户可直接安装并启动版本化 Agent Toolkit：
 
 ```bash
 npx flovart-cli install
-npx flovart-cli start
-npx flovart-cli init --host codex
+npx flovart-cli init --target codex
+npx flovart-cli start --open
 ```
 
-`install` 会下载并校验与 CLI 同版本的 Runtime + Agent 包；`start` 启动本地桌面 Runtime 和托管 Agent。将 `codex` 换成 `opencode` / `claude` / `cursor` / `windsurf` / `vscode` 可生成对应 Host 配置。
+`install` 会下载并校验与 CLI 同版本的 Runtime + Agent 包。`init --target codex` 会把 Flovart Skill 与自动打开入口安装到 `.agents/skills/`；启动时由本地 Runtime/Agent 负责准备可见 Workflow，不要求用户复制 URL、Token 或端口。Claude Code、OpenCode 等宿主使用对应的 `--target` 投影；Flovart 不对外提供 MCP server，编码代理一律经本地 CLI 操作。
 
 ### 源码与 SaaS 部署
 
@@ -158,18 +158,29 @@ npx flovart-cli start --source --all --open
 ### 检查 Workflow CLI
 
 ```bash
+npm run flovart:cli -- status --json
+npm run flovart:cli -- start --open --json  # 仅在 status 未就绪时执行
+npm run flovart:cli -- workflow.inspect --json
+```
+
+需要排查兼容性或契约版本时，再读取机器注册表：
+
+```bash
 npm run flovart:cli -- command.list --json
-npm run flovart:cli -- command.schema --command workflow.node.run --json
+npm run flovart:cli -- command.schema --command workflow.inspect --json
 npm run flovart:cli -- workflow.project.list --json
 ```
 
-CLI 只接受显式命令。外部 Agent 应先读取 `command.list` / `command.schema`，再执行 Workflow 操作，不应自行拼接内部 HTTP 请求或抓取界面。
+CLI 只接受显式命令。外部 Agent 的正常路径是 `status`、必要时 `start --open`、再 `workflow.inspect`；`command.list` / `command.schema` 只用于 bootstrap、兼容诊断和调试。外部 Agent 不应自行拼接内部 HTTP 请求或抓取界面。
+
+Coding Agent projection 执行 Workflow 命令时会携带自己的 `Agent Identity`（例如 Codex 使用 `--agent-identity codex`）；首次 inspect 会占用 Host 写入权，切换 Host 必须在 Flovart Host Picker 中显式完成。
 
 更多入口：
 
 - [快速开始](docs/overview/quick-start.md)
 - [功能特性](docs/content/docs/overview/features.mdx)
 - [开发计划](docs/content/docs/progress/todo.mdx)
+- [Agent 架构：外部导演 + 唯一内置 Operator](docs/design/agent/README.md)
 - [AI 文档索引](docs/index.md)
 
 ## 本地优先与安全

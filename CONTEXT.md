@@ -39,19 +39,27 @@ Remix Bundle 中演示 Skill 用法的不可变、可移植 Workflow 投影，�
 避免混用：Table Workspace、Agent Workspace、旧 Canvas Workspace、旧 Art Workspace。
 
 **Workflow Draft（画布草稿）**：
-设计师与 Flovart Agent 在执行批准前共同编辑的生成编排图，完整保留节点、连线、提示词、参考素材、模型参数和画布内二次处理步骤，并支持撤销与继续细修；批准后才冻结为 ProductionSpec Revision。
+设计师与 External Coding Agent Harness（经 Flovart Workspace Operator）在执行批准前共同编辑的生成编排图，完整保留节点、连线、提示词、参考素材、模型参数和画布内二次处理步骤，并支持撤销与继续细修；批准后才冻结为 ProductionSpec Revision。
 避免混用：Production Plan Projection、ProductionSpec Revision、后端生成结果列表、纯布局快照。
 
 **Workflow Draft Action（画布草稿动作）**：
-设计师或 Flovart Agent 对 Workflow Draft 执行的同一种类型化、可撤销操作，例如创建、更新、连线、移动、缩放或删除节点；动作携带 Draft 基线与目标对象的期望版本，默认立即呈现在画布并归入一个 Draft ChangeSet。同一对象版本冲突时拒绝旧动作，不做最后写入覆盖。
+设计师或 Flovart Workspace Operator 对 Workflow Draft 执行的同一种类型化、可撤销操作，例如创建、更新、连线、移动、缩放或删除节点；动作携带 Draft 基线与目标对象的期望版本，默认立即呈现在画布并归入一个 Draft ChangeSet。同一对象版本冲突时拒绝旧动作，不做最后写入覆盖。
 避免混用：付费 Provider 提交、Production Mandate、ProductionSpec Revision、不可恢复发布操作。
+
+**Workflow Mutation（Workflow 变更请求）**：
+通过 Flovart Runtime 对明确 `projectId`、`workflowId`、`expectedRevision` 与 `mutationId` 提交的一组原子 Workflow operations；P0 变更必须在同一事务中校验、执行、递增 revision 并生成 Mutation Receipt，不使用最后写入获胜。
+避免混用：单个 Draft Action、Provider 提交、DSH Tool Card、浏览器本地 store 写入。
+
+**Mutation Receipt（变更回执）**：
+Flovart Runtime 为一次 Workflow Mutation 持久化的结果，包含 Mutation ID、目标范围、前后 revision、操作结果和是否为重放；相同 Mutation ID 与相同请求内容重试时返回原回执，不再次改变生产事实。
+避免混用：自然语言成功消息、Session event ID、Conversation Node 状态。
 
 **Draft Object Version（草稿对象版本）**：
 Workflow Draft 中节点、连线或其他可独立修改对象的单调版本，用于设计师与 Agent 的对象级乐观并发；动作只在期望版本仍匹配时提交，冲突返回最新版本和受影响对象 ID，互不相关对象不被锁定。
 避免混用：整个 Draft 的检查点版本、ProductionSpec Revision、最后写入获胜、画布全局锁。
 
 **Workflow Layout Intent（Workflow 布局意图）**：
-Flovart Agent 创建或重组节点时表达的语义位置约束，例如接在某节点之后、并排、分支或属于某组；确定性前端 Layout Planner 根据真实尺寸、折叠状态、视口和占用区域计算坐标。人工拖动的 pinned 节点不被 Agent 移动，派生布局可撤销但不改变 Recipe Hash 或 ProductionSpec。
+Flovart Workspace Operator 创建或重组节点时表达的语义位置约束，例如接在某节点之后、并排、分支或属于某组；确定性前端 Layout Planner 根据真实尺寸、折叠状态、视口和占用区域计算坐标。人工拖动的 pinned 节点不被 Operator 移动，派生布局可撤销但不改变 Recipe Hash 或 ProductionSpec。
 避免混用：Agent 猜测绝对 x/y、每回合全图重排、生成依赖关系、ProductionSpec Stage 顺序。
 
 **Workflow Operation Node（Workflow 操作节点）**：
@@ -59,12 +67,12 @@ Workflow Draft 中可编辑、可重跑的单步结果型处理步骤，使用�
 避免混用：仅改变节点位置的 Draft Action、只读 Production Plan Projection、Table Processing Node、媒体节点内部不可见版本。
 
 **Operation Prompt Document（操作提示词文档）**：
-结果型 Workflow Operation Node 持有的唯一结构化 Prompt 权威，保存可编辑文本、富文本结构、稳定 `@` 对象引用、输入角色和顺序；现有 PromptBar 只是当前选中 Operation 的编辑视图，Flovart Agent 与设计师通过同一 Draft Action 修改该文档。输出媒体只引用来源 Operation，不复制另一份 Prompt。
+结果型 Workflow Operation Node 持有的唯一结构化 Prompt 权威，保存可编辑文本、富文本结构、稳定 `@` 对象引用、输入角色和顺序；现有 PromptBar 只是当前选中 Operation 的编辑视图，Flovart Workspace Operator 与设计师通过同一 Draft Action 修改该文档。输出媒体只引用来源 Operation，不复制另一份 Prompt。
 避免混用：Agent 聊天消息、输出媒体 metadata 中的 Prompt 副本、额外 InlinePrompt/NodePrompt 表面、单次 Provider Request 文本。
 
 **Operation Input Binding（操作输入绑定）**：
 媒体/Text/Artifact 到目标 Workflow Operation Node 的唯一类型化输入关系，保存稳定绑定 ID、来源对象、目标操作、输入角色与顺序；画布连线和 PromptBar 的 `@` chip 是同一 Binding 的两个视图，从任一入口添加、改角色、排序、替换或删除都会同步另一边。替换只原子更新当前目标的 Binding 来源并保留 Binding ID、角色和顺序，不修改共享源节点，也不影响该源节点的其它下游。
-避免混用：独立 `mentionedNodeIds`、`referenceNodeIds`、`imageReferenceOrder` 与无角色 connection 副本、仅存在于渲染层的连线。
+引用唯一事实来源：普通节点为 connections 数组（含 role/order），Operation 节点为 inputBindings；`@` 提示词只表达连接内选择。已删除的独立 `mentionedNodeIds`/`referenceNodeIds`/`imageReferenceOrder` 不再作为任何真相，旧数据读取时忽略。
 
 **Stable Node Alias（稳定节点别名）**：
 Workflow 项目内按媒体类型单调分配且永不重排、永不复用的节点别名，例如 `图片1`、`图片2`、`视频1`；它既是节点的默认显示名，也是 PromptBar `@` 引用的稳定解析键。删除、移动或新增其他节点不得改变既有别名；用户改成自定义标题后，自定义标题与原稳定别名都解析到同一节点，重复自定义标题不得覆盖稳定别名的唯一性。
@@ -95,23 +103,27 @@ Flovart 平台拥有的版本化封闭目录，为每项媒体/生成操作声�
 避免混用：双向实时同步、共享图节点、静默发送结果、无来源媒体复制。
 
 **Draft ChangeSet（草稿变更集）**：
-设计师可理解的一次 Workflow Draft 修改单元，把一个 Agent 回合或一段连续人工操作归并为有操作者、意图、差异和结果的动作组；动作流式耐久提交，ChangeSet 可以是 completed、partial、failed 或 undone。部分失败时保留成功步骤，失败 Operation Node 保留 Recipe、错误与重试入口；按组撤销只移除 Draft 图变更，不伪造删除已发生的 ProviderAttempt 或 Artifact。
+设计师可理解的一次 Workflow Draft 修改单元，把一次 Workspace Operator 微规划或一段连续人工操作归并为有操作者、意图、差异和结果的动作组；动作流式耐久提交，ChangeSet 可以是 completed、partial、failed 或 undone。部分失败时保留成功步骤，失败 Operation Node 保留 Recipe、错误与重试入口；按组撤销只移除 Draft 图变更，不伪造删除已发生的 ProviderAttempt 或 Artifact。
 避免混用：单次键盘事件、完整画布快照、Agent 聊天消息、ProductionSpec Revision。
 
 **Draft Change Timeline（草稿变更时间线）**：
 Workflow Workspace 中与画布同步的轻量历史视图，按 Draft ChangeSet 展示操作者、意图、状态、差异摘要及费用/Artifact 关联；点击记录聚焦受影响节点，节点也能反查来源 ChangeSet。聊天只链接记录，不作为唯一历史权威。
 避免混用：Agent 聊天消息列表、逐事件调试日志、Runtime Event Stream、完整快照浏览器。
 
-**Workflow Agent Tool Loop（Workflow Agent 工具循环）**：
-Flovart Agent 在一个用户回合内反复读取当前 Draft、调用 Operation Capability Registry 派生的类型化工具、观察最新 Draft/Object Version 与结果后继续决策的循环；该回合归入一个 Draft ChangeSet，并受步数、时间、取消、对象冲突、预算和 Production Mandate 限制。长时任务返回句柄，由 Runtime 观察而不是让 Agent 持续轮询。
-避免混用：一次性 JSON 命令批次、只规划不执行、Agent 轮询 Provider、第二套网站 Workflow Agent。
+**Workspace Operation Intent（工作区操作意图）**：
+External Coding Agent Harness 交给 Flovart Workspace Operator 的一次有界语义任务，包含目标、对象或选择范围、约束与幂等标识；它允许 Operator 在当前权威工作区状态上选择少量类型化步骤，但不移交总体目标、主计划或付费授权。
+避免混用：精确原子工具命令、主 Agent 任务、Production Mandate、自然语言聊天消息。
+
+**Workspace Operator Micro-Plan Loop（工作区操作微规划循环）**：
+Flovart Workspace Operator 针对一个 Workspace Operation Intent 反复读取当前 Draft、调用 Operation Capability Registry 派生的类型化工具，并观察最新 Draft/Object Version 与结果后继续决策；全部步骤归入一个 Draft ChangeSet，并受步数、时间、取消、对象冲突、预算和 Production Mandate 限制。Operator 可以决定该意图内的可逆步骤顺序，但不得重新解释总体制作目标、修改外部 Harness 的主计划、创建独立长期任务或批准付费与不可恢复操作；长时任务只返回句柄和结构化回执。
+避免混用：外部 Harness 的宏观规划、一次性 JSON 命令批次、Agent 轮询 Provider、第二个主 Agent。
 
 **Workflow Draft Authority（画布草稿存储权威）**：
-一个 Workflow Project 当前唯一负责耐久保存 Workflow Draft 与 Draft ChangeSet 的存储端；纯 Web 项目绑定 Browser Workspace，Desktop 或已配对 Web 项目绑定 Local Data Service，切换必须显式转移且禁止双写或静默合并。
-避免混用：前端渲染状态、Production Plan Projection、Agent Session Store、云同步副本。
+一个 Workflow Project 当前唯一负责耐久保存 Workflow Draft 与 Draft ChangeSet 的存储端；纯 Web 项目绑定 Browser Workspace，Desktop 或已配对 Web 项目绑定 Local Data Service，DeepSeek Harness 原生项目绑定 Native Workspace Operator Store。切换必须显式转移且禁止双写或静默合并。
+避免混用：前端渲染状态、Production Plan Projection、Director Session Projection、云同步副本。
 
 **Workflow Draft Authority Port（画布草稿权威端口）**：
-UI、Flovart Agent、Dispatcher 与历史界面读写 Workflow Draft、ChangeSet、Binding、Take 和布局的唯一类型化接口；首个图片 tracer bullet 由 Browser Workspace/localforage Adapter 实现，后续 Desktop Local Data Service 实现同一契约。调用方不得绕过 Port 直接双写 Zustand、localforage 或 Runtime。
+UI、Flovart Workspace Operator、Dispatcher 与历史界面读写 Workflow Draft、ChangeSet、Binding、Take 和布局的唯一类型化接口；首个图片 tracer bullet 由 Browser Workspace/localforage Adapter 实现，后续 Desktop Local Data Service 实现同一契约。调用方不得绕过 Port 直接双写 Zustand、localforage 或 Runtime。
 避免混用：具体存储 Adapter、React store、跨端同步层、Production Runtime Control API。
 
 **上下文媒体条（Context Media Bar）**：
@@ -139,11 +151,11 @@ Table Session 中由输入、处理和输出节点及其类型化有向连线组
 避免混用：Workflow Graph、Table Process Stack、生成任务编排。
 
 **Agent Workspace**：
-把 Codex 线程、任务状态、项目上下文、工具执行和产物以可摆放面板组织起来的空间任务界面；画布只负责空间布局和导航，不承担 Workflow 数据流。
+用于观察和控制 Flovart Production Crew 的空间任务界面，以可摆放面板组织 Director Binding、Intent、运行状态、审批、Workspace Operator Receipt 与 Artifact；它不复制或托管 External Coding Agent Harness 的主对话。
 避免混用：Workflow Workspace、Table Workspace、右侧聊天抽屉、通用无限画布。
 
 **Agent Panel**：
-Agent Workspace 中的第一等布局对象，可承载 Codex 对话、项目 Brief、运行状态、待确认事项或产物，并直接显示 idle、running、waiting、done 或 error 状态。
+Agent Workspace 中的第一等布局对象，可承载 Director Binding 投影、项目 Brief、Crew 状态、待确认事项、执行回执或 Artifact，并明确显示其当前状态。
 避免混用：Workflow Node、Table Session、浏览器弹窗。
 
 **Preprocessing Artifact**：
@@ -157,27 +169,39 @@ Agent Workspace 中的第一等布局对象，可承载 Codex 对话、项目 Br
 避免混用：Web 开发服务器、Agent Toolkit、SaaS Deployment。
 
 **Agent Toolkit**：
-面向本地 Coding Agent 用户的终端产品，包含 TUI、CLI 与宿主适配，并连接 Flovart 的统一 Runtime 与命令契约；普通用户通过 npm Bootstrapper 获取版本化 Runtime Release Bundle，不从 Git 克隆源码。正式安装后的 `flovart start` 统一启动本地 Runtime、WebUI 和用户选择的 Coding Agent。
+面向本地 Coding Agent 用户的终端产品，包含 TUI、CLI、本地 Runtime 与 Flovart Production Crew；External Coding Agent Harness 保持独立，模型工具统一通过 Operation Skill 与 Flovart CLI 使用它。受信宿主可以额外安装隔离的 UI/事件连接插件，但不能改变公开工具权威。
 避免混用：Desktop Edition、Production Skill Package、SaaS Deployment。
 
+**Agent Toolkit Profile**：
+Flovart Agent Toolkit 内用于组合 WebUI/TUI/headless 入口、受信 Toolkit Plugin、Skill 目录和非秘密本地策略的命名配置；它不代表新的 Agent 人格，也不等同于外部 Harness 的 profile 机制。
+避免混用：Flovart DeepSeek Profile、Provider Model Profile、Production Skill、Production Authority。
+
 **Local Workbench Session**：
-由一次 `flovart start` 管理的本地运行会话，统一持有 Runtime、WebUI、TUI 和所选 Coding Agent 的进程状态、端口与关闭顺序；它可以附着到 Local Runtime Registry 中兼容的 Desktop Runtime，否则启动 Agent Toolkit 自有 Runtime。各组件仍保留只用于排障的独立启动命令。
+由 `flovart start` 管理的 Runtime、WebUI、TUI 与 Production Crew 本地运行边界；它可以记录外部 Harness 的 Director Session Binding，但不拥有、退出或终止外部 Harness 进程。
 避免混用：ProductionSession、Source Development Mode、SaaS Deployment、常驻系统服务。
 
 **Agent Bootstrapper**：
-通过 `npx flovart` 启动的轻量 npm 包，负责版本解析、下载校验、安装、升级和启动 Agent Toolkit；它不携带完整应用源码，也不要求普通用户安装 Git、Go 或 Docker。
+通过 `npx flovart` 或受信宿主插件在用户确认后调用的轻量 npm 包，负责版本解析、下载校验、安装、升级和启动 Agent Toolkit；它不携带完整应用源码，也不要求普通用户安装 Git、Go 或 Docker。
 避免混用：Runtime Release Bundle、源码仓库、Desktop Edition 安装器。
 
 **User CLI Launcher**：
 由 Agent Bootstrapper 安装到当前用户目录并加入用户级 PATH 的稳定 `flovart` 命令入口，不依赖 `npm install -g`；它解析当前已启用的 Agent Toolkit 版本并启动对应 CLI。
 避免混用：临时 `npx` 进程、npm 全局包、Desktop EXE、Runtime Release Bundle。
 
+**Flovart CLI Facade（Flovart CLI 门面）**：
+用户和 External Coding Agent Harness 操作 Flovart 的唯一公开自动化入口，提供服务生命周期、能力发现、类型化命令与稳定 `--json` 输出；持续任务由本地 Runtime 承接。
+避免混用：内部 RPC Transport、Shell 文本协议、Terminal Command Center、宿主私有 CLI。
+
+**Flovart Local Control Protocol（Flovart 本地控制协议）**：
+Flovart 自有客户端与服务之间的版本化结构协议，承载能力握手、类型化命令、事件、取消、恢复、审批与 Workspace Operator Receipt；External Coding Agent Harness 的模型工具不直接消费该协议，只调用 CLI 门面。DeepSeek Harness Embedded Client Plugin 通过 Harness Host 的受限同源代理消费 Workflow Draft 命令子集，Token 留在 Host；画布写入必须经过 Native Workflow Draft Authority，不得旁路 Provider 或 Production Gate。
+避免混用：CLI 输出、宿主私有协议、公开网络 API、外部工具协议。
+
 **Runtime Release Bundle**：
-由官方 Release 发布、带精确版本与完整性清单的 Agent Toolkit 运行包，包含已构建 WebUI、本地 Runtime、固定 Agent Node Runtime 及所需宿主组件，安装到用户级版本目录并由 Agent Bootstrapper 管理。
+由官方 Release 发布、带精确版本与完整性清单的 Agent Toolkit 运行包，包含已构建 WebUI、本地 Runtime、固定 Crew Node Runtime 及所需宿主组件，安装到用户级版本目录并由 Agent Bootstrapper 管理。
 避免混用：Git 工作树、npm Bootstrapper、SaaS 镜像、NSIS Desktop 安装器。
 
-**Agent Node Runtime**：
-随 Desktop Edition 与 Runtime Release Bundle 按平台捆绑、由 Flovart 校验并专供内置 PI Agent 使用的固定 Node.js 运行时；正式安装不读取系统 `node`，版本与 PI 依赖随 Flovart Release 一起升级。
+**Crew Node Runtime**：
+随 Flovart 发行包按平台捆绑、供 Production Crew 执行服务使用的固定 Node.js 运行时；其版本与 Crew 依赖随 Flovart Release 一起升级。
 避免混用：用户系统 Node.js、浏览器 JavaScript Runtime、Rust Desktop Runtime、Provider Worker。
 
 **Local Runtime Registry**：
@@ -357,40 +381,60 @@ Desktop Runtime 在 ProductionRun 开始前根据 Route Mapping、Capability Req
 避免混用：仅含风格词的 Prompt、主题名称、未经选择的候选图、任意一张已生成镜头。
 
 **Operation Skill**：
-指导 Agent 如何操作 Flovart 的 Skill，通过 CLI/MCP 驱动 Production Runtime、Workspace、Research 与 Terminal Command Center；对应仓库里供 Codex、Claude Code 或 OpenCode 连接 Runtime 的 `SKILL.md` host 接入手册（.claude/skills/flovart 与 .agents/skills/flovart）。不持有 Provider 凭据，也不编译制作计划。
+指导 External Coding Agent Harness 通过 Flovart CLI 发现和调用产品能力的宿主说明；它不含执行代码，不持有 Provider 凭据，也不编译制作计划。
 避免混用：Production Skill、Provider Plugin、Model Adapter。
 
-**Flovart Agent**：
-绑定到一个 ProductionSession 的有状态制作决策主体，结合创作 Brief、可选 Bound Production Skill、ProductionSpec 与受限制作能力形成连续工作上下文；每个 ProductionSession 同时只有一个活跃 Flovart Agent。
-避免混用：Production Skill、Coding Agent、Production Authority、Provider Worker。
+**Progressive Harness Tool Surface（渐进式宿主工具面）**：
+External Coding Agent Harness 当前会话从 Operation Capability Registry 获得的最小类型化工具投影，常驻少量发现、检查、Intent、Task、Receipt 与 Artifact 工具，并只按活动工作区、Bound Production Skill 和授权范围增挂相关精确命令；它只缩小可见面，不创造新能力或权限。
+避免混用：一次暴露全部 Registry、通用 `exec(command,args)`、Prompt 中手写的工具说明、Flovart Workspace Operator 内部工具集。
 
-**Agent Kernel**：
-内置 Flovart Agent 的非用户可见 TypeScript 执行内核，基于固定版本的 `@earendil-works/pi-agent-core` 运行对话、工具循环、流式事件和 Specialist Agent；它通过 Runtime 提供的 `agent-text` 流与受限 Production Intent 调用工作，不直接读取 Provider Secret、文件系统或 Shell。
-避免混用：Flovart Agent 产品身份、PI Coding Agent、Coding Agent Adapter、Desktop Runtime。
+**External Coding Agent Harness（外部导演台）**：
+由用户选择并在 Flovart 进程之外独立运行的主要智能编排主体，拥有主对话、总体目标、长程计划、跨任务调度与最终制作建议；正式支持 Codex、DeepSeek Harness、Claude Code、OpenCode、Pi，并统一以 Operation Skill 与 Flovart CLI 作为模型工具基线。DeepSeek 可通过专用 Profile 在自身主壳中安装单一 Flovart Workflow View，但 Production Authority 仍独立，关闭 Flovart 不终止 Harness。
+避免混用：Flovart Workspace Operator、AI Provider、Production Runtime、单个 Agent Panel。
 
-**Specialist Agent**：
-由 Flovart Agent 针对一项专业判断临时委派的受限分析主体，只返回结构化证据与建议，不拥有 ProductionSpec 修订、Production Mandate 请求或 Provider 提交权。
-避免混用：Flovart Agent、Coding Agent、Provider Worker、平级制作总监。
+**Flovart Workflow View（Harness 内部工作页）**：
+External Coding Agent Harness 当前会话中与主对话并列的 Flovart 原生工作页，承载同一 Director Session 所属 Workflow Project 的编辑与状态；它不提供第二套 Agent 对话，用户进入该页也不需要理解或手动连接 Runtime、Token 或 Workspace Operator。
+避免混用：内部 Agent 连接页、Flovart Agent 聊天、消息卡片、Dock 降级页、独立 Flovart WebUI。
 
-**Specialist Capability**：
-平台拥有的类型化专业判断契约，限定 Specialist Agent 的任务语义、输入、结构化输出与最大权限；Production Skill 只能请求已注册能力并补充风格上下文。V1 注册 narrative-review、shot-plan-review、evidence-review 与 visual-continuity-review，预算、线路和格式可行性仍由 Runtime 确定性裁决。
-避免混用：Runtime Capability、自由文本角色 Prompt、Production Skill 私有 Agent、Provider Capability。
+**Pi Coding Agent Harness（外部 Pi Harness）**：
+Flovart 正式支持的五个 External Coding Agent Harness 之一，独立运行并保存自己的主会话；“Pi”只指这个外部宿主，不能用来命名 Flovart 内置 Workspace Operator。
+避免混用：`@earendil-works/pi-agent-core` 实现包、Flovart Workspace Operator、Production Crew。
 
-**Specialist Report**：
-Specialist Agent 针对一次委派返回的不可变结构化判断，包含结论、分级发现、证据、建议、可选 ProductionSpec 修订提案与用量摘要；它必须由 Flovart Agent 采纳后才能形成新的 Revision。
+**Flovart Production Crew（Flovart 内置制作组）**：
+Flovart 内部承接导演台有界意图的执行平面集合名，由一个 Workspace Operator 与确定性 Dispatcher、Runtime Capability、Provider Worker 组成；它不是额外 Agent，也不是多 Agent 团队。
+避免混用：External Coding Agent Harness、第三个 AI 角色、多 Agent 自治群、Production Skill。
+
+**Flovart Workspace Operator（Flovart 工作区操作 Agent）**：
+系统两个 AI 角色中唯一的内置执行 Agent，只在 Workspace Operation Intent 需要现场微规划时按 Intent 临时启动，在单个 Draft ChangeSet 内调用类型化可逆工具并返回结构化回执；精确原子命令不启动它，它也没有主对话、长期计划、Shell、任意文件、秘密或付费审批权。
+避免混用：外部主 Agent Harness、确定性 Dispatcher、Production Authority、Provider Worker、第二个主 Agent。
+
+**Workspace Operator Kernel**：
+Flovart Workspace Operator 的非用户可见执行内核，只运行单次 Intent 内的受限工具循环并产出事件；它不直接读取 Provider Secret、文件系统或 Shell。
+避免混用：Flovart Workspace Operator 产品身份、External Coding Agent Harness、Desktop Runtime。
+
+**Operator Model Route**：
+Flovart Runtime 为临时 Workspace Operator 解析的独立、受预算约束的模型线路，可以映射到用户配置的云端或本地 Provider，但不借用 External Coding Agent Harness 的登录态或主会话；线路缺失只使 Crew Intent 不可用，不影响原子命令。
+避免混用：Director Harness Model、生成图片/视频的 Runtime Capability Route、固定 DeepSeek 凭据、Provider Secret。
+
+**Operator Assistance Budget（Operator 辅助预算）**：
+用户为单个 ProductionSession 明确授权的 Workspace Operator 模型推理费用上限，按 Intent 记录并在耗尽时暂停新的微规划；它不授权任何图片、视频、发布或其它 ProductionRun 副作用。
+避免混用：Run Budget、Provider 余额、Harness 订阅额度、无限自动规划。
+
+**Review Tool（评审工具）**：
+Production Crew 可调用的一次性类型化工具，可以使用模型生成证据与建议，但没有人格、会话、长期目标或写权限，因此不是 Agent。
+避免混用：Workspace Operator、持久 Agent 角色、确定性 Runtime 校验、自由文本角色 Prompt。
+
+**Review Result（评审结果）**：
+Review Tool 返回的不可变结构化结果；只有 External Coding Agent Harness 或用户采纳后，它才可能形成新的 ProductionSpec Revision。
 避免混用：聊天回复、ProductionSpec Revision、可直接执行的 Patch、Skill Eval。
 
 **Production Skill Package**：
-可由 Codex/OpenCode 读取并由 Flovart 验证、安装和评测的不可变 Skill 目录，包含精炼 SKILL.md、生产 Manifest 及按需资源。
+可由 External Coding Agent Harness 读取并由 Flovart 验证、安装和评测的不可变 Skill 目录，包含精炼 SKILL.md、生产 Manifest 及按需资源。
 避免混用：Git 仓库、Hub 页面、任意脚本压缩包。
 
 **Flovart Skill Manifest**：
 Production Skill Package 根目录的 `flovart.skill.yaml`，声明包身份与版本、兼容性、Interaction Commands、Runtime Capabilities、Permissions、Gates、Extension Schema 和 Eval 入口。
 避免混用：SKILL.md frontmatter、Provider 配置、ProductionSpec 实例。
-
-**Deterministic Skill Script**：
-Package 中具有已声明输入输出、无网络、无秘密且在受限 Sandbox 内执行的可复现转换脚本，不能直接提交 Provider Job 或调用任意外部二进制。
-避免混用：Provider Worker、Runtime Capability、Agent Shell 命令。
 
 **Flovart Skill Creator**：
 官方 Meta Skill 与 CLI 工作流，用具体示例引导创建或迁移 Production Skill，并依次完成 scaffold、validate、dry-run、eval、pack 和 publish。
@@ -409,11 +453,15 @@ Hub 针对精确 Skill 版本与 Hash 发布的 advisory、block_new 或 critica
 避免混用：远程删除、本地卸载、普通升级通知。
 
 **ProductionSession**：
-一部作品从创作 Brief、Agent 对话、ProductionSpec 修订到多次 ProductionRun 的上下文边界；一个 Flovart Project 可以包含多个彼此隔离的 ProductionSession。每个 ProductionSession 保留一条可恢复的 Flovart Agent 主对话，探索分支在提升为主分支前不能推进正式计划或请求执行授权。
+一部作品从创作 Brief、外部 Harness 会话绑定、ProductionSpec 修订到多次 ProductionRun 的上下文边界；一个 Flovart Project 可以包含多个彼此隔离的 ProductionSession。每个 ProductionSession 同时只有一个 Active Director Binding 可以推进正式计划或请求执行授权；主对话由该外部 Harness 保存，Flovart 只保存可恢复绑定、状态投影与权威制作记录。
 避免混用：Flovart Project、Agent Session、ProductionRun。
 
+**Production Brief（制作简报）**：
+用户在目标式开始页确认的一次制作目标与必要约束，是创建并绑定 ProductionSession 的最小上下文，后续可以由用户和 Active Director 继续细化。
+避免混用：Harness 聊天消息、节点 Prompt、项目标题、ProductionSpec。
+
 **Bound Production Skill（绑定的制作 Skill）**：
-ProductionSession 对至多一个精确 Production Skill 版本或 Skill Snapshot 的可选创意规划绑定；没有绑定时 Flovart Agent 使用 ProductionSpec Core 直接进行通用制作，且不创建虚构的通用 Skill。Agent 可以根据 Brief 推荐 Skill，但只有用户明确确认后才能建立或更换绑定，且系统不得静默切换；更换绑定必须显式重新规划，产生新的 ProductionSpec Revision 并使旧 Production Mandate 失效，已提交的 ProductionRun 不被原地改写。
+ProductionSession 对至多一个精确 Production Skill 版本或 Skill Snapshot 的可选创意规划绑定；没有绑定时 External Coding Agent Harness 使用 ProductionSpec Core 直接进行通用制作，且不创建虚构的通用 Skill。Harness 可以根据 Brief 推荐 Skill，但只有用户明确确认后才能建立或更换绑定，且系统不得静默切换；更换绑定必须显式重新规划，产生新的 ProductionSpec Revision 并使旧 Production Mandate 失效，已提交的 ProductionRun 不被原地改写。
 避免混用：Flovart Skill、通用素材包、Validated Profile、运行时临时读取多个 Production Skill。
 
 **Production Skill Attachment（制作 Skill 附件）**：
@@ -421,7 +469,7 @@ ProductionSession 对至多一个精确 Production Skill 版本或 Skill Snapsho
 避免混用：普通 `$skill` 文本、Bound Production Skill、已经授权的 Production Mandate、自动执行命令。
 
 **Production Session Workspace**：
-Production Mode 下为单个 ProductionSession 创建的隔离文件工作区，只向 Agent 暴露只读权威上下文、可写 scratch/exports 和非秘密绑定信息。
+Production Mode 下为单个 ProductionSession 创建并作为其 Active Director Harness 项目根目录的隔离文件工作区，只暴露只读权威上下文投影、可写 scratch/exports 和非秘密绑定信息；其中的文件不是 Runtime、Draft 或 Artifact 权威。
 避免混用：Flovart 源码仓库、Runtime 数据目录、Artifact Store 内部目录。
 
 **Skill Authoring Session**：
@@ -473,59 +521,83 @@ Production Skill 通过 Manifest 声明的 `/flovart <skill-slug> <action>` 受�
 避免混用：公共 Skill 名称、平台保留命令、Hub 分发元数据。
 
 **Terminal Command Center**：
-使用独立 TypeScript/Node + Ink package 实现的本地 TUI，负责命令发现、Agent 交互、ProductionRun 观察和审批操作，但不持有生产状态真相。
+Flovart 的本地 TUI，用于命令发现、Production Crew 观察和审批操作，但不持有生产状态真相或外部 Harness 主会话。
 避免混用：Desktop Runtime、WebUI、Go Enterprise Backend。
 
-**Coding Agent Adapter**：
-Terminal Command Center 用来检测、启动、恢复和取消外部 Coding Agent 会话的托管适配器；复用用户已有 CLI 登录，不提供内置模型服务。V1 的正式 Managed Agent 只有 Codex。
-避免混用：Connected Agent、Provider Adapter、MCP Server、Desktop Runtime。
+**Toolkit Plugin**：
+经用户显式安装、受版本、完整性与权限约束的可信代码扩展，只能扩展声明过的 Connector、UI 或 Runtime Adapter 接口。
+避免混用：Operation Skill、Production Skill、任意脚本包、Provider Secret。
 
-**Managed Agent**：
-具有已实现 Coding Agent Adapter、可由 `flovart start` 启动，并由 TUI 统一执行线程创建、恢复、取消、状态观察和退出回收的 Coding Agent；V1 指 Codex。
-避免混用：Connected Agent、AI Provider、Flovart 内置模型。
+**DeepSeek Harness Embedded Plugin（DeepSeek Harness 原生画布插件）**：
+安装在已验证 DeepSeek Harness profile 中的可卸载 Bundle：Node/Cordis 侧从 Flovart CLI Registry 派生状态、Director 和有界 Workflow 图编辑工具，并以受限同源代理连接 Workspace Operator；声明 `dsh.client` 的浏览器入口向 session-scoped `conversation.view` 注册原生 React Workflow 画布，并可向 `shell.overlay` 增加审批、状态和 Artifact 轻弹层。它不替换 Harness 的 `sidebar`、`conversation` 或主会话，不注册额外侧栏入口；Harness 中断不终止已提交的 ProductionRun。
+避免混用：薄 CLI Connector、Flovart Workspace Operator、Production Crew、DeepSeek 模型 Provider。
 
-**Connected Agent**：
-通过 Flovart MCP Server、CLI 或 Production Skill 调用 Runtime Capability，但其安装、登录、进程和会话生命周期不由 Flovart 托管的外部 Coding Agent；V1 可包含 Claude Code、OpenCode、Cursor 等经过连接测试的宿主。
-避免混用：Managed Agent、Coding Agent Adapter、仅出现在配置列表中的未验证宿主。
+**Flovart Workflow View**：
+DeepSeek Harness 原生会话中的一个附加 `conversation.view` 页签，直接承载 Flovart Workflow 节点画布并绑定当前 Director Session；项目、节点、连线、Draft 版本和布局由本机 Workspace Operator 持久保存，审批、任务进度与 Artifact 提示可由 `shell.overlay` 呈现。页面不含第二套 Agent 对话、手动连接表单、iframe 或外部侧栏入口。
+避免混用：替换 DSH 主会话、完整 Flovart 多页面壳、Table、Agent Production Control、Agent Bridge。
 
-**First-Class Agent Adapter**：
-能够通过宿主官方结构化协议提供会话创建与恢复、事件流、取消、审批和健康检查的 Coding Agent Adapter；V1 范围为 Codex 与 OpenCode。
-避免混用：PTY 文本抓取、独立终端兼容模式、模型 Provider。
+**Flovart View Availability（Flovart 页面可用性）**：
+DSH Integration Mode 中，只要插件已安装且当前存在有效 DSH Session，Flovart Workflow View 就保持可见、可切换、可导航；DSH Agent、Flovart Runtime 与 Provider 的连接状态只决定读取、编辑、提问或执行等动作是否可用，不决定页面是否存在。P0 没有有效 Session 时不伪造全局 Flovart 页面。
+避免混用：Runtime Availability、Agent Availability、Global Flovart、插件安装状态。
 
-**Codex App Server Transport**：
-Codex Adapter 使用本机 `codex app-server` 的 stdio JSON-RPC/JSONL 协议实现深度集成，并以 `codex exec --json` 作为显式降级路径。
-避免混用：Codex TUI 输出、MCP Server、Flovart Desktop Runtime API。
+**Runtime Availability（Runtime 能力状态）**：
+Flovart Runtime 对当前 DSH Session 可提供的 `offline`、`starting`、`ready` 或 `error` 状态；它是生产事实读写与执行的能力门，不是 Flovart 导航或页面显示的门。
+避免混用：Flovart View Availability、Provider Availability、Agent Session 状态。
 
-**OpenCode SDK Transport**：
-OpenCode Adapter 通过官方 TypeScript SDK 连接绑定在 `127.0.0.1` 随机端口、使用随机 Basic Auth 密码的本地 Server，并订阅 SSE 事件。
-避免混用：OpenCode TUI、公共 HTTP 服务、Provider API。
+**Flovart DeepSeek Profile**：
+由 Flovart 发布的专用 DeepSeek Harness 组合入口，用 `dsh.profile.bundles` 装配官方基础/Web Bundle 与 Flovart Bundle，并由 `dsh --profile flovart` 启动；它不修改用户已有 profile，也不是 DeepSeek Harness Fork 或 Production Authority。
+避免混用：Agent Toolkit Profile、模型 Profile、用户现有 `web` Profile、定制 Harness 发行版。
 
-**Agent Protocol Handshake**：
-Coding Agent Adapter 启动时对宿主版本、健康状态和必需协议能力进行结构化校验，不满足契约时显式降级或拒绝启动。
-避免混用：仅检查可执行文件存在、解析帮助文本、自动升级宿主。
+**Agent Bridge**：
+Flovart 独立 Agent Workspace 中展示 Codex、DeepSeek Harness、Claude Code、OpenCode 与 Pi 连接状态，并对当前 ProductionSession 执行 Active Director Binding 与显式 Handoff 的宿主连接面；多个 Harness 可以连接，但同时只能有一个拥有导演写权。它不是 DeepSeek Harness Embedded Plugin 内的页面。
+避免混用：多 Agent 团队、并行导演、聊天聚合器、模型路由器、Production Crew、旧 `workflowAgentBridge` 服务。
+
+**Harness Integration Capability Set（宿主集成能力集）**：
+记录某个 External Coding Agent Harness 连接当前实际提供并已验证的非秘密增强能力，例如 `cli`、`session-binding`、`event-publishing`、`embedded-workspace`；这些能力彼此独立，不组成支持等级，也不影响五个 Harness 的正式产品支持或共同 CLI 基线。
+避免混用：兼容等级、品牌白名单、进程托管、模型 Provider、营销兼容声明。
+
+**Local Protocol Handshake**：
+Flovart 自有客户端连接本地服务时对发行版本、协议版本、身份与所需能力进行的结构化校验。
+避免混用：外部 Harness 探测、解析帮助文本、自动升级宿主。
 
 **Agent Tool Approval**：
-由 Codex 或 OpenCode 宿主请求并裁决的 Shell、文件、网络或 Agent 工具权限，只影响当前 Agent Turn 的执行能力。
+由 External Coding Agent Harness 宿主请求并裁决的 Shell、文件、网络或宿主工具权限，只影响该宿主的执行能力，Flovart 不代为授予。
 避免混用：Production Gate、Run Budget、Production Skill 权限。
 
 **Production Gate Approval**：
 由 Desktop Runtime 记录和执行的预算、安全、素材或审片决定，只影响 ProductionRun，不授予 Agent 额外系统权限。
 避免混用：Agent Tool Approval、Provider 登录弹窗、普通确认消息。
 
-**Agent Session Binding**：
-ProductionSession 与一个外部 Coding Agent 会话之间可恢复的本地关联，保存宿主类型和非秘密会话标识，不持有 ProductionRun 生命周期。
+**Director Session Binding（导演会话绑定）**：
+ProductionSession 与一个外部 Coding Agent Harness 会话之间可恢复的一对一活动关联，只保存宿主类型、非秘密会话引用、集成能力集、协议版本和同步游标；同一 Harness Session 不能同时活动绑定多个 ProductionSession，外部 Harness 会话仍是主记忆。
 避免混用：ProductionRun、TUI 进程、Agent API Key。
 
-**Agent Session Store**：
-由内置 PI Agent 独占写入的本地 SQLite 会话库，保存主对话、探索分支、消息、工具轨迹和 Specialist Report，并只以稳定 ID 引用 Desktop Runtime 中的权威制作对象；会话库不可决定规格、授权、费用、运行或产物状态。
-避免混用：Desktop Runtime SQLite、浏览器 Agent 布局存储、外部 Coding Agent 线程、ProductionSession 本身。
+**Director Session Projection（导演会话投影）**：
+Flovart 根据显式发布的 Harness 事件与 CLI 回执保存的可重建读模型，只包含任务状态、等待项、回执、Artifact 引用和同步游标；它不是完整对话镜像，也不保存隐藏推理。
+避免混用：外部 Coding Agent 线程、Director Session Binding、ProductionSession 权威状态、聊天备份。
 
-**Agent Handoff Snapshot**：
-切换 Coding Agent 宿主时由 Desktop Runtime 根据权威状态生成的不可变上下文快照，包含作品 Brief、Skill 版本、当前 Spec、已确认决策、Run 摘要、待审批项、Artifact 引用和预算状态。
+**Flovart Project Binding（Flovart 项目绑定）**：
+DSH Session 进入 Flovart 视觉工作区时使用的显式上下文载荷，至少包含 `sessionId`、`projectId`、可选 `workflowId` 与 `bindingVersion`；它是 Director Session Binding 在 DSH 适配层的具体投影，不是第二个 Agent 会话。所有 Flovart Service mutation 都必须使用明确目标，不能依赖最近打开项目或浏览器活动 Tab。
+避免混用：Flovart Project、ProductionSession、浏览器 active project、Agent API Key。
+
+**Production Conversation Projection（生产会话投影）**：
+由 Flovart Runtime 的 durable production events 投影到 DSH Session 的可回放展示状态，例如 Production Run Conversation Node；它只表达 Session 当时看到的生产过程，不裁定当前 Run、Artifact 或 Provider 状态。
+避免混用：Production Authority、ProductionRun 权威状态、Tool Card、完整对话镜像。
+
+**UI Ephemeral State（界面临时状态）**：
+Workflow Client 为交互暂存的 selection、viewport、zoom、hover、panel state 与 Draft Prompt；它可以作为显式 Selection Context 发送给 Agent，但不属于 Workflow、Run、Artifact 或 DSH Session 的生产事实。
+避免混用：Workflow Draft、Production Fact、Session Projection、浏览器持久化业务记录。
+
+**Workspace Operator Receipt（工作区操作回执）**：
+Flovart Workspace Operator 对一次 Workspace Operation Intent 返回的结构化结果，包含 ChangeSet ID、已执行动作、受影响对象、最终版本、部分失败、待确认项和长时任务句柄；它随权威工作区记录保存，不形成另一条 Agent 对话。
+避免混用：外部 Harness 聊天消息、隐藏工具轨迹、ProductionRun Event、自然语言成功提示。
+
+**Director Handoff Snapshot（导演交接快照）**：
+切换 Coding Agent 宿主、Harness Session 或所导演 ProductionSession 时，由 Desktop Runtime 根据权威状态生成的不可变上下文快照，包含作品 Brief、Skill 版本、当前 Spec、已确认决策、Run 摘要、待审批项、Artifact 引用和预算状态。
 避免混用：原始对话导出、隐藏推理、Agent 自行撰写的总结。
 
-**Active Agent Binding**：
-一个 ProductionSession 当前唯一可接收新交互的 Agent Session Binding；旧 Binding 归档但不删除，并可通过新的 Handoff 恢复为活动状态。
+**Active Director Binding**：
+一个 ProductionSession 与一个外部 Harness Session 之间当前唯一可接收新交互的一对一 Director Session Binding；任一端切换目标时旧 Binding 归档但不删除，并可通过新的 Director Handoff 恢复为活动状态。
 避免混用：并行 ProductionRun、多 Agent 协作、已删除会话。
 
 **Desktop Runtime**：
@@ -535,6 +607,10 @@ ProductionSession 与一个外部 Coding Agent 会话之间可恢复的本地关
 **Production Authority**：
 唯一有权接受并持久化 ProductionRun 状态转换、审批、预算占用、ProviderAttempt 和 Artifact 来源关系的运行边界；V1 的 Production Authority 是用户本机的 Desktop Runtime。
 避免混用：Skill Hub、Coding Agent、CLI、WebUI。
+
+**Production Fact（生产事实）**：
+由 Flovart Runtime 裁定并耐久保存的视觉生产状态，包括 DSH 集成模式下的 Workflow 图、Workflow revision、Run/Stage/Provider Attempt 状态和 Artifact 元数据；客户端与 DSH 只能读取、投影或提交经过契约校验的变更。
+避免混用：Conversation Node PresentationState、Tool Card、UI Ephemeral State、Provider 返回的未确认临时结果。
 
 **Skill Hub**：
 分发 Production Skill Package 的云端目录，保存版本、内容哈希、许可证、评测、认证和撤销信息；不持有用户 Provider 凭据，也不拥有或执行 ProductionRun。
@@ -613,7 +689,7 @@ Production Mandate 中获准执行的 Workflow Operation Node 集合、必要依
 避免混用：整个 Workflow Draft、当前选择框、会话级自动预算、逐节点弹窗。
 
 **Production Plan Card**：
-Flovart Agent 面向用户展示的单一“制作方案”确认面，以人话汇总目标产物、待执行 Operation 子图、可选 Production Skill、预计费用、关键审片点与执行范围，并允许按需展开节点、配方和线路；主动作“确认并开始”以一次幂等操作生成对应 Production Mandate 并启动 ProductionRun，仅保存草稿或预览 Workflow 均不授权执行。
+External Coding Agent Harness 将结构化制作建议提交给 Flovart 后展示的单一“制作方案”确认面，以人话汇总目标产物、待执行 Operation 子图、可选 Production Skill、预计费用、关键审片点与执行范围，并允许按需展开节点、配方和线路；主动作“确认并开始”以一次幂等操作生成对应 Production Mandate 并启动 ProductionRun，仅保存草稿或预览 Workflow 均不授权执行。
 避免混用：聊天中的“可以”、完整 ProductionSpec 编辑器、Production Mandate 本身。
 
 **Production Plan Projection**：
@@ -636,9 +712,9 @@ ProductionRun 因创意反馈或语义性失败而提出的重规划请求，说
 Production Skill 为故事、视觉风格、关键帧或成片质量推荐的创作审批门，可以按用户选择的 Review Policy 执行或跳过。
 避免混用：System Gate、强制安全检查、Skill 内部步骤。
 
-**Specialist Review Gate**：
-通过一个 Specialist Capability 生成 Specialist Report 的 Skill Gate，由 Production Skill 声明 required 或 recommended，并按 Review Policy 决定是否执行。
-避免混用：System Gate、Specialist Agent 的临时委派、Runtime 确定性校验。
+**Review Tool Gate**：
+通过 Review Tool 生成 Review Result 的 Skill Gate，由 Production Skill 声明 required 或 recommended，并按 Review Policy 决定是否执行。
+避免混用：System Gate、持久 Agent 委派、Runtime 确定性校验。
 
 **User Gate**：
 用户针对特定 ProductionRun 主动插入的审批门，用来约束品牌、人物、素材、配音或费用等个别节点。

@@ -10,20 +10,17 @@ npm run dev
 npm run flovart:cli -- status --json
 ```
 
-The Vite dev server uses port `11451`. Provider-backed commands require the browser app to stay open because API keys remain in browser storage.
+The Vite dev server uses port `37522`. Provider-backed commands require the browser app to stay open because API keys remain in browser storage.
 
 ## Agent Host Init
 
-Use `init` to write helper config for supported agent hosts.
+Flovart exposes no MCP server to coding agents; the CLI is the only agent-facing interface. Use `init` to install the Flovart SKILL as a coding-agent attachment (`.agents/skills/flovart/SKILL.md`):
 
 ```bash
-npm run flovart:cli -- init --host project --json
-npm run flovart:cli -- init --host opencode --json
-npm run flovart:cli -- init --host claude --json
-npm run flovart:cli -- init --host all --dryRun --json
+npm run flovart:cli -- init --json
 ```
 
-Supported hosts are reported by:
+The current init contract is reported by:
 
 ```bash
 npm run flovart:cli -- command.schema --command init --json

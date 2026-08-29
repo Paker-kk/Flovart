@@ -1,53 +1,57 @@
-# Flovart Agent 与 Production Skill 使用手册
+# 外部导演台与 Production Skill 使用手册
 
-这份手册面向想用 Flovart Agent 完成视频制作、但不想先学习 CLI、Manifest 或 ProductionSpec 的创作者。
+这份手册面向想用 Codex、DeepSeek Harness、Claude Code（CC）、OpenCode 或 Pi 指挥 Flovart 制作、但不想先学习 CLI、Manifest 或 ProductionSpec 的创作者。五者都是正式支持的 External Coding Agent Harness。
 
 ## 先记住一句话
 
-**Flovart Agent 是唯一内置主 Agent；操作 Skill 指导它如何操作 Flovart，Production Skill 是它加载的制作方法；VOX Skill 是其中一个具体方法。**
+**系统只有两个 AI 角色：外部 Coding Agent Harness 是导演台，内置 Workspace Operator 是执行 Agent；Operation Skill 教导演通过 CLI 操作，Production Skill 提供制作方法，其余 Production Crew 组件都是工具或服务。**
 
-你只要描述目标，Flovart Agent 会在任务匹配时自动加载合适的 Production Skill。想明确指定 VOX Skill 时，可以在请求中写技术调用句柄 `$vox-director`。
+你只要在自己的 Coding Agent 中描述目标；宿主支持 Skill 发现时会加载合适的 Production Skill。想明确指定 VOX Skill，可以在请求中写技术调用句柄 `$vox-director`。
 
 ## 产品层的两类 Skill
 
 | 名称 | 定位 |
 | --- | --- |
 | Flovart | 整个产品 |
-| Flovart Agent | 用户直接协作的唯一内置主 Agent |
-| Operation Skill | 指导 Agent 如何操作 Flovart 的 host 接入手册 |
-| Production Skill | Flovart Agent 可加载的制作方法 |
+| External Coding Agent Harness | 用户直接协作的导演台，持有主对话和总体计划 |
+| Workspace Operator | 唯一内置执行 Agent，只处理一个有界 Intent |
+| Flovart Production Crew | Operator 与 Runtime/Worker/Tool 的执行面集合名，不是额外 Agent |
+| Operation Skill | 指导 Harness 通过 Flovart CLI 操作产品的宿主说明 |
+| Production Skill | Harness 可采用、Production Crew 可执行的制作方法 |
 | VOX Skill | 一个具体 Production Skill |
 
-仓库里供 Codex、Claude Code 或 OpenCode 连接 Runtime 的 `SKILL.md` 属于 Operation Skill，是与 Production Skill 并列的两类 Skill 之一：Operation Skill 指导 Agent 如何操作 Flovart，Production Skill 提供具体制作方法。两类都不保存 API Key，也不直接请求 Provider；实际执行、费用和产物仍由 Flovart Runtime 管理。
+供 Codex、DeepSeek Harness、Claude Code、OpenCode、Pi 使用的 `SKILL.md` 都属于 Operation Skill。它只指导 Harness 的模型工具调用公开 CLI；Flovart 不向 Coding Agent 暴露 MCP Server。Operation Skill 与 Production Skill 都不保存 API Key，也不直接请求 Provider；实际执行、费用和产物仍由 Flovart Runtime 管理。带代码的宿主插件或 Toolkit Plugin 是第三类扩展，不属于 Skill，必须单独安装和授权。
 
 ## 最低成本的使用方式
 
-### 在 Flovart Desktop 中
+### 在任一正式支持的 Coding Agent Harness 中（推荐）
 
-1. 打开应用首页 `#/app/home`。
-2. 找到“选择一种制作方法”。
-3. 点击 Skill 卡片，先看适用场景和示例调用词。
-4. 点击“在本机 Agent 中试用”。
-5. Flovart 会新建项目、打开本机 Agent，并把调用词填入输入框。
-6. 把 `【在这里填写主题或粘贴 Brief】` 换成你的主题，再发送。
-
-这一步只准备草稿，不会自动发送、调用 Provider 或产生费用。桌面版会尝试安全连接 Managed Agent；普通浏览器版无法使用桌面 IPC，因此会显示本机 Agent 的连接步骤。
-
-### 直接在 Codex、Claude Code 或其他 Coding Agent 中
-
-自然语言通常已经足够：
+先确认项目已经安装 Flovart Operation Skill，然后直接用自然语言描述任务：
 
 ```text
 把“为什么人们越来越难专注”做成一条 30 秒中文纸张拼贴解释短片。
 先给我叙事节拍和视觉方向，不要开始付费生成。
 ```
 
-如果你想固定使用某个导演方法：
+如果你想固定使用某个制作方法：
 
 ```text
 使用 $vox-director，把“为什么人们越来越难专注”制作成 30 秒中文短片。
 先给我叙事节拍和 3 套视觉主题供确认；未经确认，不要开始付费生成。
 ```
+
+### 当前 Desktop 过渡入口
+
+1. 打开应用首页 `#/app/home`。
+2. 找到“选择一种制作方法”。
+3. 点击 Skill 卡片，先看适用场景和示例调用词。
+4. 复制调用词，在你的外部 Coding Agent Harness 中发送。
+
+当前代码中的“在本机 Agent 中试用”仍会打开旧内置主 Agent，这是待迁移路径，不代表目标架构。选择 Skill 本身只准备方法与草稿，不会自动调用 Provider 或产生费用。
+
+### DeepSeek Harness 完整嵌入目标
+
+DeepSeek Harness 将通过专用 Flovart Profile/Plugin 形成完整插件体验：Harness 保持主壳与主会话，左侧固定 Flovart Dock 打开中央 Workflow、Table 与 Agent Production Control，快速弹层处理审批/状态/Artifact，右侧 Agent Bridge 管理连接与单导演 Handoff，并保留独立窗口。Host Plugin 从公开 CLI Registry 渐进暴露精确模型工具并通过 CLI 执行；Client Plugin 只负责隔离 UI、事件游标和恢复。首次安装 Runtime、升级兼容集和新增权限都必须由用户确认。该 Profile 尚未完成真实安装与恢复验收，因此当前仍按上面的通用外部 Harness 路径使用。
 
 不要为了“正确调用 Skill”去背一整条标准 Prompt。高质量请求只需要四项：
 
@@ -84,10 +88,10 @@
 
 ## 发送后会发生什么
 
-1. Agent 根据名称与描述发现并加载相关 Skill。
+1. External Harness 根据名称与描述发现并加载相关 Skill。
 2. Production Skill 把主题整理为 Provider-neutral 的制作计划。
-3. Agent 先向你展示叙事、主题和必要的人工检查点。
-4. 计划可以通过 `production.dry-run` 编译成 ProductionRun 和可见 Workflow Projection。
+3. Harness 先向你展示叙事、主题和必要的人工检查点。
+4. Harness 经 CLI 把计划交给 Production Crew；`production.dry-run` 可编译出 ProductionRun 和可见 Workflow Projection。
 5. 路线、预算或审批未完成时，计划保持阻塞状态，不会被冒充为已完成成片。
 6. 只有你确认后，Runtime 才能进入需要 Provider 的执行阶段。
 
@@ -95,10 +99,10 @@
 
 ## 如何确认 Skill 真的生效
 
-不要只看 Agent 有没有说“我正在使用 Skill”。至少检查以下三项：
+不要只看 Harness 有没有说“我正在使用 Skill”。至少检查以下三项：
 
 - 回复中出现与该 Skill 对应的制作结构，例如 VOX Skill 的叙事节拍、主题试片、关键帧审片和 OCR 检查；
-- Agent 能报告精确的 Skill ID 与版本，例如 `community.vox-director@1.0.0`；
+- Harness 能报告精确的 Skill ID、版本与内容 Hash，例如 `community.vox-director@1.0.0`；
 - 编译后能在当前 Workflow 中看到与 ProductionRun 对应的计划节点，而不是只得到一段聊天文本。
 
 如果 Agent 只复述“纸张拼贴风格”，却没有执行 Skill 定义的检查点，应视为没有真正使用。
@@ -149,9 +153,9 @@ npm run flovart:cli -- <command> --json
 
 这是有意设计的安全边界。选择 Skill 只是在确定制作方法；生成会涉及模型线路、预算和人工审片，不能在用户还没看计划时自动扣费。
 
-### 为什么浏览器版要求连接本机 Agent？
+### 为什么浏览器版不能独立充当导演台？
 
-真正的 Production Skill 需要由能发现并读取 Skill 包的 Flovart Agent 或外部 Coding Agent 执行。普通网页模式无法连接 Desktop Managed Agent，不能冒充完整的 Skill Host。
+主对话、Skill 发现和总体计划属于外部 Coding Agent Harness。普通网页可以展示 Workflow 与 Production Crew 状态，但不能冒充外部 Harness，也不应建立第二条主对话。
 
 ### Agent 说找不到 Skill 怎么办？
 
@@ -169,7 +173,8 @@ npm run flovart:cli -- <command> --json
 
 - 当前首页提供一个真实内置示例：`community.vox-director`。
 - 第三方 Skill 的安装、签名、权限、发布与撤销仍在建设中。
-- 普通网页模式尚不能执行完整 Production Skill；请使用 Desktop Flovart Agent 或外部 Coding Agent。
+- Codex、DeepSeek Harness、Claude Code、OpenCode、Pi 的模型工具基线都是 Operation Skill + CLI；没有 Coding Agent MCP Server。Codex 与 DeepSeek Harness 的深度 Session/事件连接优先实施，DeepSeek 另有完整嵌入 Profile 目标；这些增强不影响其他三者的完整 CLI 支持。
+- 当前 Desktop 的旧内置主 Agent 入口仍待迁成 Production Crew 控制面；请优先在外部 Coding Agent 中发起主任务。
 - Runtime Artifact 到对应计划节点的自动挂载仍在完善，不能仅凭计划节点判断成片已完成。
 
 ## 设计依据
@@ -180,3 +185,5 @@ Flovart 遵循 Agent Skills 的渐进式披露方式：Agent 先只看到 Skill 
 - [Agent Skills 客户端实现与渐进式披露](https://agentskills.io/client-implementation/adding-skills-support)
 - [Skill 描述优化](https://agentskills.io/skill-creation/optimizing-descriptions)
 - [Claude：使用 Skills](https://support.claude.com/en/articles/12512180-use-skills-in-claude)
+
+完整角色边界见 [Agent 架构设计包](../design/agent/README.md)。

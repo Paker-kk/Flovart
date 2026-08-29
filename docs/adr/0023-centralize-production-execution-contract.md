@@ -1,6 +1,6 @@
 # 统一制作执行、授权与状态契约
 
-Workflow、Table、Agent、CLI 与 MCP 共享同一组类型化 Production Intent 和 Provider-neutral Capability，不各自实现 Provider 调用、费用判断或任务状态。当前项目的本地执行权威把意图展开为 ProductionRun、StageRun、ProviderAttempt 与 Artifact，并通过带幂等键的命令、可恢复任务句柄和单调事件流向各入口投影状态。
+Workflow、Table、Production Crew、CLI 与 WebUI 共享同一组类型化 Production Intent 和 Provider-neutral Capability，不各自实现 Provider 调用、费用判断或任务状态。External Coding Agent Harness 的模型工具只经 CLI 进入；第一方 WebUI 与受信 DeepSeek Embedded Client 可以使用受认证、限权的本地 UI/事件通道，但不能形成模型工具旁路。本地执行权威把意图展开为 ProductionRun、StageRun、ProviderAttempt 与 Artifact，并通过带幂等键的命令、可恢复任务句柄和单调事件流向各入口投影状态。
 
 所有 Workflow/Table 结果型操作必须来自版本化 Operation Capability Registry。Registry 的执行类别、费用与确认级别决定动作是可直接执行的本地 Draft 操作，还是需要 Production Mandate 的 Provider 能力；调用方不能用任意工具名或 JSON 参数绕过 Schema、Preflight、预算和权限。
 
@@ -12,4 +12,4 @@ ProviderAttempt 与启动时 Operation Recipe Hash 永久关联。若执行期�
 
 ProviderAttempt 还必须引用不可变 Execution Prompt Snapshot，而不是只记录 Prompt Hash 或事后读取当前节点文本。Snapshot 包含实际提交文本、引用绑定、规范化参数与编译器版本，但不保存 Provider Secret；这样 Prompt 增强和 Adapter 转换可审计，当前可编辑 Prompt 继续独立演进。
 
-Desktop Runtime 的控制面只通过受认证的 Tauri IPC 或带轮换凭据的本机类型化接口开放，Provider Secret 不返回给 WebUI、CLI、MCP 或 Agent。纯 Web 执行沿用同一请求、授权与状态语义，但必须明确其恢复和密钥保护能力低于 Desktop Runtime。
+Desktop Runtime 的控制面只通过受认证的 Tauri IPC 或带轮换凭据的本机类型化接口开放，Provider Secret 不返回给 WebUI、CLI、Production Crew 或 External Harness。Flovart 不向 Coding Agent 暴露 MCP Server；纯 Web 执行沿用同一请求、授权与状态语义，但必须明确其恢复和密钥保护能力低于 Desktop Runtime。

@@ -2,7 +2,7 @@
 
 ## 状态与范围
 
-本文把 [Production Runtime V1 实施规划](production-runtime-v1-plan.md) 压成可实现的数据边界，先服务 S0 安全 Control Plane、S1 持久图片任务和随后 15 秒 VOX 垂直切片。它不是已实现功能，也不要求一次创建全部后期表。
+本文把 [Production Runtime V1 实施规划](production-runtime-v1-plan.md) 压成目标数据边界，服务持久任务、Workflow Draft 和 15 秒 VOX 垂直切片；它不是当前数据库的完成声明，实际能力仍以 Runtime migration 与 `command.list` 为准。Agent 会话与制作组边界以 [Agent 设计包](../design/agent/README.md) 为准。
 
 固定边界：
 
@@ -22,7 +22,7 @@
 | `command_receipts` | `command_id`、`actor_kind`、`actor_instance_id`、`idempotency_key`、`command_name`、`payload_hash`、`task_id`、`result_json` | `command_id` 唯一；`(actor_kind, actor_instance_id, idempotency_key)` 唯一。同 key 不同 payload 返回 `IDEMPOTENCY_CONFLICT`。 |
 | `runtime_tasks` | `id`、`command_id`、`kind`、`status`、`entity_type`、`entity_id`、`progress_json`、`lease_owner`、`lease_expires_at`、`cancel_requested_at`、`result_json`、`error_json` | 长任务 State Projection；receipt 与 task 必须在任何外部副作用前同事务提交。 |
 | `runtime_events` | `event_id`、`event_version`、`entity_type`、`entity_id`、`task_id`、`event_type`、`payload_json`、`created_at` | `event_id INTEGER PRIMARY KEY AUTOINCREMENT`；只追加，用于审计和 SSE 续传，不作为唯一查询模型。 |
-| `production_sessions` | `id`、`project_id`、`title`、`brief_json`、`review_policy`、`bound_skill_snapshot_id`、`active_spec_revision_id`、`active_agent_binding_id`、`status` | 一部作品的上下文边界；V1 允许零或一个 Bound Production Skill。当前 Runtime 的 `primary_skill_snapshot_json` 是待收敛的旧物理命名，不是领域词。 |
+| `production_sessions` | `id`、`project_id`、`title`、`brief_json`、`review_policy`、`bound_skill_snapshot_id`、`active_spec_revision_id`、`active_director_binding_id`、`status` | 一部作品的上下文边界；允许零或一个 Bound Production Skill，同一时间至多一个 Active Director Binding。 |
 | `production_spec_revisions` | `id`、`session_id`、`revision_no`、`parent_revision_id`、`skill_snapshot_id`、`schema_version`、`core_json`、`extension_json`、`spec_hash`、`created_by`、`created_at` | `(session_id, revision_no)` 与 `spec_hash` 唯一；Revision 内容只插入不更新，批准记录进入 Gate 决策。 |
 | `production_runs` | `id`、`session_id`、`spec_revision_id`、`route_plan_id`、`review_policy`、`status`、`started_at`、`finished_at` | 一次 Spec 的实际运行；Route Plan 确认前保持 `preparing`。 |
 | `stage_runs` | `id`、`run_id`、`stage_key`、`capability_id`、`spec_path`、`status`、`input_hash`、`blocked_reason_json`、`started_at`、`finished_at` | `(run_id, stage_key)` 唯一；语义性变更创建新 Spec/Run 或 Replan，不覆盖旧阶段。 |
@@ -38,7 +38,7 @@
 | --- | --- | --- |
 | `workflow_projects` | `id`、`title`、`active_session_id`、`draft_authority_kind`、`draft_authority_id`、`created_at`、`updated_at` | 保存工作区身份、当前 ProductionSession 与唯一 Draft Authority Binding；不允许 Browser/Runtime 双写。 |
 | `workflow_drafts` | `id`、`project_id`、`draft_version`、`base_spec_revision_id`、`snapshot_json`、`snapshot_hash`、`updated_at` | 批准前的编辑权威，保存节点、连线、Operation Prompt Document、参考、参数、工具步骤和布局；每个可修改对象含单调 `objectVersion`，`base_spec_revision_id` 可空。 |
-| `workflow_draft_changesets` | `id`、`draft_id`、`sequence_no`、`actor_kind`、`actor_id`、`intent`、`base_draft_version`、`result_draft_version`、`status`、`created_at`、`closed_at` | 一个 Agent 回合或连续人工手势的语义历史与撤销边界；状态为 open/completed/partial/failed/undone，顺序只追加。 |
+| `workflow_draft_changesets` | `id`、`draft_id`、`sequence_no`、`actor_kind`、`actor_id`、`intent`、`base_draft_version`、`result_draft_version`、`status`、`created_at`、`closed_at` | 一个 Workspace Operator Intent 或连续人工手势的语义历史与撤销边界；状态为 open/completed/partial/failed/undone，顺序只追加。 |
 | `workflow_draft_actions` | `changeset_id`、`ordinal`、`action_type`、`target_id`、`payload_json`、`inverse_json`、`result_json` | 类型化、可重放和可逆的草稿动作；不保存每个指针或按键事件。 |
 | `workflow_operation_input_bindings` | `id`、`draft_id`、`source_node_id`、`source_artifact_id`、`target_operation_node_id`、`role`、`ordinal`、`prompt_anchor_json`、`object_version` | PromptBar `@` chip 与画布输入边的唯一数据；来源二选一，角色/数量由 Recipe Schema 校验。 |
 | `execution_prompt_snapshots` | `id`、`operation_node_id`、`prompt_document_hash`、`rendered_text`、`reference_bindings_json`、`normalized_parameters_json`、`compiler_version`、`created_at` | ProviderAttempt 的不可变实际 Prompt；记录增强/翻译/适配结果但不包含 Secret。 |
@@ -63,13 +63,16 @@
 | `cost_reservations` | `id`、`run_id`、`stage_run_id`、`provider_attempt_id`、`amount_micros`、`unit_code`、`status`、`quote_source` | Provider 提交前创建；Submission Unknown 保持占用。 |
 | `usage_ledger` | `entry_id`、`run_id`、`reservation_id`、`provider_attempt_id`、`entry_type`、`amount_micros`、`unit_code`、`source_json`、`created_at` | 不可变流水；`reserve|confirm|release|refund|adjust`，不使用浮点金额。 |
 
-### Agent 绑定与介入表
+### Director Binding 与制作组回执表
 
 | 表 | 关键字段 | 约束与责任 |
 | --- | --- | --- |
-| `agent_session_bindings` | `id`、`production_session_id`、`host_type`、`external_session_id`、`protocol_version`、`status`、`created_at`、`archived_at` | 一个 Session 同时最多一个 `active` Binding；不保存 Agent Key 或原始对话。 |
+| `agent_session_bindings` | `id`、`production_session_id`、`host_type`、`external_session_ref`、`host_capabilities_json`、`protocol_version`、`sync_cursor`、`status`、`created_at`、`archived_at` | ProductionSession 与 Harness Session 两端都同时最多一个 `active` Director Binding；能力字段记录彼此独立的已验证增强，不是宿主支持等级；不保存 Agent Key、原始对话或隐藏推理。 |
+| `agent_session_projections` | `binding_id`、`projection_version`、`status_json`、`pending_items_json`、`artifact_refs_json`、`sync_cursor`、`updated_at` | 可从显式 Harness 事件与 CLI 回执重建的读模型，不是聊天镜像或制作状态权威。 |
 | `agent_handoff_snapshots` | `id`、`production_session_id`、`spec_revision_id`、`snapshot_json`、`snapshot_hash`、`created_at` | Runtime 从权威状态生成，不包含隐藏推理和 Secret。 |
-| `agent_interventions` | `id`、`run_id`、`stage_run_id`、`event_id`、`reason_code`、`snapshot_id`、`status`、`dispatched_binding_id`、`created_at`、`resolved_at` | `pending -> dispatched -> resolved|dismissed`；普通进度事件不创建介入。 |
+| `workspace_operation_intents` | `id`、`binding_id`、`project_id`、`idempotency_key`、`goal_json`、`scope_json`、`constraints_json`、`status`、`created_at`、`closed_at` | Production Crew 接受的有界任务；不得承载总体计划、主对话或长期自治目标。 |
+| `workspace_operator_receipts` | `intent_id`、`changeset_id`、`status`、`affected_objects_json`、`task_refs_json`、`pending_approvals_json`、`result_json`、`created_at` | 单次 Intent 的结构化结果；不保存隐藏工具推理，也不伪装成 Harness 对话。 |
+| `agent_interventions` | `id`、`run_id`、`stage_run_id`、`event_id`、`reason_code`、`snapshot_id`、`status`、`target_binding_id`、`created_at`、`resolved_at` | `pending -> published -> resolved|dismissed`；普通进度事件不创建介入。 |
 
 ## 状态与事务规则
 
@@ -94,7 +97,7 @@
 
 ## Runtime Control API
 
-Local HTTP、Tauri IPC、CLI 与 MCP 只适配同一个 `ProductionRuntime` Interface：
+Local HTTP、Tauri IPC、CLI 与 Production Crew 内部客户端只适配同一个 `ProductionRuntime` Interface：
 
 ```text
 POST /v1/commands              submit(CommandEnvelope)
@@ -105,7 +108,7 @@ GET  /v1/tasks/{taskId}/result getTaskResult
 GET  /v1/events                streamEvents(Last-Event-ID)
 ```
 
-除最小 handshake/health 外，Local HTTP 全部要求启动期 Bearer Token。MCP Tasks 仍是实验能力，只作为未来 Adapter；Runtime Task ID 和状态机不依赖 MCP。
+除最小 handshake/health 外，Local HTTP 全部要求启动期 Bearer Token。它是 Flovart 内部协议面，不是 External Coding Agent Harness 的公开接口；外部 Harness 只使用 Operation Skill + CLI，Runtime Task ID 和状态机不依赖任何外部宿主协议。
 
 ### CommandEnvelope v1
 
@@ -320,14 +323,14 @@ VOX 迁移只把风格专属信息放入 `extensions.vox-director`，不复制 C
 
 - VOX 的叙事弧、Prompt 结构、主题预设、镜头节奏和质量规则进入 Skill references/assets/Extension Schema。
 - `atlas_cloud.py`、模型 ID、环境变量、下载、轮询、自动重提和 ffmpeg 调用不得进入公开 Package 执行路径。
-- Prompt 组合等纯 JSON/Text 转换可以成为无网络、无秘密、声明输入输出的 Deterministic Skill Script。
+- Prompt 组合等纯 JSON/Text 转换必须先成为有版本 Schema 和测试的 Runtime Capability；Production Skill Package 本身不携带可执行脚本。
 - 元素级本地动画只有先成为带资源上限、固定输入输出和取消语义的 `media.animate-layers` Runtime Capability 后才能执行。
 
 ## 15 秒 VOX 放行样例
 
 固定为约 3 个 beat、6 个 shot，并使用 Balanced Review Policy：
 
-1. Flovart Agent + VOX Skill 生成 Spec Revision。
+1. External Coding Agent Harness 使用 VOX Skill 生成 Spec Revision，并经 CLI 交给 Production Crew。
 2. Skill Gate：确认分镜。
 3. `style.preview` 产生 3–4 张样图 Artifact；Skill Gate：确认风格。
 4. Runtime 生成多 Provider Run Route Plan 和 Route Price Quote；System Gate：确认 BYOK 路由与 Run Budget。
