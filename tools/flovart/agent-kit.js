@@ -4,6 +4,10 @@ import { dirname, extname, basename, isAbsolute, join, resolve } from 'node:path
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { PRODUCT_MODEL_ENTRIES, listProductModelEntries } from './product-models.js';
+import { discoverAgentHosts } from './host-discovery.js';
+import { getDistributionTarget, resolveDistributionTargetId } from './host-registry.js';
+
+export { discoverAgentHosts };
 
 const PACKAGE_DIR = dirname(fileURLToPath(import.meta.url));
 const CONFIG_DIR = process.env.FLOVART_AGENT_CONFIG_DIR || join(process.env.APPDATA || process.env.HOME || homedir(), 'Flovart');
@@ -188,7 +192,7 @@ function diagnoseGenerationSurfaces(shadowSnapshot, seedance2) {
       browserRequired: true,
       projectCount: workflowProjects.length,
       activeProjectId: state.activeWorkflowProjectId || null,
-      commands: ['workflow.project.create', 'workflow.node.create', 'workflow.connect', 'workflow.node.run'],
+      commands: ['workflow.inspect', 'workflow.selection.get', 'workflow.apply', 'workflow.node.run'],
     },
   };
 }
@@ -324,107 +328,65 @@ export function listAgentModels(input = {}) {
   };
 }
 
-function mcpServerConfig() {
-  return {
-    command: process.execPath,
-    args: [join(PACKAGE_DIR, 'mcp-server.js')],
-  };
-}
-
-const HOSTS = {
-  project: { name: 'Project MCP', path: '.mcp.json', wrapperKey: 'mcpServers' },
-  codex: { name: 'Codex CLI', register: 'codex' },
-  claude: { name: 'Claude Code', register: 'claude' },
-  opencode: { name: 'OpenCode', path: 'opencode.json', wrapperKey: 'mcp', format: 'opencode' },
-  cursor: { name: 'Cursor', path: '.cursor/mcp.json', wrapperKey: 'mcpServers' },
-  windsurf: { name: 'Windsurf', path: join(homedir(), '.codeium', 'windsurf', 'mcp_config.json'), wrapperKey: 'mcpServers', global: true },
-  vscode: { name: 'VS Code / GitHub Copilot', path: '.vscode/mcp.json', wrapperKey: 'servers', needsType: true },
-};
-
-function hostConfigPath(hostConfig, projectDir) {
-  if (hostConfig.global || isAbsolute(hostConfig.path)) return hostConfig.path;
-  return join(projectDir, hostConfig.path);
-}
-
-function serverEntryForHost(hostConfig, projectDir) {
-  const entry = mcpServerConfig(projectDir);
-  if (hostConfig.format === 'opencode') {
-    return { type: 'local', command: [entry.command, ...entry.args], enabled: true };
-  }
-  return hostConfig.needsType ? { type: 'stdio', ...entry } : entry;
-}
-
-function registrationForHost(hostConfig, projectDir) {
-  const entry = mcpServerConfig(projectDir);
-  if (hostConfig.register === 'codex') {
-    return { command: 'codex', args: ['mcp', 'add', 'flovart', '--', entry.command, ...entry.args] };
-  }
-  return { command: 'claude', args: ['mcp', 'add', '--scope', 'project', 'flovart', '--', entry.command, ...entry.args] };
-}
-
-function mergeCliJson(filePath, wrapperKey, serverConfig) {
-  const current = readJson(filePath, {});
-  const next = {
-    ...current,
-    [wrapperKey]: {
-      ...(current[wrapperKey] || {}),
-      flovart: serverConfig,
-    },
-  };
-  writeJson(filePath, next);
-  return next;
-}
-
 export function initCliHost(input = {}) {
-  const host = String(input.host || 'project').toLowerCase();
+  const legacyHost = String(input.legacyHost || input.host || '').toLowerCase();
+  const targetAliases = {
+    project: 'project-skill',
+    all: 'project-skill',
+    codex: 'codex-skill',
+    claude: 'claude-code-skill',
+    opencode: 'opencode-skill',
+    cursor: 'project-skill',
+    windsurf: 'project-skill',
+    vscode: 'project-skill',
+  };
+  const requestedTargetId = String(input.target || targetAliases[legacyHost] || 'project-skill').toLowerCase();
+  const targetId = resolveDistributionTargetId(requestedTargetId);
+  const target = getDistributionTarget(targetId);
   const projectDir = resolve(String(input.projectDir || process.cwd()));
   const dryRun = input.dryRun === true || input['dry-run'] === true;
-  const selected = host === 'all'
-    ? Object.entries(HOSTS).filter(([key]) => key !== 'project')
-    : [[host, HOSTS[host]]].filter(([, value]) => value);
-
-  if (selected.length === 0) {
-    return { ok: false, error: { code: 'BAD_REQUEST', message: `unsupported host: ${host}` } };
+  if (!target || target.status !== 'supported' || !target.installPath) {
+    return {
+      ok: false,
+      error: {
+        code: 'UNSUPPORTED_DISTRIBUTION_TARGET',
+        message: `不支持的 Distribution Target：${requestedTargetId}`,
+        details: { targetId: requestedTargetId, availableTargets: ['project-skill', 'codex', 'codex-skill', 'codebuddy-code-skill', 'claude-code-skill', 'opencode-skill'] },
+      },
+    };
   }
 
-  const writes = selected.map(([key, hostConfig]) => {
-    if (hostConfig.register) {
-      const registration = registrationForHost(hostConfig, projectDir);
-      const result = dryRun ? null : spawnSync(registration.command, registration.args, { cwd: projectDir, stdio: 'inherit', shell: false });
-      return {
-        host: key,
-        name: hostConfig.name,
-        registration,
-        dryRun,
-        ok: dryRun || result?.status === 0,
-      };
-    }
-    const filePath = hostConfigPath(hostConfig, projectDir);
-    const server = serverEntryForHost(hostConfig, projectDir);
-    const config = dryRun
-      ? { [hostConfig.wrapperKey]: { flovart: server } }
-      : mergeCliJson(filePath, hostConfig.wrapperKey, server);
-    return { host: key, name: hostConfig.name, filePath, wrapperKey: hostConfig.wrapperKey, server, config, dryRun };
-  });
-
+  // The agent-facing surface is CLI-first: init installs the Flovart SKILL as a
+  // coding-agent attachment and never writes MCP server configuration.
   const packagedSkill = join(PACKAGE_DIR, 'skill', 'SKILL.md');
   const sourceSkill = resolve(PACKAGE_DIR, '..', '..', '.agents', 'skills', 'flovart', 'SKILL.md');
   const skillSource = existsSync(packagedSkill) ? packagedSkill : sourceSkill;
-  const skillTarget = join(projectDir, '.agents', 'skills', 'flovart', 'SKILL.md');
+  const distributionRoot = join(projectDir, target.installPath);
+  const skillTarget = join(distributionRoot, 'flovart', 'SKILL.md');
   if (!dryRun && existsSync(skillSource)) {
     ensureParent(skillTarget);
     writeFileSync(skillTarget, readFileSync(skillSource, 'utf8'), 'utf8');
   }
+  const packagedOpenSkill = join(PACKAGE_DIR, 'skill', 'open-flovart', 'SKILL.md');
+  const sourceOpenSkill = resolve(PACKAGE_DIR, '..', '..', '.agents', 'skills', 'open-flovart', 'SKILL.md');
+  const openSkillSource = existsSync(packagedOpenSkill) ? packagedOpenSkill : sourceOpenSkill;
+  const openSkillTarget = join(distributionRoot, 'open-flovart', 'SKILL.md');
+  if (!dryRun && existsSync(openSkillSource)) {
+    ensureParent(openSkillTarget);
+    writeFileSync(openSkillTarget, readFileSync(openSkillSource, 'utf8'), 'utf8');
+  }
 
   return {
-    ok: writes.every(write => write.ok !== false) && existsSync(skillSource),
-    host,
+    ok: existsSync(skillSource) && existsSync(openSkillSource),
+    requestedTarget: requestedTargetId,
+    target: targetId,
+    distributionTarget: target,
     projectDir,
-    writes,
     skill: { source: skillSource, target: skillTarget, exists: existsSync(skillSource), dryRun },
+    bootstrapSkill: { source: openSkillSource, target: openSkillTarget, exists: existsSync(openSkillSource), dryRun },
     nextSteps: [
-      'Run flovart start to launch the local Workflow WebUI and Managed Agent.',
-      'Restart the host so it reloads the Flovart CLI config.',
+      'Run flovart start --open to launch or reuse the local Runtime and visible Workflow.',
+      `The selected distribution reads ${target.installPath}/open-flovart/SKILL.md to prepare the browser, then ${target.installPath}/flovart/SKILL.md for Workflow commands.`,
     ],
   };
 }
@@ -438,38 +400,30 @@ export function diagnoseAgentSetup(input = {}) {
     { id: 'cli', ok: existsSync(cliPath), detail: cliPath },
     { id: 'preferences', ok: existsSync(PREFS_FILE), detail: PREFS_FILE, optional: true },
   ];
-  const hostConfigs = Object.entries(HOSTS).map(([key, hostConfig]) => {
-    if (hostConfig.register) {
-      return {
-        host: key,
-        name: hostConfig.name,
-        filePath: null,
-        exists: null,
-        configured: null,
-        registration: registrationForHost(hostConfig, projectDir),
-      };
-    }
-    const filePath = hostConfigPath(hostConfig, projectDir);
-    const config = readJson(filePath, null);
-    const wrapper = config?.[hostConfig.wrapperKey];
+  const agentSurface = (() => {
+    const skillTarget = join(projectDir, '.agents', 'skills', 'flovart', 'SKILL.md');
+    const toolPath = join(projectDir, 'tools', 'flovart', 'cli.js');
     return {
-      host: key,
-      name: hostConfig.name,
-      filePath,
-      exists: existsSync(filePath),
-      configured: !!wrapper?.flovart,
-      wrapperKey: hostConfig.wrapperKey,
+      skillInstalled: existsSync(skillTarget),
+      skillPath: skillTarget,
+      cliAvailable: existsSync(toolPath) || process.env.FLOVART_SKIP_CLI_CHECK === '1',
+      cliPath: toolPath,
+      usage: 'npx flovart-cli <command> --json  // coding agent 经 CLI 操作 Flovart',
     };
-  });
+  })();
   const shadowState = readShadowStateSnapshot();
   const provider = providerSnapshot(shadowState.state?.provider);
   const seedance2 = diagnoseSeedance2(provider);
   const surfaces = diagnoseGenerationSurfaces(shadowState, seedance2);
+  // Diagnosis is a bounded readiness check; the picker can perform the
+  // optional version probe, while setup diagnostics should not wait on every
+  // executable's `--version` process.
+  const hostDiscovery = discoverAgentHosts({ includeVersion: false });
   const nextSteps = Array.from(new Set([
     'Run npm run flovart:cli -- status --json to verify local file-state runtime.',
-    'Run npm run flovart:cli -- init --host <host> to write missing CLI config.',
+    'Run npm run flovart:cli -- init --target project-skill to install the Flovart Skill.',
     ...seedance2.nextActions,
-    'Run flovart start and keep the Workflow WebUI open for provider-backed generation.',
+    'Run flovart start --open and keep the visible Workflow available for provider-backed generation.',
   ]));
   return {
     ok: checks.every(check => check.ok || check.optional),
@@ -477,7 +431,8 @@ export function diagnoseAgentSetup(input = {}) {
     readyForWorkflowSeedance2: surfaces.workflow.ok,
     projectDir,
     checks,
-    hostConfigs,
+    agentSurface,
+    hostDiscovery,
     shadowState: { exists: shadowState.exists, file: shadowState.file },
     provider: {
       configured: provider.configured,

@@ -9,9 +9,11 @@ export const PRODUCTION_SKILL_SNAPSHOT_PATHS = Object.freeze([
 ]);
 
 export function canonicalProductionSkillSnapshot(entries) {
+  // 按码点顺序排序（非 localeCompare）：快照 hash 必须与运行环境 locale 无关，
+  // 否则不同机器/区域设置的 contentHash 会漂移，导致 Skill 绑定校验失败。
   return JSON.stringify([...entries]
     .map(entry => ({ path: String(entry.path), content: String(entry.content) }))
-    .sort((left, right) => left.path.localeCompare(right.path)));
+    .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0)));
 }
 
 export async function hashProductionSkillSnapshot(entries) {

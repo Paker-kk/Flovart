@@ -6,6 +6,12 @@ export interface PromptItem {
   name: string;
   prompt: string;
   sort?: number;
+  tags?: string[];
+  modality?: 'text' | 'image' | 'video' | 'audio' | 'mixed';
+  modelHints?: string[];
+  requiredReferenceRoles?: string[];
+  optionalReferenceRoles?: string[];
+  examples?: Array<{ title?: string; text: string }>;
 }
 
 export interface PromptPack {

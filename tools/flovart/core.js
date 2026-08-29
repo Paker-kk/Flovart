@@ -10,6 +10,8 @@ export const COMMAND_ALIASES = {
   flovart_workflow_project_use: 'workflow.project.use',
   flovart_workflow_project_delete: 'workflow.project.delete',
   flovart_workflow_inspect: 'workflow.inspect',
+  flovart_workflow_selection_get: 'workflow.selection.get',
+  flovart_workflow_apply: 'workflow.apply',
   flovart_workflow_node_create: 'workflow.node.create',
   flovart_workflow_node_create_connected: 'workflow.node.create-connected',
   flovart_workflow_node_update: 'workflow.node.update',
@@ -45,6 +47,7 @@ export const QUICK_COMMANDS = [
   'status',
   'provider.status',
   'workflow.inspect',
+  'workflow.selection.get',
   'workflow.project.list',
   'asset.list',
   'models.list',
@@ -56,15 +59,16 @@ export const QUICK_COMMANDS = [
 
 export const HELP_TEXT = [
   'Flovart Agent Bridge exposes deterministic tools for external agents.',
-  'Claude Code/Codex/OpenCode should do planning and call these commands with explicit arguments.',
+  'Coding Agents plan; Host Projections call this CLI with explicit arguments.',
   '',
   'Commands:',
   'help                                            Show this help',
-  'setup                                           Show CLI file-bridge setup steps',
-  'init --host codex|claude|opencode|cursor|windsurf|vscode|all [--dry-run]',
+  'setup                                           Show local Runtime/Skill setup steps',
+  'init --target <target>                         Install Flovart Skill into a Distribution Target',
   'doctor                                          Diagnose CLI setup + Seedance Workflow readiness',
-  'command.list                                    List machine-readable atomic command metadata',
-  'command.schema --command <name>                 Show one command schema',
+  'host.list                                      Detect installed Agent Hosts (PATH only; no auth inspection)',
+  'command.list                                    Discovery/debug: list machine-readable command metadata',
+  'command.schema --command <name>                 Discovery/debug: show one command schema',
   'inspiration.search --query <term>               Search curated inspiration prompts',
   'inspiration.get --id <id>                       Show one inspiration prompt',
   'prompt.enhance --prompt <text> [--style cinematic --mode image]',
@@ -72,23 +76,34 @@ export const HELP_TEXT = [
   'preferences.manage --action get|set|reset|add-favorite',
   'models.list --purpose image|video|all           List agent-facing model IDs',
   'model search --type image --query flux           Search model IDs',
-  'status                                          Inspect runtime status',
+  'status                                          Inspect local frontend, Agent, and visible Workflow readiness',
   'provider.status                                 Inspect provider/model configuration',
   'provider.begin-setup --provider <id> --purpose image|video|both',
   'provider.select-model --image-model flovart:<id> --video-model flovart:<id>',
   'provider.test                                   Check configured provider readiness',
   'workflow.project.list                           List Workflow projects',
   'workflow.inspect [--project-id <id>]             Inspect a Workflow graph',
+  'workflow.selection.get [--project-id <id>]       Read the current Workflow selection',
+  'workflow.apply --project-id <id> --expected-revision <n> --mutation-id <id> --operations-json <json> --idempotency-key <key>',
   'workflow.node.create --type image|video|text|audio|config',
   'workflow.node.update --node-id <id> --patch-json <json>',
   'workflow.node.run --node-id <id>                 Run one Workflow node',
   'asset.list                                      List local generated media assets',
+  'skill.list                                      Scan local Skill packages (project + coding-agent dirs)',
+  'skill.manifest <id>                             Show one installed Skill manifest and content hash',
+  'skill.install <id> --hub-url <url>              Install a Skill from the external Skill Hub',
+  'skill.install <id> --from-dir <dir>             Install a Skill from a local directory',
+  'skill.uninstall <id>                            Remove an app-installed Skill',
+  'skill.hub.list <url>                            Sync the external Skill Hub catalog',
+  'web.open [--url <url>]                          Open the Flovart WebUI in the default browser',
   'generate.image --prompt <prompt>                Generate one image',
   'generate.images-batch --file shots.json         Trigger multiple image generations',
   'generate.video --prompt <prompt> [--source-image-ids id1,id2] [--source-video-ids id3] [--slots-json <json>]',
   'video.status --job-id <id>                      Query video job status',
   'export.project                                  Export project metadata when supported',
   '',
+  'The stable Agent surface is status + workflow.inspect/selection.get/apply/node.run; other commands are CLI adapters.',
+  'External Host projections should pass --agent-identity on Workflow commands; the first tagged inspect claims the Host writer.',
   'This CLI does not understand natural language. The external agent is the planner.',
 ].join('\n');
 
@@ -219,6 +234,25 @@ function parseListOption(value) {
   const parsed = parseJsonOption(value, null);
   if (Array.isArray(parsed)) return parsed;
   return value.split(',').map(item => item.trim()).filter(Boolean);
+}
+
+function normalizeWorkflowNodeToolArgs(args = {}) {
+  const normalized = { ...args };
+  const numberNames = ['targetLongEdge', 'rows', 'cols', 'startSec', 'endSec', 'currentTimeSec', 'speed', 'x', 'y', 'width', 'height'];
+  for (const name of numberNames) {
+    const alias = name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
+    const value = args[name] ?? args[alias];
+    if (value === undefined || value === null || value === '') continue;
+    const numeric = Number(value);
+    normalized[name] = Number.isFinite(numeric) ? numeric : value;
+  }
+  const sourceNodeIds = args.sourceNodeIds ?? args['source-node-ids'];
+  if (sourceNodeIds !== undefined) normalized.sourceNodeIds = parseListOption(sourceNodeIds);
+  for (const [name, alias] of [['maskNodeId', 'mask-node-id'], ['maskHref', 'mask-href'], ['maskMimeType', 'mask-mime-type']]) {
+    if (normalized[name] === undefined && args[alias] !== undefined) normalized[name] = args[alias];
+  }
+  if (args.tool === 'rotate' && normalized.action === undefined && args.rotation !== undefined) normalized.action = args.rotation;
+  return normalized;
 }
 
 function parseOptionalNumber(value) {
@@ -389,6 +423,7 @@ async function loadAgentKit() {
       prepareMediaUpload: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Local media upload is only available in the Node CLI runtime.' } }),
       manageAgentPreferences: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Agent preferences are only available in the Node CLI runtime.' } }),
       listAgentModels: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Agent model listing is only available in the Node CLI runtime.' } }),
+      discoverAgentHosts: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Local Agent discovery is only available in the Node CLI runtime.' } }),
       diagnoseAgentSetup: () => ({ ok: false, error: { code: 'UNSUPPORTED_RUNTIME', message: 'Agent setup diagnostics are only available in the Node CLI runtime.' } }),
     };
   }
@@ -401,17 +436,32 @@ export async function executeFlovartCommand(commandName, args = {}, runtime = {}
 
   if (command.startsWith('workflow.')) {
     if (!runtime.workflow?.dispatch) return { ok: false, error: { code: 'WORKFLOW_UNAVAILABLE', message: 'Workflow dispatcher unavailable.' } };
+    const {
+      agentIdentity,
+      'agent-identity': legacyAgentIdentity,
+      hostSessionId,
+      'host-session-id': legacyHostSessionId,
+      ...commandOptions
+    } = args;
+    const callerIdentity = agentIdentity || legacyAgentIdentity;
+    const callerSession = hostSessionId || legacyHostSessionId;
     const workflowArgs = {
-      ...args,
-      projectId: args.projectId || args['project-id'],
-      nodeId: args.nodeId || args['node-id'],
-      fromNodeId: args.fromNodeId || args['from-node-id'],
-      toNodeId: args.toNodeId || args['to-node-id'],
-      connectionId: args.connectionId || args['connection-id'],
-      idempotencyKey: args.idempotencyKey || args['idempotency-key'],
-      metadata: parseJsonOption(args.metadata ?? args.metadataJson ?? args['metadata-json'], undefined),
-      patch: parseJsonOption(args.patch ?? args.patchJson ?? args['patch-json'], undefined),
-      ids: Array.isArray(args.ids) ? args.ids : parseListOption(args.ids),
+      ...commandOptions,
+      projectId: commandOptions.projectId || commandOptions['project-id'],
+      nodeId: commandOptions.nodeId || commandOptions['node-id'],
+      expectedRevision: commandOptions.expectedRevision ?? commandOptions['expected-revision'],
+      mutationId: commandOptions.mutationId || commandOptions['mutation-id'],
+      clientId: commandOptions.clientId || commandOptions['client-id'],
+      workspaceMode: commandOptions.workspaceMode || commandOptions['workspace-mode'],
+      fromNodeId: commandOptions.fromNodeId || commandOptions['from-node-id'],
+      toNodeId: commandOptions.toNodeId || commandOptions['to-node-id'],
+      connectionId: commandOptions.connectionId || commandOptions['connection-id'],
+      idempotencyKey: commandOptions.idempotencyKey || commandOptions['idempotency-key'],
+      metadata: parseJsonOption(commandOptions.metadata ?? commandOptions.metadataJson ?? commandOptions['metadata-json'], undefined),
+      patch: parseJsonOption(commandOptions.patch ?? commandOptions.patchJson ?? commandOptions['patch-json'], undefined),
+      operations: parseJsonOption(commandOptions.operations ?? commandOptions.operationsJson ?? commandOptions['operations-json'] ?? commandOptions.ops ?? commandOptions['ops-json'], undefined),
+      ids: Array.isArray(commandOptions.ids) ? commandOptions.ids : parseListOption(commandOptions.ids),
+      ...(command === 'workflow.node.tool' ? normalizeWorkflowNodeToolArgs(commandOptions) : {}),
     };
     return await runtime.workflow.dispatch({
       id: args.commandId || `cli_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -419,6 +469,12 @@ export async function executeFlovartCommand(commandName, args = {}, runtime = {}
       args: workflowArgs,
       source: 'cli',
       idempotencyKey: workflowArgs.idempotencyKey,
+      ...(callerIdentity ? {
+        caller: {
+          agentIdentity: String(callerIdentity),
+          ...(callerSession ? { hostSessionId: String(callerSession) } : {}),
+        },
+      } : {}),
     });
   }
 
@@ -430,7 +486,8 @@ export async function executeFlovartCommand(commandName, args = {}, runtime = {}
     case 'init': {
       const { initCliHost } = await loadAgentKit();
       return initCliHost({
-        host: args.host || args._?.[0] || 'project',
+        target: args.target || args._?.[0] || 'project-skill',
+        legacyHost: args.host,
         projectDir: args['project-dir'] || args.projectDir,
         dryRun: args['dry-run'] || args.dryRun,
       });
@@ -524,6 +581,10 @@ export async function executeFlovartCommand(commandName, args = {}, runtime = {}
         runtime: runtime._version || 'unknown',
         providers: await runtime.provider?.status?.(),
       };
+    case 'host.list': {
+      const { discoverAgentHosts } = await loadAgentKit();
+      return discoverAgentHosts({ refresh: args.refresh === true || args.refresh === 'true' });
+    }
     case 'provider.status':
       return await runtime.provider?.status?.() || { ok: false, error: 'provider.status unavailable' };
     case 'provider.begin.setup':

@@ -78,7 +78,7 @@ export interface ProductionSkillAttachment {
   version: string;
   contentHash: string;
   displayName: string;
-  trustTier: BundledProductionSkill['trustTier'];
+  trustTier: string;
 }
 
 const manifest = manifestSchema.parse(parse(manifestSource));
@@ -118,11 +118,28 @@ export function getBundledProductionSkill(id: string): BundledProductionSkill | 
 }
 
 export async function createProductionSkillAttachment(skill: BundledProductionSkill): Promise<ProductionSkillAttachment> {
-  return {
+  return createSkillAttachment({
     id: skill.id,
     version: skill.version,
     contentHash: await hashProductionSkillSnapshot(skill.packageEntries),
     displayName: skill.displayName,
     trustTier: skill.trustTier,
+  });
+}
+
+/** Build an attachment for any local Production Skill (bundled or installed) from its manifest. */
+export function createSkillAttachment(meta: {
+  id: string;
+  version: string;
+  contentHash: string;
+  displayName: string;
+  trustTier: string;
+}): ProductionSkillAttachment {
+  return {
+    id: meta.id,
+    version: meta.version,
+    contentHash: meta.contentHash,
+    displayName: meta.displayName,
+    trustTier: meta.trustTier,
   };
 }

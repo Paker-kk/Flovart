@@ -1,4 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
+import { getBrowserWorkflowBinding } from './browserWorkflowBinding';
+import { loadDockConnection } from './dockCrewClient';
 
 export interface ManagedAgentConnection {
   state: 'ready';
@@ -18,7 +20,12 @@ export async function getManagedAgentConnection(
   options: ManagedAgentDiscoveryOptions = {},
 ): Promise<ManagedAgentConnection | null> {
   const tauri = options.isTauri ?? (typeof window !== 'undefined' && isTauri());
-  if (!tauri) return null;
+  if (!tauri) {
+    const binding = getBrowserWorkflowBinding();
+    if (binding) return binding;
+    const saved = loadDockConnection();
+    return saved ? { ...saved, state: 'ready', managed: false } : null;
+  }
   const connection = await (options.invoke || invoke)<ManagedAgentConnection>('managed_agent_connection');
   const endpoint = new URL(connection.url);
   if (endpoint.protocol !== 'http:' || !LOOPBACK_HOSTS.has(endpoint.hostname)) {

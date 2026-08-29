@@ -354,7 +354,7 @@ async function fetchRunningHubModels(apiKey: string, baseUrl?: string): Promise<
 const PROVIDER_BASE_URLS: Partial<Record<AIProvider, string>> = {
     openai: 'https://api.openai.com/v1',
     openrouter: 'https://openrouter.ai/api/v1',
-    deepseek: 'https://api.deepseek.com/v1',
+    deepseek: 'https://api.deepseek.com',
     siliconflow: 'https://api.siliconflow.cn/v1',
     qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     minimax: 'https://api.minimax.chat/v1',

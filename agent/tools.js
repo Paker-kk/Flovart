@@ -1,0 +1,73 @@
+import { Type } from 'typebox';
+import { importFlovartModule } from './flovart-modules.js';
+
+const [{ AGENT_PUBLIC_COMMAND_SET }, core] = await Promise.all([
+  importFlovartModule('agent-surface'),
+  importFlovartModule('core'),
+]);
+const { COMMAND_ALIASES, COMMAND_REGISTRY } = core;
+const AGENT_WRITE_COMMANDS = new Set([
+  'workflow.apply',
+  'workflow.node.run',
+]);
+
+const toolName = command => {
+  const alias = Object.entries(COMMAND_ALIASES).find(([name, target]) => target === command && name.startsWith('flovart_'))?.[0];
+  return alias || `flovart_${command.replace(/[^a-zA-Z0-9]+/g, '_')}`;
+};
+
+const descriptorType = descriptor => {
+  const optional = String(descriptor).endsWith('?');
+  const token = optional ? String(descriptor).slice(0, -1) : String(descriptor);
+  let schema;
+  if (token === 'number') schema = Type.Number();
+  else if (token === 'boolean') schema = Type.Boolean();
+  else if (token === 'object') schema = Type.Record(Type.String(), Type.Unknown());
+  else if (token === 'array') schema = Type.Array(Type.Unknown());
+  else if (token === 'string[]') schema = Type.Array(Type.String());
+  else if (token.includes('|')) schema = Type.Union(token.split('|').map(value => Type.Literal(value)));
+  else schema = Type.String();
+  return optional ? Type.Optional(schema) : schema;
+};
+
+const agentParameters = (args, write) => Type.Object({
+  ...Object.fromEntries(Object.entries(args || {}).map(([name, descriptor]) => [name, descriptorType(descriptor)])),
+  ...(write ? { idempotencyKey: Type.String({ minLength: 1 }) } : {}),
+}, { additionalProperties: false });
+
+/** 返回模型可调用的最小稳定面；CLI Registry 仍保留兼容命令与 discovery/debug 元数据。 */
+export function getFlovartAgentTools() {
+  return Object.entries(COMMAND_REGISTRY)
+    .filter(([command, metadata]) => metadata.availability === 'available' && AGENT_PUBLIC_COMMAND_SET.has(command))
+    .map(([command, metadata]) => ({ command, name: toolName(command), metadata }));
+}
+
+export function createFlovartAgentTools(callCommand) {
+  return getFlovartAgentTools().map(({ command, name, metadata }) => {
+    const write = AGENT_WRITE_COMMANDS.has(command);
+    return {
+      name,
+      label: metadata.summary,
+      description: metadata.summary,
+      parameters: agentParameters(metadata.args, write),
+      executionMode: 'sequential',
+      async execute(_toolCallId, input, signal) {
+        if (signal?.aborted) throw new Error('Workflow 操作已取消');
+        const { idempotencyKey, changeSetId, ...args } = input;
+        const commandArgs = command.startsWith('workflow.')
+          ? {
+            ...args,
+            workspaceMode: 'browser',
+            ...(AGENT_WRITE_COMMANDS.has(command) && changeSetId ? { changeSetId } : {}),
+          }
+          : args;
+        const result = await callCommand(command, commandArgs, 'agent', idempotencyKey, signal);
+        if (result?.ok === false) throw new Error(result.error?.message || 'Flovart 操作失败');
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+          details: { command, result },
+        };
+      },
+    };
+  });
+}

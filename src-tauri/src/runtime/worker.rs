@@ -45,7 +45,6 @@ impl RuntimeWorker {
         // tasks that the executor thread claims (see claim_next_task_filtered).
         let scheduler_stopping = stopping.clone();
         let scheduler_store = store.clone();
-        let scheduler_artifact_root = artifact_root.clone();
         let scheduler_id = super::ProductionRuntime::new_id("worker");
         let scheduler_thread = std::thread::spawn(move || {
             while !scheduler_stopping.load(Ordering::Acquire) {

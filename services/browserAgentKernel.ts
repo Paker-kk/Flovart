@@ -9,24 +9,81 @@ import type { AssistantMessage } from '@earendil-works/pi-ai';
 import localforage from 'localforage';
 import { Type } from 'typebox';
 import { isOpenAICompatibleProvider, resolveProviderBaseUrl } from './baseUrl';
-import { dispatchWorkflowCommand } from './workflowDispatcher';
+import { createBrowserWorkflowContract } from './browserWorkflowContract';
 import { getBundledProductionSkill, type ProductionSkillAttachment } from './productionSkillCatalog';
 import { COMMAND_ALIASES, COMMAND_REGISTRY } from '../tools/flovart/core.js';
+import { AGENT_BROWSER_COMMANDS } from '../tools/flovart/agent-surface.js';
 import type { UserApiKey } from '../types';
 
 // ---------------------------------------------------------------------------
 // 会话持久化：localforage 存 InMemorySessionStorage 的 metadata + entries
 // ---------------------------------------------------------------------------
 
-interface PersistedSession {
+interface LegacyPersistedSession {
   metadata: { id: string; createdAt: string; metadata?: Record<string, unknown> };
   entries: unknown[];
 }
 
+interface PersistedSession {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  metadata?: Record<string, unknown>;
+  entries: unknown[];
+}
+
+// 旧版单会话存储 key（flovart.agent.session.<projectId>），迁移后删除
 const sessionKey = (projectId: string) => `flovart.agent.session.${projectId}`;
+// 每个项目保存一个会话列表（含历史对话），key 形如 flovart.agent.sessions.<projectId>
+const sessionsKey = (projectId: string) => `flovart.agent.sessions.${projectId}`;
+
+/** 从会话第一条用户消息派生标题，最多取 24 字。 */
+function deriveTitle(entries: unknown[]): string {
+  for (const entry of entries as Array<{ type?: string; message?: { role?: string; content?: Array<{ type?: string; text?: string }> } }>) {
+    if (entry?.type === 'message' && entry.message?.role === 'user') {
+      const text = (entry.message.content || []).filter(block => block.type === 'text').map(block => block.text || '').join(' ').trim();
+      if (text) return text.slice(0, 24) || '新对话';
+    }
+  }
+  return '新对话';
+}
+
+class BrowserSessionStore {
+  constructor(private readonly projectId: string) {}
+
+  async loadAll(): Promise<PersistedSession[]> {
+    const saved = await localforage.getItem<PersistedSession[]>(sessionsKey(this.projectId));
+    return Array.isArray(saved) ? saved : [];
+  }
+
+  async saveAll(sessions: PersistedSession[]): Promise<void> {
+    await localforage.setItem(sessionsKey(this.projectId), sessions);
+  }
+
+  /** 迁移旧版单会话 key（flovart.agent.session.<id>），只迁移一次。 */
+  async migrateLegacy(): Promise<PersistedSession[]> {
+    const legacy = await localforage.getItem<LegacyPersistedSession>(sessionKey(this.projectId));
+    if (!legacy) return this.loadAll();
+    const sessions = await this.loadAll();
+    if (!sessions.some(item => item.id === legacy.metadata.id)) {
+      sessions.unshift({
+        id: legacy.metadata.id,
+        title: deriveTitle(legacy.entries || []),
+        createdAt: legacy.metadata.createdAt,
+        updatedAt: legacy.metadata.createdAt,
+        metadata: legacy.metadata.metadata,
+        entries: legacy.entries || [],
+      });
+      await this.saveAll(sessions);
+    }
+    await localforage.removeItem(sessionKey(this.projectId));
+    return sessions;
+  }
+}
 
 class BrowserSessionRepo {
-  constructor(private readonly projectId: string) {}
+  constructor(private readonly projectId: string, private readonly store = new BrowserSessionStore(projectId)) {}
 
   async create(options: { id?: string; metadata?: Record<string, unknown> } = {}): Promise<Session> {
     const metadata = {
@@ -41,32 +98,46 @@ class BrowserSessionRepo {
   }
 
   async open(metadata: { id: string }): Promise<Session> {
-    const saved = await localforage.getItem<PersistedSession>(sessionKey(this.projectId));
+    const sessions = await this.store.migrateLegacy();
+    const saved = sessions.find(item => item.id === metadata.id);
     if (!saved) throw new Error(`Agent 会话不存在：${metadata.id}`);
     const storage = new InMemorySessionStorage({
-      metadata: { ...saved.metadata, id: metadata.id } as never,
+      metadata: { id: saved.id, createdAt: saved.createdAt, metadata: saved.metadata } as never,
       entries: saved.entries as never[],
     });
     return toSession(storage);
   }
 
-  async list(): Promise<Array<{ id: string; metadata?: Record<string, unknown> }>> {
-    const saved = await localforage.getItem<PersistedSession>(sessionKey(this.projectId));
-    return saved ? [{ id: saved.metadata.id, ...(saved.metadata.metadata ? { metadata: saved.metadata.metadata } : {}) }] : [];
+  async list(): Promise<Array<{ id: string; title: string; createdAt: string; updatedAt: string; metadata?: Record<string, unknown> }>> {
+    const sessions = await this.store.migrateLegacy();
+    return sessions.map(({ id, title, createdAt, updatedAt, metadata }) => ({ id, title, createdAt, updatedAt, metadata }));
   }
 
-  async delete(): Promise<void> {
-    await localforage.removeItem(sessionKey(this.projectId));
+  async delete(sessionId?: string): Promise<void> {
+    if (!sessionId) { await localforage.removeItem(sessionsKey(this.projectId)); return; }
+    const sessions = await this.store.loadAll();
+    await this.store.saveAll(sessions.filter(item => item.id !== sessionId));
   }
 
   async persist(session: Session): Promise<void> {
     const storage = session.getStorage();
     const metadata = await storage.getMetadata();
-    const entries = await storage.getEntries();
-    await localforage.setItem(sessionKey(this.projectId), {
-      metadata: metadata as { id: string; createdAt: string; metadata?: Record<string, unknown> },
+    const entries = (await storage.getEntries()) as unknown[];
+    const sessions = await this.store.migrateLegacy();
+    const now = new Date().toISOString();
+    const next = sessions.filter(item => item.id !== metadata.id);
+    // 自定义 metadata 存在 InMemorySessionStorage 构造参数里，getMetadata 只返回 id/createdAt；
+    // 从既有列表找回该会话的自定义字段，找不到视为无。
+    const existing = sessions.find(item => item.id === metadata.id);
+    next.unshift({
+      id: String(metadata.id || crypto.randomUUID()),
+      title: deriveTitle(entries),
+      createdAt: String(metadata.createdAt || now),
+      updatedAt: now,
+      metadata: existing?.metadata,
       entries,
     });
+    await this.store.saveAll(next);
   }
 }
 
@@ -302,20 +373,6 @@ export function createBrowserAgentStream(route: BrowserAgentTextRoute): StreamFn
 // 工具：复用命令面（与 mcp.js 同源：COMMAND_REGISTRY + COMMAND_ALIASES）
 // ---------------------------------------------------------------------------
 
-const WORKSPACE_WRITE_COMMANDS = new Set([
-  'workflow.project.create', 'workflow.project.use', 'workflow.project.delete',
-  'workflow.node.create', 'workflow.node.create-connected', 'workflow.node.update',
-  'workflow.node.delete', 'workflow.node.move', 'workflow.node.resize',
-  'workflow.node.tool',
-  'workflow.connect', 'workflow.disconnect', 'workflow.select', 'workflow.viewport.set',
-]);
-const WORKSPACE_COMMANDS = new Set(['workflow.project.list', 'workflow.inspect', ...WORKSPACE_WRITE_COMMANDS]);
-const PRODUCTION_COMMANDS = new Set([
-  'runtime.status', 'provider.status', 'production.dry-run', 'production.status',
-  'production.approve', 'production.run', 'task.get', 'task.cancel', 'workflow.projection.get',
-]);
-const BROWSER_AGENT_COMMANDS = [...WORKSPACE_COMMANDS, ...PRODUCTION_COMMANDS];
-
 function browserToolName(command: string): string {
   const alias = Object.entries(COMMAND_ALIASES).find(([name, target]) => target === command && name.startsWith('flovart_'))?.[0];
   return alias || `flovart_${command.replace(/[^a-zA-Z0-9]+/g, '_')}`;
@@ -344,8 +401,9 @@ export interface BrowserAgentToolDependencies {
 }
 
 export function createBrowserAgentTools(dependencies: BrowserAgentToolDependencies): AgentTool[] {
-  return BROWSER_AGENT_COMMANDS.map(command => {
-    const definition = COMMAND_REGISTRY[command] || { args: {}, description: command };
+  const workflowContract = createBrowserWorkflowContract();
+  return AGENT_BROWSER_COMMANDS.map(command => {
+    const definition = COMMAND_REGISTRY[command] || { args: {}, summary: command };
     const args = (definition.args || {}) as Record<string, string>;
     const parameters = Type.Object(
       Object.fromEntries(Object.entries(args).map(([name, descriptor]) => [name, descriptorSchema(descriptor)])),
@@ -353,13 +411,18 @@ export function createBrowserAgentTools(dependencies: BrowserAgentToolDependenci
     return {
       name: browserToolName(command),
       label: command,
-      description: String(definition.description || command),
+      description: String(definition.summary || command),
       parameters,
       execute: async (_toolCallId, params, _signal) => {
-        const run = async (confirmed: boolean) => dispatchWorkflowCommand({
+        const run = async (confirmed: boolean) => workflowContract.dispatch({
           id: crypto.randomUUID(),
           command,
-          args: { ...(params as Record<string, unknown>), projectId: dependencies.projectId, ...(confirmed ? { confirmed: true } : {}) },
+          args: {
+            ...(params as Record<string, unknown>),
+            projectId: dependencies.projectId,
+            workspaceMode: 'browser',
+            ...(confirmed ? { confirmed: true } : {}),
+          },
           source: 'agent',
           idempotencyKey: dependencies.activeChangeSetId,
         });
@@ -387,9 +450,12 @@ export function createBrowserAgentTools(dependencies: BrowserAgentToolDependenci
 
 const BROWSER_DEFAULT_SYSTEM_PROMPT = `你是 Flovart Agent，负责把用户的创作目标整理为可审查的制作计划。
 你只能使用已注册的 Flovart 制作工具，不得访问 Shell、任意文件或 Provider Secret。
-处理当前项目时先调用 flovart_workflow_inspect，不得猜测项目、节点或连接 ID。
+处理当前项目时先调用 flovart_workflow_inspect；需要当前选区时再调用 flovart_workflow_selection_get，不得猜测项目、节点或连接 ID。
+稳定的 Browser Agent 工具只有 workflow.inspect、workflow.selection.get、workflow.apply、workflow.node.run；command.list/schema 属于 CLI discovery/debug，不要当作模型工具调用。
+Workflow 修改只使用 flovart_workflow_apply 的结构化 operations；节点执行只使用 flovart_workflow_node_run，并继续交给 WorkflowExecutor，不得模拟鼠标或直接修改 React state。
+默认只操作当前已绑定的可见 Browser Workflow；没有 Browser binding 时必须显式失败，不能切换到 Native、隐藏图或从 React/localforage 读取 Workflow 图，也不能自行解析 Provider。
 写操作必须使用稳定的 idempotencyKey；只有工具返回成功后，才能声称 Workflow 已发生变化。
-可逆的 Workflow Draft 修改会直接落到用户当前可见的同一画布，并合并为本轮 ChangeSet；每次修改后读取工具返回的 draftVersion/objectVersions，再继续下一步。
+可逆的 Workflow Draft 修改会直接落到用户当前可见的同一 Workflow，并合并为本轮 ChangeSet；每次修改后读取工具返回的 draftVersion/objectVersions，再继续下一步。
 不得用 CLI、文件桥或直接 generate 命令在后台另做一份结果。
 删除、付费执行、Production 审批和运行会要求用户确认，不得绕过；普通可逆布局和节点编辑无需逐次确认。
 没有足够信息时先说明缺口；没有用户确认的 Production Mandate 时不得声称付费制作已经开始。
@@ -473,9 +539,10 @@ export class BrowserAgentKernel {
     if (this.session) return this.snapshot();
     this.repo = new BrowserSessionRepo(this.projectId);
     const sessions = await this.repo.list();
-    const metadata = sessions.find(item => item.metadata?.projectId === this.projectId && item.metadata.role === 'main');
-    this.session = metadata
-      ? await this.repo.open({ id: metadata.id })
+    // 打开最近更新的会话；全新项目才创建第一个会话
+    const latest = sessions[0];
+    this.session = latest
+      ? await this.repo.open({ id: latest.id })
       : await this.repo.create({ metadata: { projectId: this.projectId, role: 'main' } });
 
     const entries = await this.session.getBranch();
@@ -491,6 +558,13 @@ export class BrowserAgentKernel {
       }
     }
 
+    await this.buildAgent();
+    return this.snapshot();
+  }
+
+  /** 用当前 session + route 构建 PI Agent 实例；会话切换后复用。 */
+  private async buildAgent(): Promise<void> {
+    if (!this.session) throw new Error('Flovart Agent session is not open');
     const context = await this.session.buildContext();
     const wrappedTools = this.tools.map(tool => tool.execute ? {
       ...tool,
@@ -507,6 +581,9 @@ export class BrowserAgentKernel {
         })()
       : '';
 
+    this.agent?.abort();
+    this.unsubscribe?.();
+    this.unsubscribe = null;
     this.agent = new Agent({
       initialState: {
         systemPrompt: this.boundProductionSkill ? `${this.systemPrompt}${skillContext}` : this.systemPrompt,
@@ -540,7 +617,80 @@ export class BrowserAgentKernel {
       }
       this.emit(event as { type: string; [key: string]: unknown });
     });
+  }
+
+  async listSessions(): Promise<Array<{ id: string; title: string; updatedAt: string }>> {
+    const repo = this.repo || new BrowserSessionRepo(this.projectId);
+    const sessions = await repo.list();
+    return sessions.map(({ id, title, updatedAt }) => ({ id, title, updatedAt }));
+  }
+
+  /** 开启一个全新会话并切换过去；旧会话保留在历史列表里。 */
+  async newSession(): Promise<unknown> {
+    if (!this.repo || !this.agent) await this.openSession();
+    if (this.session) {
+      const entries = await this.session.getBranch();
+      // 空会话（没有任何消息）不重复进历史，直接复用
+      if (!entries.some(entry => entry.type === 'message')) return this.snapshot();
+    }
+    this.agent?.abort();
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.boundProductionSkill = null;
+    this.productionSkillBindingError = null;
+    this.session = await this.repo!.create({ metadata: { projectId: this.projectId, role: 'main' } });
+    await this.buildAgent();
+    this.emit({ type: 'session_switched' });
     return this.snapshot();
+  }
+
+  /** 切换到历史列表中的指定会话。 */
+  async openSessionById(sessionId: string): Promise<unknown> {
+    if (!this.repo) await this.openSession();
+    if (!this.repo) throw new Error('Flovart Agent session store is unavailable');
+    if (this.session) {
+      const metadata = await this.session.getMetadata();
+      if (metadata.id === sessionId) return this.snapshot();
+    }
+    this.agent?.abort();
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.session = await this.repo.open({ id: sessionId });
+    await this.buildAgent();
+    const entries = await this.session.getBranch();
+    const persistedBinding = [...entries].reverse().find((entry): entry is Extract<typeof entry, { type: 'custom'; customType: string; data?: unknown }> => (
+      entry.type === 'custom' && entry.customType === PRODUCTION_SKILL_BINDING_ENTRY
+    ));
+    this.boundProductionSkill = null;
+    this.productionSkillBindingError = null;
+    if (persistedBinding?.data) {
+      try {
+        const data = persistedBinding.data as ProductionSkillAttachment;
+        if (data?.id && data?.version && data?.contentHash) this.boundProductionSkill = data;
+      } catch (error) {
+        this.productionSkillBindingError = error instanceof Error ? error.message : String(error);
+      }
+    }
+    this.emit({ type: 'session_switched' });
+    return this.snapshot();
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    if (!this.repo) this.repo = new BrowserSessionRepo(this.projectId);
+    await this.repo.delete(sessionId);
+    if (this.session) {
+      const metadata = await this.session.getMetadata();
+      if (metadata.id === sessionId) {
+        // 删除的是当前会话：切到剩余最新的，或新建一个
+        const remaining = (await this.repo.list())[0];
+        if (remaining) await this.openSessionById(remaining.id);
+        else await this.newSession();
+      }
+    }
+  }
+
+  cancel(): void {
+    this.agent?.abort();
   }
 
   async send(text: string, images: string[] = [], skillAttachment?: ProductionSkillAttachment | null): Promise<unknown> {
@@ -581,12 +731,7 @@ export class BrowserAgentKernel {
     } as never);
     await this.repo?.persist(this.session);
     await this.agent.prompt(prompt);
-    if (this.session) await this.repo?.persist(this.session);
     return this.snapshot();
-  }
-
-  cancel(): void {
-    this.agent?.abort();
   }
 
   async snapshot(): Promise<{

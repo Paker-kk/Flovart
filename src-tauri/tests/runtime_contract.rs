@@ -14,7 +14,7 @@ fn runtime_status_comes_from_the_canonical_v1_contract() {
     assert_eq!(status.state, "ready");
     assert_eq!(
         runtime.registry().registry_hash,
-        "e31afad6b1193985ed8d3a84a0d1312c78bc733bba77a96310f7c317f5890bdf"
+        "16259085507641cce24209775a0a87a94a4e0c72f4aed5ed34781fee046b914e"
     );
     assert!(runtime.registry().commands.contains_key("runtime.status"));
     assert!(!runtime.registry().commands.contains_key("workflow.run"));

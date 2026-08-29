@@ -1,19 +1,19 @@
 import { nanoid } from 'nanoid';
 import { WORKFLOW_MUTATION_COMMANDS, workflowCommandSummary } from '../components/workflow/agentOps';
 import { createWorkflowNode } from '../components/workflow/constants';
-import { applyWorkflowDraftChangeSet } from '../components/workflow/draftAuthority';
+import { applyWorkflowMutation, applyWorkflowViewOperations } from '../components/workflow/draftAuthority';
 import { appendWorkflowDraftLog, createWorkflowDraftLogEntry } from '../components/workflow/draftLog';
 import { isWorkflowNodeTool } from '../components/workflow/nodeToolCatalog';
-import { applyWorkflowOps } from '../components/workflow/ops';
 import { getWorkflowOperationCapabilityByNodeTool, parseWorkflowOperationNodeToolArguments } from '../components/workflow/operationRegistry';
 import { getWorkflowPersistenceError, useWorkflowStore } from '../components/workflow/store';
-import type { WorkflowConnection, WorkflowNode, WorkflowNodeMetadata, WorkflowNodeType, WorkflowProject } from '../components/workflow/types';
+import type { WorkflowConnection, WorkflowDocumentOperation, WorkflowMutationSource, WorkflowNode, WorkflowNodeMetadata, WorkflowNodeType, WorkflowProject } from '../components/workflow/types';
+import { normalizeWorkflowExecutionError, type WorkflowExecutor, type WorkflowRunCommand, type WorkflowRunResult } from './workflowExecutor';
 
 export interface WorkflowCommandEnvelope {
   id: string;
   command: string;
   args: Record<string, unknown>;
-  source: 'ui' | 'cli' | 'agent' | 'mcp';
+  source: 'ui' | 'cli' | 'agent' | 'operator';
   idempotencyKey?: string;
 }
 
@@ -22,7 +22,7 @@ export interface WorkflowCommandResult {
   commandId: string;
   result?: unknown;
   confirmation?: { required: boolean; summary: string };
-  error?: { code: string; message: string };
+  error?: { code: string; message: string; expectedRevision?: number; actualRevision?: number };
 }
 
 export interface WorkflowDispatcherDependencies {
@@ -31,14 +31,23 @@ export interface WorkflowDispatcherDependencies {
   setActiveProject: (id: string | null) => void;
   deleteProjects: (ids: string[]) => void;
   updateProject: (id: string, patch: Partial<Omit<WorkflowProject, 'id' | 'createdAt'>>) => void;
-  runNode?: (projectId: string, nodeId: string) => Promise<void> | void;
-  stopNode?: (projectId: string, nodeId: string) => Promise<void> | void;
+  executor?: WorkflowExecutor;
+  getExecutor?: () => WorkflowExecutor | undefined;
   nodeToolRunner?: (projectId: string, nodeId: string, tool: string, args: Record<string, unknown>) => Promise<unknown>;
   persistenceError?: () => unknown;
 }
 
 const MAX_IDEMPOTENCY_ENTRIES = 256;
 const NODE_TYPES: WorkflowNodeType[] = ['image', 'text', 'video', 'audio', 'config'];
+const DOCUMENT_OPERATION_TYPES = new Set<WorkflowDocumentOperation['type']>([
+  'add_node', 'create_connected_node', 'update_node', 'delete_nodes', 'delete_connections', 'connect_nodes',
+  'move_nodes', 'reorder_nodes', 'group_nodes', 'ungroup_nodes', 'set_batch_primary',
+]);
+const DOCUMENT_MUTATION_COMMANDS = new Set([
+  'workflow.apply', 'workflow.node.create', 'workflow.node.create-connected', 'workflow.node.update',
+  'workflow.node.delete', 'workflow.node.move', 'workflow.node.resize', 'workflow.connect', 'workflow.disconnect',
+]);
+const WORKFLOW_READ_COMMANDS = new Set(['workflow.project.list', 'workflow.inspect', 'workflow.selection.get']);
 const SENSITIVE_KEY = /(?:api.?key|authorization|token|secret|password|storage.?key|file.?path|local.?path|data.?url)/i;
 const MEDIA_KEY = /^(?:href|poster|src|url)$/i;
 const LOCAL_PATH = /^(?:[a-z]:\\|\\\\|\/home\/|\/Users\/|\/tmp\/)/i;
@@ -56,18 +65,25 @@ export function redactWorkflowAgentValue<T>(value: T, key = ''): T {
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([childKey, child]) => [childKey, redactWorkflowAgentValue(child, childKey)])) as T;
 }
 
-const redactProject = (project: WorkflowProject) => ({
-  ...redactWorkflowAgentValue(project),
-  nodes: project.nodes.map(node => ({
-    ...redactWorkflowAgentValue(node),
-    metadata: {
-      ...redactWorkflowAgentValue(node.metadata),
-      hasMedia: Boolean(node.metadata.href || node.metadata.poster || node.metadata.storageKey),
-    },
-  })),
+const redactNode = (node: WorkflowNode) => ({
+  ...redactWorkflowAgentValue(node),
+  metadata: {
+    ...redactWorkflowAgentValue(node.metadata),
+    hasMedia: Boolean(node.metadata.href || node.metadata.poster || node.metadata.storageKey),
+  },
 });
 
-const error = (commandId: string, code: string, message: string): WorkflowCommandResult => ({ ok: false, commandId, error: { code, message } });
+const redactProject = (project: WorkflowProject) => ({
+  ...redactWorkflowAgentValue(project),
+  nodes: project.nodes.map(redactNode),
+});
+
+const error = (
+  commandId: string,
+  code: string,
+  message: string,
+  details: Pick<NonNullable<WorkflowCommandResult['error']>, 'expectedRevision' | 'actualRevision'> = {},
+): WorkflowCommandResult => ({ ok: false, commandId, error: { code, message, ...details } });
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const requiredString = (value: unknown, label: string) => {
   const text = typeof value === 'string' ? value.trim() : '';
@@ -111,11 +127,11 @@ function draftLogPatch(
   return { draftLog: appendWorkflowDraftLog(project, entry).draftLog };
 }
 
-function validatedNode(args: Record<string, unknown>): WorkflowNode {
+function validatedNode(args: Record<string, unknown>, fallbackId?: string): WorkflowNode {
   const type = String(args.type || 'text') as WorkflowNodeType;
   if (!NODE_TYPES.includes(type)) throw new Error(`不支持的节点类型：${type}`);
   const metadata = recordArg(args.metadata, 'metadata') as WorkflowNodeMetadata;
-  const node = createWorkflowNode(String(args.id || nanoid()), type, {
+  const node = createWorkflowNode(String(args.id || fallbackId || nanoid()), type, {
     x: finiteNumber(args.x, 'x', 0),
     y: finiteNumber(args.y, 'y', 0),
   }, metadata);
@@ -125,17 +141,31 @@ function validatedNode(args: Record<string, unknown>): WorkflowNode {
   return node;
 }
 
+function documentOperationsArg(value: unknown): WorkflowDocumentOperation[] {
+  if (!Array.isArray(value) || value.length === 0) throw new Error('operations 必须是非空数组');
+  value.forEach((operation, index) => {
+    if (!isRecord(operation) || typeof operation.type !== 'string' || !DOCUMENT_OPERATION_TYPES.has(operation.type as WorkflowDocumentOperation['type'])) {
+      throw new Error(`operations[${index}] 不是受支持的 Document Operation`);
+    }
+  });
+  return value as WorkflowDocumentOperation[];
+}
+
+const mutationSource = (source: WorkflowCommandEnvelope['source']): WorkflowMutationSource => (
+  source === 'operator' ? 'dsh' : source
+);
+
 function validateEnvelope(envelope: WorkflowCommandEnvelope): WorkflowCommandResult | null {
   if (!envelope || typeof envelope !== 'object') return error('', 'BAD_REQUEST', '命令 envelope 无效。');
   if (!String(envelope.id || '').trim()) return error('', 'BAD_REQUEST', '命令 id 不能为空。');
   if (!String(envelope.command || '').trim()) return error(envelope.id, 'BAD_REQUEST', '命令名称不能为空。');
   if (!isRecord(envelope.args)) return error(envelope.id, 'BAD_REQUEST', '命令参数必须是对象。');
-  if (!['ui', 'cli', 'agent', 'mcp'].includes(envelope.source)) return error(envelope.id, 'BAD_REQUEST', '命令来源无效。');
+  if (!['ui', 'cli', 'agent', 'operator'].includes(envelope.source)) return error(envelope.id, 'BAD_REQUEST', '命令来源无效。');
   return null;
 }
 
 function requiresWorkflowConfirmation(envelope: WorkflowCommandEnvelope) {
-  if (!WORKFLOW_MUTATION_COMMANDS.has(envelope.command) || (envelope.source !== 'agent' && envelope.source !== 'mcp')) return false;
+  if (!WORKFLOW_MUTATION_COMMANDS.has(envelope.command) || envelope.source !== 'agent') return false;
   if (envelope.command === 'workflow.project.delete' || envelope.command === 'workflow.node.delete' || envelope.command === 'workflow.node.run') return true;
   if (envelope.command !== 'workflow.node.tool') return false;
   const tool = String(envelope.args.tool || '');
@@ -154,7 +184,9 @@ export function createWorkflowDispatcher(dependencies: WorkflowDispatcherDepende
   return async (envelope: WorkflowCommandEnvelope): Promise<WorkflowCommandResult> => {
     const envelopeError = validateEnvelope(envelope);
     if (envelopeError) return envelopeError;
-    const cacheKey = envelope.idempotencyKey && `${envelope.source}:${envelope.idempotencyKey}`;
+    const documentMutation = DOCUMENT_MUTATION_COMMANDS.has(envelope.command);
+    const cacheKey = !documentMutation && !WORKFLOW_READ_COMMANDS.has(envelope.command)
+      && envelope.idempotencyKey && `${envelope.source}:${envelope.idempotencyKey}`;
     if (cacheKey && idempotencyCache.has(cacheKey)) return idempotencyCache.get(cacheKey)!;
     const { command, args } = envelope;
     if (requiresWorkflowConfirmation(envelope) && args.confirmed !== true) {
@@ -163,7 +195,9 @@ export function createWorkflowDispatcher(dependencies: WorkflowDispatcherDepende
 
     try {
       const state = dependencies.getState();
-      const projectId = String(args.projectId || state.activeProjectId || '');
+      const projectId = command === 'workflow.apply'
+        ? requiredString(args.projectId, 'projectId')
+        : String(args.projectId || state.activeProjectId || '');
       const project = state.projects.find(item => item.id === projectId);
       let result: WorkflowCommandResult;
 
@@ -188,16 +222,49 @@ export function createWorkflowDispatcher(dependencies: WorkflowDispatcherDepende
       } else if (command === 'workflow.inspect') {
         if (!project) return error(envelope.id, 'NOT_FOUND', '当前没有可用的 Workflow 项目。');
         result = { ok: true, commandId: envelope.id, result: redactProject(project) };
+      } else if (command === 'workflow.selection.get') {
+        if (!project) return error(envelope.id, 'NOT_FOUND', '当前没有可用的 Workflow 项目。');
+        const selectedNodeIds = project.selectedNodeIds.filter(nodeId => project.nodes.some(node => node.id === nodeId));
+        result = {
+          ok: true,
+          commandId: envelope.id,
+          result: {
+            projectId: project.id,
+            selectedNodeIds,
+            nodes: project.nodes.filter(node => selectedNodeIds.includes(node.id)).map(redactNode),
+            viewport: project.viewport,
+            draftVersion: project.draftVersion || 1,
+          },
+        };
       } else if (!project) {
         return error(envelope.id, 'NOT_FOUND', '当前没有可用的 Workflow 项目。');
       } else if (command === 'workflow.node.run' || command === 'workflow.node.stop') {
         const nodeId = requiredString(args.nodeId || args.id, 'nodeId');
         if (!project.nodes.some(node => node.id === nodeId)) return error(envelope.id, 'NOT_FOUND', `节点不存在：${nodeId}`);
-        const runner = command === 'workflow.node.run' ? dependencies.runNode : dependencies.stopNode;
-        if (!runner) return error(envelope.id, 'RUNNER_UNAVAILABLE', command === 'workflow.node.run' ? 'Workflow 生成适配器尚未连接。' : 'Workflow 停止适配器尚未连接。');
-        await runner(project.id, nodeId);
-        dependencies.updateProject(project.id, draftLogPatch(project, envelope, true, { nodeIds: [nodeId] }));
-        result = { ok: true, commandId: envelope.id, result: { projectId: project.id, nodeId } };
+        const executor = dependencies.getExecutor?.() || dependencies.executor;
+        if (!executor || (command === 'workflow.node.stop' && !executor.stopNode)) {
+          return error(envelope.id, 'RUNNER_UNAVAILABLE', command === 'workflow.node.run' ? 'Workflow 生成适配器尚未连接。' : 'Workflow 停止适配器尚未连接。');
+        }
+        const expectedRevision = args.expectedRevision === undefined ? undefined : finiteNumber(args.expectedRevision, 'expectedRevision');
+        if (expectedRevision !== undefined && expectedRevision !== (project.draftVersion || 1)) {
+          return error(envelope.id, 'REVISION_CONFLICT', `Workflow 草稿版本已变化：期望 ${expectedRevision}，当前 ${project.draftVersion || 1}。`);
+        }
+        const surface = envelope.source === 'agent' ? 'browser-agent' : envelope.source === 'operator' ? 'runtime' : envelope.source;
+        const runCommand: WorkflowRunCommand = { projectId: project.id, nodeId, ...(expectedRevision === undefined ? {} : { expectedRevision }) };
+        let executionResult: WorkflowRunResult | undefined;
+        try {
+          if (command === 'workflow.node.run') executionResult = await executor.runNode(runCommand, { surface, correlationId: envelope.id });
+          else await executor.stopNode!(runCommand, { surface, correlationId: envelope.id });
+        } catch (cause) {
+          const normalized = normalizeWorkflowExecutionError(cause);
+          return error(envelope.id, normalized.code, normalized.message);
+        }
+        if (executionResult?.status === 'failed') {
+          return error(envelope.id, executionResult.error?.code || 'RUN_FAILED', executionResult.error?.message || 'Workflow 生成失败，请重试。');
+        }
+        const latestProject = dependencies.getState().projects.find(item => item.id === project.id) || project;
+        dependencies.updateProject(project.id, draftLogPatch(latestProject, envelope, true, { nodeIds: [nodeId] }));
+        result = { ok: true, commandId: envelope.id, result: { projectId: project.id, nodeId, ...(executionResult ? { runId: executionResult.runId } : {}) } };
       } else if (command === 'workflow.node.tool') {
         const nodeId = requiredString(args.nodeId || args.id, 'nodeId');
         const tool = requiredString(args.tool, 'tool');
@@ -224,71 +291,76 @@ export function createWorkflowDispatcher(dependencies: WorkflowDispatcherDepende
         if (command === 'workflow.disconnect' && !project.connections.some(connection => connection.id === String(args.connectionId || args.id || ''))) {
           return error(envelope.id, 'NOT_FOUND', '指定的连接不存在。');
         }
-        let operation;
-        if (command === 'workflow.node.create') {
-          operation = { type: 'add_node' as const, node: validatedNode(args) };
+        const mutationId = command === 'workflow.apply'
+          ? requiredString(args.mutationId, 'mutationId')
+          : requiredString(args.mutationId || envelope.idempotencyKey || args.changeSetId || envelope.id, 'mutationId');
+        if (command === 'workflow.apply' && args.expectedRevision === undefined) throw new Error('expectedRevision 不能为空');
+        const expectedRevision = args.expectedRevision === undefined ? (project.draftVersion || 1) : finiteNumber(args.expectedRevision, 'expectedRevision');
+        let operation: WorkflowDocumentOperation | undefined;
+        let operations: WorkflowDocumentOperation[] | undefined;
+        if (command === 'workflow.apply') {
+          operations = documentOperationsArg(args.operations || args.ops);
+        } else if (command === 'workflow.node.create') {
+          operation = { type: 'add_node', node: validatedNode(args, `node-${mutationId}`) };
         } else if (command === 'workflow.node.create-connected') {
-          operation = { type: 'create_connected_node' as const, fromNodeId: requiredString(args.fromNodeId || args.from, 'fromNodeId'), node: validatedNode(args) };
+          operation = { type: 'create_connected_node', fromNodeId: requiredString(args.fromNodeId || args.from, 'fromNodeId'), node: validatedNode(args, `node-${mutationId}`) };
         } else if (command === 'workflow.node.update') {
           const patch = recordArg(args.patch || args.updates, 'patch');
           if ('id' in patch) throw new Error('patch 不能修改节点 id');
-          operation = { type: 'update_node' as const, id: requiredString(requestedNodeId, 'nodeId'), patch: patch as never };
+          operation = { type: 'update_node', id: requiredString(requestedNodeId, 'nodeId'), patch: patch as never };
         } else if (command === 'workflow.node.delete') {
-          operation = { type: 'delete_nodes' as const, ids: [requiredString(requestedNodeId, 'nodeId')] };
+          operation = { type: 'delete_nodes', ids: [requiredString(requestedNodeId, 'nodeId')] };
         } else if (command === 'workflow.node.move') {
-          operation = { type: 'update_node' as const, id: requiredString(requestedNodeId, 'nodeId'), patch: { position: { x: finiteNumber(args.x, 'x'), y: finiteNumber(args.y, 'y') } } };
+          operation = { type: 'move_nodes', positions: [{ id: requiredString(requestedNodeId, 'nodeId'), position: { x: finiteNumber(args.x, 'x'), y: finiteNumber(args.y, 'y') } }] };
         } else if (command === 'workflow.node.resize') {
-          operation = { type: 'update_node' as const, id: requiredString(requestedNodeId, 'nodeId'), patch: { width: positiveNumber(args.width, 'width'), height: positiveNumber(args.height, 'height') } };
+          operation = { type: 'update_node', id: requiredString(requestedNodeId, 'nodeId'), patch: { width: positiveNumber(args.width, 'width'), height: positiveNumber(args.height, 'height') } };
         } else if (command === 'workflow.connect') {
-          operation = { type: 'connect_nodes' as const, id: args.id ? requiredString(args.id, 'id') : undefined, fromNodeId: requiredString(args.fromNodeId || args.from, 'fromNodeId'), toNodeId: requiredString(args.toNodeId || args.to, 'toNodeId') };
+          operation = { type: 'connect_nodes', id: args.id ? requiredString(args.id, 'id') : undefined, fromNodeId: requiredString(args.fromNodeId || args.from, 'fromNodeId'), toNodeId: requiredString(args.toNodeId || args.to, 'toNodeId') };
         } else if (command === 'workflow.disconnect') {
-          operation = { type: 'delete_connections' as const, ids: [requiredString(args.connectionId || args.id, 'connectionId')] };
+          operation = { type: 'delete_connections', ids: [requiredString(args.connectionId || args.id, 'connectionId')] };
         } else if (command === 'workflow.select') {
           if (!Array.isArray(args.ids) || args.ids.some(id => typeof id !== 'string')) throw new Error('ids 必须是字符串数组');
-          operation = { type: 'select_nodes' as const, ids: args.ids.map(String) };
-        } else if (command === 'workflow.viewport.set') {
-          const k = positiveNumber(args.k ?? args.zoom, 'k');
-          operation = { type: 'set_viewport' as const, viewport: { x: finiteNumber(args.x, 'x'), y: finiteNumber(args.y, 'y'), k } };
-        } else {
-          return error(envelope.id, 'UNKNOWN_COMMAND', `未知 Workflow 命令：${command}`);
-        }
-
-        const isNavigationOp = operation.type === 'select_nodes' || operation.type === 'set_viewport';
-        if (isNavigationOp) {
-          const applied = applyWorkflowOps({
-            projectId: project.id,
-            title: project.title,
-            nodes: project.nodes,
-            connections: project.connections,
-            selectedNodeIds: project.selectedNodeIds,
-            viewport: project.viewport,
-          }, [operation]);
-          const rejection = applied.rejections[0];
-          if (rejection) return error(envelope.id, 'BAD_REQUEST', rejection.reason);
-          dependencies.updateProject(project.id, {
-            selectedNodeIds: applied.snapshot.selectedNodeIds,
-            viewport: applied.snapshot.viewport,
-          });
+          const viewed = applyWorkflowViewOperations(project, [{ type: 'select_nodes', ids: args.ids.map(String) }]);
+          if (viewed.ok === false) return error(envelope.id, viewed.error.code, viewed.error.message);
+          dependencies.updateProject(project.id, { selectedNodeIds: viewed.project.selectedNodeIds, viewport: viewed.project.viewport });
           result = { ok: true, commandId: envelope.id, result: { projectId: project.id, draftVersion: project.draftVersion || 1 } };
           cache(cacheKey, result);
           return result;
+        } else if (command === 'workflow.viewport.set') {
+          const k = positiveNumber(args.k ?? args.zoom, 'k');
+          const viewed = applyWorkflowViewOperations(project, [{ type: 'set_viewport', viewport: { x: finiteNumber(args.x, 'x'), y: finiteNumber(args.y, 'y'), k } }]);
+          if (viewed.ok === false) return error(envelope.id, viewed.error.code, viewed.error.message);
+          dependencies.updateProject(project.id, { selectedNodeIds: viewed.project.selectedNodeIds, viewport: viewed.project.viewport });
+          result = { ok: true, commandId: envelope.id, result: { projectId: project.id, draftVersion: project.draftVersion || 1 } };
+          cache(cacheKey, result);
+          return result;
+        } else {
+          return error(envelope.id, 'UNKNOWN_COMMAND', `未知 Workflow 命令：${command}`);
         }
-
+        operations = operations || [operation!];
         const expectedObjectVersions = Object.fromEntries(Object.entries(recordArg(args.expectedObjectVersions, 'expectedObjectVersions')).map(([id, value]) => [id, positiveNumber(value, `expectedObjectVersions.${id}`)]));
-        const applied = applyWorkflowDraftChangeSet(project, {
-          id: typeof args.changeSetId === 'string' ? args.changeSetId : envelope.id,
-          actor: envelope.source,
-          intent: createWorkflowDraftLogEntry({
+        const intent = typeof args.intent === 'string' && args.intent.trim()
+          ? args.intent.trim()
+          : createWorkflowDraftLogEntry({
             source: envelope.source,
             command,
             args,
             ok: true,
-          }).summary,
-          ops: [operation],
-          baseDraftVersion: args.baseDraftVersion === undefined ? project.draftVersion : positiveNumber(args.baseDraftVersion, 'baseDraftVersion'),
+          }).summary;
+        const applied = applyWorkflowMutation(project, {
+          clientId: typeof args.clientId === 'string' ? args.clientId : undefined,
+          projectId: project.id,
+          expectedRevision,
+          mutationId,
+          source: mutationSource(envelope.source),
+          intent,
+          ops: operations,
           expectedObjectVersions,
         });
-        if (applied.ok === false) return error(envelope.id, applied.error.code, applied.error.message);
+        if (applied.ok === false) return error(envelope.id, applied.error.code, applied.error.message, {
+          expectedRevision: applied.error.expectedRevision,
+          actualRevision: applied.error.actualRevision,
+        });
         const affectedNodeIds = applied.changeSet.nodeChanges.map(change => change.id);
         const affectedConnectionIds = applied.changeSet.connectionChanges.map(change => change.id);
         const affectedIds = {
@@ -303,7 +375,8 @@ export function createWorkflowDispatcher(dependencies: WorkflowDispatcherDepende
           draftVersion: applied.project.draftVersion,
           draftChangeSets: applied.project.draftChangeSets,
           draftRedoStack: applied.project.draftRedoStack,
-          ...draftLogPatch(project, envelope, true, affectedIds),
+          workflowMutationReceipts: applied.project.workflowMutationReceipts,
+          ...(applied.receipt.replayed ? {} : draftLogPatch(project, envelope, true, affectedIds)),
         });
         const persistedError = dependencies.persistenceError?.();
         if (persistedError) return error(envelope.id, 'PERSISTENCE_FAILED', 'Workflow 持久化失败，请检查浏览器存储。');
@@ -319,9 +392,8 @@ export function createWorkflowDispatcher(dependencies: WorkflowDispatcherDepende
             .filter((entry): entry is readonly [string, number] => typeof entry[1] === 'number'),
         );
         result = { ok: true, commandId: envelope.id, result: {
-          projectId: project.id,
+          ...applied.receipt,
           summary: workflowCommandSummary(command, args),
-          changeSetId: applied.changeSet.id,
           draftVersion: applied.project.draftVersion,
           affectedNodeIds,
           affectedConnectionIds,
@@ -337,13 +409,11 @@ export function createWorkflowDispatcher(dependencies: WorkflowDispatcherDepende
   };
 }
 
-let browserNodeRunner: WorkflowDispatcherDependencies['runNode'];
-let browserNodeStopper: WorkflowDispatcherDependencies['stopNode'];
 let browserNodeToolRunner: WorkflowDispatcherDependencies['nodeToolRunner'];
+let browserWorkflowExecutor: WorkflowExecutor | undefined;
 
-export function setWorkflowNodeRunner(runner?: WorkflowDispatcherDependencies['runNode'], stopper?: WorkflowDispatcherDependencies['stopNode']) {
-  browserNodeRunner = runner;
-  browserNodeStopper = stopper;
+export function setWorkflowExecutor(executor?: WorkflowExecutor) {
+  browserWorkflowExecutor = executor;
 }
 
 export function setWorkflowNodeToolRunner(runner?: WorkflowDispatcherDependencies['nodeToolRunner']) {
@@ -356,14 +426,7 @@ const browserDependencies: WorkflowDispatcherDependencies = {
   setActiveProject: id => useWorkflowStore.getState().setActiveProject(id),
   deleteProjects: ids => useWorkflowStore.getState().deleteProjects(ids),
   updateProject: (id, patch) => useWorkflowStore.getState().updateProject(id, patch),
-  runNode: (projectId, nodeId) => {
-    if (!browserNodeRunner) throw new Error('Workflow 生成适配器尚未连接。');
-    return browserNodeRunner(projectId, nodeId);
-  },
-  stopNode: (projectId, nodeId) => {
-    if (!browserNodeStopper) throw new Error('Workflow 停止适配器尚未连接。');
-    return browserNodeStopper(projectId, nodeId);
-  },
+  getExecutor: () => browserWorkflowExecutor,
   nodeToolRunner: (projectId, nodeId, tool, args) => {
     if (!browserNodeToolRunner) throw new Error('Workflow 画布工具适配器尚未连接。');
     return browserNodeToolRunner(projectId, nodeId, tool, args);

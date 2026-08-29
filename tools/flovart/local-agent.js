@@ -110,15 +110,43 @@ export async function waitForWebUi(url = DEFAULT_WEB_URL, options = {}) {
   let lastError = null;
   while (Date.now() <= deadline) {
     try {
-      const result = await fetchJson(url, options);
-      if (result.response.ok || result.response.status === 404) return new URL(url).origin;
-      lastError = `WebUI 返回 HTTP ${result.response.status}`;
+      const origin = await probeWebUi(url, options);
+      if (origin) return origin;
+      lastError = '目标 localhost 服务不是 Flovart WebUI。';
     } catch (cause) {
       lastError = cause instanceof Error ? cause.message : String(cause);
     }
     await new Promise(resolve => setTimeout(resolve, options.intervalMs || 250));
   }
   throw new Error(lastError || '等待 Flovart WebUI 超时。');
+}
+
+/**
+ * Probe a local WebUI without mistaking an unrelated localhost HTTP service
+ * for Flovart. Source WebUI carries this marker in index.html; an explicit
+ * URL may still be opened by the caller when it intentionally bypasses the
+ * discovery probe.
+ */
+export async function probeWebUi(url, options = {}) {
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (typeof fetchImpl !== 'function') throw new Error('当前环境没有可用的 fetch。');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs || 800);
+  try {
+    const response = await fetchImpl(url, {
+      signal: controller.signal,
+      headers: { accept: 'text/html' },
+    });
+    if (!response.ok || typeof response.text !== 'function') return null;
+    const body = await response.text();
+    if (!/data-flovart-webui\s*=\s*["']1["']/i.test(body)) return null;
+    return new URL(url).origin;
+  } catch (cause) {
+    if (controller.signal.aborted) throw new Error('请求本机 Flovart WebUI 超时。');
+    throw cause;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function buildBrowserBootstrapUrl(frontendUrl, connection, route = '#/app') {
@@ -128,6 +156,9 @@ export function buildBrowserBootstrapUrl(frontendUrl, connection, route = '#/app
   const token = String(normalized.token || '').trim();
   if (!token) throw new Error('构造 Browser bootstrap URL 时缺少 Agent Token。');
   url.searchParams.set('agentToken', token);
+  // Only a launcher-opened page may claim the Browser Writer automatically.
+  // Ordinary tabs still require an explicit in-app activation.
+  url.searchParams.set('activateBrowserWriter', '1');
   url.hash = route.startsWith('#') ? route : `#${route}`;
   return url.toString();
 }
@@ -137,9 +168,21 @@ export function redactBootstrapUrl(value) {
     const url = new URL(String(value));
     url.searchParams.delete('agentToken');
     url.searchParams.delete('token');
+    url.searchParams.delete('activateBrowserWriter');
+    const hashQueryIndex = url.hash.indexOf('?');
+    if (hashQueryIndex >= 0) {
+      const route = url.hash.slice(0, hashQueryIndex);
+      const params = new URLSearchParams(url.hash.slice(hashQueryIndex + 1));
+      params.delete('agentToken');
+      params.delete('token');
+      params.delete('activateBrowserWriter');
+      url.hash = params.size ? `${route}?${params}` : route;
+    }
     return url.toString();
   } catch {
-    return String(value || '').replace(/([?&#](?:agentToken|token)=)[^&#]*/gi, '$1[redacted]');
+    return String(value || '')
+      .replace(/([?&#](?:agentToken|token)=)[^&#]*/gi, '$1[redacted]')
+      .replace(/([?&#]activateBrowserWriter=)[^&#]*/gi, '$1[removed]');
   }
 }
 

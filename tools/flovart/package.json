@@ -1,12 +1,11 @@
 {
   "name": "flovart-cli",
   "version": "0.3.2",
-  "description": "Flovart CLI, TUI and MCP bridge for Workflow, providers and coding agents",
+  "description": "Flovart CLI, TUI, Skill registry, and local production control for coding agents",
   "type": "module",
   "bin": {
     "flovart": "./cli.js",
-    "flovart-cli": "./cli.js",
-    "flovart-mcp": "./mcp-server.js"
+    "flovart-cli": "./cli.js"
   },
   "files": [
     "cli.js",
@@ -15,6 +14,11 @@
     "core.js",
     "bundle-manager.js",
     "dev-commands.js",
+    "agent-surface.js",
+    "host-discovery.js",
+    "host-registry.js",
+    "local-agent.js",
+    "local-status.js",
     "tui.js",
     "topic-research.js",
     "research-command-surface.js",
@@ -23,13 +27,16 @@
     "product-models.js",
     "registry.js",
     "runtime-command-surface.js",
+    "skill-commands.js",
+    "skill-hub.js",
+    "skill-package.js",
+    "skill-registry.js",
     "managed-agent",
     "scripts",
     "skill",
     "runtime-client.js",
     "workspace-client.js",
-    "workspace-command-surface.js",
-    "mcp-server.js"
+    "workspace-command-surface.js"
   ],
   "keywords": [
     "flovart",
@@ -37,8 +44,6 @@
     "workflow",
     "agent",
     "cli",
-    "mcp",
-    "model-context-protocol",
     "image-generation",
     "video-generation"
   ],
@@ -53,20 +58,20 @@
   "scripts": {
     "prepack": "node scripts/prepare-package.mjs"
   },
-  "dependencies": {
+"dependencies": {
     "@cfworker/json-schema": "^4.1.1",
     "@earendil-works/pi-agent-core": "0.82.1",
     "@earendil-works/pi-ai": "0.82.1",
     "@earendil-works/pi-storage-sqlite-node": "0.82.1",
-    "@modelcontextprotocol/sdk": "^1.29.0",
     "fast-xml-parser": "^5.10.1",
     "ink": "^6.8.0",
     "ink-text-input": "^6.0.0",
-    "json-canonicalize": "^2.0.0",
+    "json-canonicalize": "2.0.0",
     "react": "^19.1.1",
     "tar": "^7.5.20",
     "undici": "^6.28.0",
     "uuid": "^14.0.1",
+    "yaml": "^2.7.0",
     "zod": "^4.0.17"
   }
 }

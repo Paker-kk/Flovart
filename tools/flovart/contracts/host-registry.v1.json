@@ -1,0 +1,144 @@
+{
+  "schemaVersion": "1",
+  "agentIdentities": [
+    {
+      "id": "codex",
+      "label": "Codex",
+      "category": "coding-agent",
+      "executable": "codex",
+      "aliases": [],
+      "distributionTargets": ["project-skill", "codex-skill"],
+      "runtimeSurfaces": ["cli", "browser-workflow"]
+    },
+    {
+      "id": "codebuddy-code",
+      "label": "CodeBuddy Code",
+      "category": "coding-agent",
+      "executable": "codebuddy",
+      "aliases": ["cbc"],
+      "distributionTargets": ["codebuddy-code-skill"],
+      "runtimeSurfaces": ["cli", "browser-workflow"]
+    },
+    {
+      "id": "claude-code",
+      "label": "Claude Code",
+      "category": "coding-agent",
+      "executable": "claude",
+      "aliases": [],
+      "distributionTargets": ["claude-code-skill"],
+      "runtimeSurfaces": ["cli", "browser-workflow"]
+    },
+    {
+      "id": "opencode",
+      "label": "OpenCode",
+      "category": "coding-agent",
+      "executable": "opencode",
+      "aliases": [],
+      "distributionTargets": ["project-skill", "opencode-skill"],
+      "runtimeSurfaces": ["cli", "browser-workflow"]
+    },
+    {
+      "id": "pi",
+      "label": "Pi",
+      "category": "coding-agent",
+      "executable": "pi",
+      "aliases": [],
+      "distributionTargets": ["project-skill"],
+      "runtimeSurfaces": ["cli", "browser-workflow"]
+    },
+    {
+      "id": "deepseek-harness",
+      "label": "DeepSeek Harness",
+      "category": "harness",
+      "executable": "dsh",
+      "aliases": [],
+      "distributionTargets": ["dsh-plugin"],
+      "runtimeSurfaces": ["dsh-native"]
+    },
+    {
+      "id": "workbuddy",
+      "label": "WorkBuddy",
+      "category": "mainstream-host",
+      "status": "planned",
+      "executable": null,
+      "aliases": [],
+      "distributionTargets": ["workbuddy-skill"],
+      "runtimeSurfaces": ["skill-mediated"]
+    }
+  ],
+  "ideHosts": [
+    { "id": "cursor", "label": "Cursor" },
+    { "id": "windsurf", "label": "Windsurf" },
+    { "id": "vscode", "label": "VS Code" }
+  ],
+  "distributionTargets": [
+    {
+      "id": "project-skill",
+      "label": "Project Skill",
+      "kind": "skill",
+      "installPath": ".agents/skills",
+      "status": "supported"
+    },
+    {
+      "id": "codex-skill",
+      "label": "Codex Skill",
+      "kind": "skill",
+      "installPath": ".agents/skills",
+      "status": "supported"
+    },
+    {
+      "id": "codebuddy-code-skill",
+      "label": "CodeBuddy Code Skill",
+      "kind": "skill",
+      "installPath": ".codebuddy/skills",
+      "status": "supported"
+    },
+    {
+      "id": "claude-code-skill",
+      "label": "Claude Code Skill",
+      "kind": "skill",
+      "installPath": ".claude/skills",
+      "status": "supported"
+    },
+    {
+      "id": "opencode-skill",
+      "label": "OpenCode Skill",
+      "kind": "skill",
+      "installPath": ".agents/skills",
+      "status": "supported"
+    },
+    {
+      "id": "dsh-plugin",
+      "label": "DeepSeek Harness Plugin",
+      "kind": "plugin",
+      "installPath": "dsh-plugin",
+      "status": "external-plugin"
+    },
+    {
+      "id": "workbuddy-skill",
+      "label": "WorkBuddy Skill",
+      "kind": "skill",
+      "installPath": null,
+      "status": "planned"
+    }
+  ],
+  "distributionTargetAliases": {
+    "codex": "codex-skill",
+    "codebuddy": "codebuddy-code-skill",
+    "claude": "claude-code-skill",
+    "opencode": "opencode-skill"
+  },
+  "runtimeSurfaces": [
+    { "id": "cli", "label": "Local CLI" },
+    { "id": "browser-workflow", "label": "Visible Browser Workflow" },
+    { "id": "dsh-native", "label": "DeepSeek Native Workflow" },
+    { "id": "skill-mediated", "label": "Skill-mediated Host" }
+  ],
+  "directorBindings": [
+    { "agentIdentityId": "codex", "runtimeHostKind": "codex" },
+    { "agentIdentityId": "deepseek-harness", "runtimeHostKind": "deepseek" },
+    { "agentIdentityId": "claude-code", "runtimeHostKind": "claude" },
+    { "agentIdentityId": "opencode", "runtimeHostKind": "opencode" },
+    { "agentIdentityId": "pi", "runtimeHostKind": "pi" }
+  ]
+}

@@ -14,8 +14,11 @@ use super::{RuntimeContractError, RuntimeError};
 
 const PROTOCOL_VERSION: &str = "1";
 const IMAGE_CAPABILITY: &str = "browser.import.image";
+const VIDEO_CAPABILITY: &str = "browser.import.video";
 const MAX_IMPORT_BYTES: u64 = 64 * 1024 * 1024;
 pub const BROWSER_IMPORT_CHUNK_BYTES: usize = 256 * 1024;
+const SUPPORTED_IMAGE_MIMES: &[&str] = &["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"];
+const SUPPORTED_VIDEO_MIMES: &[&str] = &["video/mp4", "video/webm"];
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS browser_extension_pairings (
@@ -204,7 +207,9 @@ impl BrowserImportStore {
         let mut capabilities = capabilities.to_vec();
         capabilities.sort();
         capabilities.dedup();
-        if capabilities != [IMAGE_CAPABILITY.to_owned()] {
+        let expected_image = vec![IMAGE_CAPABILITY.to_owned()];
+        let expected_media = vec![IMAGE_CAPABILITY.to_owned(), VIDEO_CAPABILITY.to_owned()];
+        if capabilities != expected_image && capabilities != expected_media {
             return Err(RuntimeError::new(
                 "PERMISSION_DENIED",
                 "Browser bridge requested unsupported capabilities",
@@ -302,6 +307,21 @@ impl BrowserImportStore {
     ) -> Result<BrowserImportTransfer, RuntimeError> {
         self.require_approved_pairing(extension_origin)?;
         validate_begin(&begin)?;
+        if begin.kind == "video" {
+            // Video transfers additionally require the dedicated capability to be
+            // declared at pairing time; without it the extension is not authorized.
+            let allowed = pairing_by_origin_optional(&self.connection.lock(), extension_origin)?
+                .is_some_and(|pairing| {
+                    pairing.status == "approved"
+                        && pairing.capabilities.contains(&VIDEO_CAPABILITY.to_owned())
+                });
+            if !allowed {
+                return Err(RuntimeError::new(
+                    "PERMISSION_DENIED",
+                    "Browser bridge lacks the video import capability",
+                ));
+            }
+        }
         let connection = self.connection.lock();
         if let Some(existing) = connection
             .query_row(
@@ -529,11 +549,11 @@ impl BrowserImportStore {
                 "Imported bytes do not match the declared SHA-256",
             ));
         }
-        if !image_signature_matches(&staging_path, &transfer.mime_type)? {
+        if !media_signature_matches(&staging_path, &transfer.kind, &transfer.mime_type)? {
             fail_transfer(&connection, transfer_id, &staging_path)?;
             return Err(RuntimeError::new(
                 "MIME_MISMATCH",
-                "Imported bytes do not match the declared image MIME type",
+                "Imported bytes do not match the declared media MIME type",
             ));
         }
 
@@ -750,7 +770,7 @@ impl BrowserImportStore {
             Some("approved")
                 if pairing.as_ref().is_some_and(|pairing| {
                     pairing.protocol_version == PROTOCOL_VERSION
-                        && pairing.capabilities == [IMAGE_CAPABILITY.to_owned()]
+                        && pairing.capabilities.contains(&IMAGE_CAPABILITY.to_owned())
                 }) =>
             {
                 Ok(())
@@ -935,10 +955,10 @@ fn validate_begin(begin: &BrowserImportBegin) -> Result<(), RuntimeError> {
             "Import request ID is invalid",
         ));
     }
-    if begin.kind != "image" {
+    if !matches!(begin.kind.as_str(), "image" | "video") {
         return Err(RuntimeError::new(
             "INVALID_ARGUMENT",
-            "Browser Import V1 accepts images only",
+            "Browser Import V1 accepts images and videos only",
         ));
     }
     if begin.name.trim().is_empty() || begin.name.len() > 512 {
@@ -947,13 +967,15 @@ fn validate_begin(begin: &BrowserImportBegin) -> Result<(), RuntimeError> {
             "Import name is invalid",
         ));
     }
-    if !matches!(
-        begin.mime_type.as_str(),
-        "image/png" | "image/jpeg" | "image/webp" | "image/gif" | "image/avif"
-    ) {
+    let supported_mimes = if begin.kind == "video" {
+        SUPPORTED_VIDEO_MIMES
+    } else {
+        SUPPORTED_IMAGE_MIMES
+    };
+    if !supported_mimes.contains(&begin.mime_type.as_str()) {
         return Err(RuntimeError::new(
             "INVALID_ARGUMENT",
-            "Browser Import V1 does not accept this image MIME type",
+            "Browser Import V1 does not accept this media MIME type",
         ));
     }
     if begin.byte_size == 0 || begin.byte_size > MAX_IMPORT_BYTES {
@@ -1035,6 +1057,27 @@ fn hash_file(path: &Path) -> Result<String, RuntimeError> {
     Ok(hex::encode(digest.finalize()))
 }
 
+fn media_signature_matches(path: &Path, kind: &str, mime_type: &str) -> Result<bool, RuntimeError> {
+    if kind == "video" {
+        return Ok(video_signature_matches(path, mime_type)?);
+    }
+    image_signature_matches(path, mime_type)
+}
+
+fn video_signature_matches(path: &Path, mime_type: &str) -> Result<bool, RuntimeError> {
+    let mut file = fs::File::open(path).map_err(io_error)?;
+    let mut header = [0_u8; 32];
+    let read = file.read(&mut header).map_err(io_error)?;
+    let header = &header[..read];
+    Ok(match mime_type {
+        // ISO BMFF: '....ftyp' at offset 4.
+        "video/mp4" => header.len() >= 12 && header.get(4..8) == Some(b"ftyp".as_slice()),
+        // WebM/Matroska EBML magic: 0x1A 0x45 0xDF 0xA3.
+        "video/webm" => header.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]),
+        _ => false,
+    })
+}
+
 fn image_signature_matches(path: &Path, mime_type: &str) -> Result<bool, RuntimeError> {
     let mut file = fs::File::open(path).map_err(io_error)?;
     let mut header = [0_u8; 32];
@@ -1078,6 +1121,8 @@ fn extension_for_mime(mime_type: &str) -> &'static str {
         "image/webp" => "webp",
         "image/gif" => "gif",
         "image/avif" => "avif",
+        "video/mp4" => "mp4",
+        "video/webm" => "webm",
         _ => "png",
     }
 }

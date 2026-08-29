@@ -4,8 +4,10 @@ import { useAgentConnectionStore, type AgentConnectionStatus } from '../stores/u
 
 const AGENT_URL_PARAM = 'agentUrl';
 const AGENT_TOKEN_PARAM = 'agentToken';
+const AUTO_ACTIVATE_PARAM = 'activateBrowserWriter';
 const SESSION_URL_KEY = 'flovart.agent.bootstrap.url';
 const SESSION_TOKEN_KEY = 'flovart.agent.bootstrap.token';
+const SESSION_AUTO_ACTIVATE_KEY = 'flovart.agent.bootstrap.activate';
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 type BootstrapLocation = Pick<Location, 'href' | 'search' | 'hash' | 'pathname'>;
@@ -56,7 +58,9 @@ function readConnectionParams(location: BootstrapLocation) {
   return {
     url: search.get(AGENT_URL_PARAM) || hash.get(AGENT_URL_PARAM) || '',
     token: search.get(AGENT_TOKEN_PARAM) || hash.get(AGENT_TOKEN_PARAM) || '',
-    fromUrl: search.has(AGENT_URL_PARAM) || search.has(AGENT_TOKEN_PARAM) || hash.has(AGENT_URL_PARAM) || hash.has(AGENT_TOKEN_PARAM),
+    autoActivate: search.get(AUTO_ACTIVATE_PARAM) === '1' || hash.get(AUTO_ACTIVATE_PARAM) === '1',
+    fromUrl: search.has(AGENT_URL_PARAM) || search.has(AGENT_TOKEN_PARAM) || search.has(AUTO_ACTIVATE_PARAM)
+      || hash.has(AGENT_URL_PARAM) || hash.has(AGENT_TOKEN_PARAM) || hash.has(AUTO_ACTIVATE_PARAM),
   };
 }
 
@@ -91,12 +95,14 @@ function scrubConnectionParams(location: BootstrapLocation, history: BootstrapHi
     const url = new URL(location.href);
     url.searchParams.delete(AGENT_URL_PARAM);
     url.searchParams.delete(AGENT_TOKEN_PARAM);
+    url.searchParams.delete(AUTO_ACTIVATE_PARAM);
     const hashQueryIndex = url.hash.indexOf('?');
     if (hashQueryIndex >= 0) {
       const route = url.hash.slice(0, hashQueryIndex);
       const params = new URLSearchParams(url.hash.slice(hashQueryIndex + 1));
       params.delete(AGENT_URL_PARAM);
       params.delete(AGENT_TOKEN_PARAM);
+      params.delete(AUTO_ACTIVATE_PARAM);
       url.hash = params.size ? `${route}?${params}` : route;
     }
     history.replaceState(null, typeof document === 'undefined' ? '' : document.title, `${url.pathname}${url.search}${url.hash}`);
@@ -120,6 +126,14 @@ function clearSessionConnection(storage: StorageLike | null) {
   try {
     storage.removeItem(SESSION_URL_KEY);
     storage.removeItem(SESSION_TOKEN_KEY);
+  } catch { /* storage is best effort */ }
+}
+
+function saveAutoActivation(storage: StorageLike | null, enabled: boolean) {
+  if (!storage) return;
+  try {
+    if (enabled) storage.setItem(SESSION_AUTO_ACTIVATE_KEY, '1');
+    else storage.removeItem(SESSION_AUTO_ACTIVATE_KEY);
   } catch { /* storage is best effort */ }
 }
 
@@ -176,6 +190,7 @@ async function runBootstrap(options: AgentConnectionBootstrapOptions): Promise<A
     connection = normalizeConnection(url, token);
   } catch (cause) {
     clearSessionConnection(storage);
+    saveAutoActivation(storage, false);
     setBrowserWorkflowBinding(null);
     const error = cause instanceof Error ? cause.message : String(cause);
     setStoreStatus('auth_failed', { url: null, clientId: null, projectId: null, revision: null, error });
@@ -189,6 +204,7 @@ async function runBootstrap(options: AgentConnectionBootstrapOptions): Promise<A
     try {
       await authenticate(connection, options);
       saveSessionConnection(storage, connection);
+      saveAutoActivation(storage, params.autoActivate);
       setBrowserWorkflowBinding(connection);
       if (params.fromUrl) scrubConnectionParams(location, options.history || browserHistory());
       return { state: 'ready', connection };
@@ -196,6 +212,7 @@ async function runBootstrap(options: AgentConnectionBootstrapOptions): Promise<A
       lastError = cause instanceof Error ? cause.message : String(cause);
       if ((cause as Error & { code?: string })?.code === 'AUTH_FAILED') {
         clearSessionConnection(storage);
+        saveAutoActivation(storage, false);
         setBrowserWorkflowBinding(null);
         if (params.fromUrl) scrubConnectionParams(location, options.history || browserHistory());
         setStoreStatus('auth_failed', { url: connection.url, clientId: null, projectId: null, revision: null, error: lastError });
@@ -218,4 +235,19 @@ export function resetAgentConnectionBootstrapForTests() {
   inFlight = null;
 }
 
-export const agentBootstrapStorageKeys = Object.freeze({ url: SESSION_URL_KEY, token: SESSION_TOKEN_KEY });
+export function consumeBrowserWriterAutoActivation(storage: StorageLike | null = sessionStore()) {
+  if (!storage) return false;
+  try {
+    const enabled = storage.getItem(SESSION_AUTO_ACTIVATE_KEY) === '1';
+    storage.removeItem(SESSION_AUTO_ACTIVATE_KEY);
+    return enabled;
+  } catch {
+    return false;
+  }
+}
+
+export const agentBootstrapStorageKeys = Object.freeze({
+  url: SESSION_URL_KEY,
+  token: SESSION_TOKEN_KEY,
+  autoActivate: SESSION_AUTO_ACTIVATE_KEY,
+});

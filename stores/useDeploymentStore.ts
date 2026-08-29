@@ -17,6 +17,11 @@ export const useDeploymentStore = create<DeploymentState>((set, get) => ({
   initialized: false,
   load: async () => {
     if (get().initialized) return;
+    const bundled = bundledDeploymentProfile();
+    if (bundled.mode !== 'enterprise') {
+      set({ profile: bundled, initialized: true });
+      return;
+    }
     const profile = await fetchDeploymentProfile();
     set({ profile, initialized: true });
   },

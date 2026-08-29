@@ -5,11 +5,10 @@
 //!
 //! 路径：`app_data_dir/flovart-state.db`，由 lib.rs 在 setup() 中提供。
 
-use crate::errors::{FlovartError, FlovartResult};
+use crate::errors::FlovartResult;
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use std::path::Path;
-use std::sync::Arc;
 
 pub struct StateDb {
     conn: Mutex<Connection>,

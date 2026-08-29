@@ -1,8 +1,13 @@
 import { spawn, execSync } from 'node:child_process';
 import { existsSync, copyFileSync } from 'node:fs';
+import { createServer as createNetServer } from 'node:net';
 import { homedir, platform } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { installToolkit, planToolkitStart, startToolkit } from './bundle-manager.js';
+import { inspectLocalAgent, probeWebUi, readLocalAgentConnection, redactBootstrapUrl, waitForLocalAgent } from './local-agent.js';
+import { FlovartRuntimeClient } from './runtime-client.js';
+import { FlovartBootstrapCoordinator } from './bootstrap-coordinator.js';
+import { clearWebDiscovery, readWebDiscovery, writeWebDiscovery } from './web-discovery.js';
 
 const FLOVART_HOME = join(homedir(), '.flovart');
 const PROJECT_DIR = join(FLOVART_HOME, 'project');
@@ -13,7 +18,7 @@ const PG_DB = 'flovart';
 const PG_PORT = '5433';
 
 const URLS = {
-  web: 'http://localhost:11451',
+  web: 'http://localhost:37522',
   hub: 'http://localhost:11452',
   enterprise: 'http://localhost:11453',
   db: `localhost:${PG_PORT}`,
@@ -64,8 +69,9 @@ export function parseDevArgs(argv = []) {
     detach: false,
     source: false,
     toolkit: false,
-    noAgent: false,
-    agent: 'codex',
+    noBrowserAgent: false,
+    noAgent: true,
+    agent: 'none',
     version: undefined,
     manifestUrl: undefined,
     help: false,
@@ -92,8 +98,14 @@ export function parseDevArgs(argv = []) {
     else if (arg === '--detach' || arg === '-d') options.detach = true;
     else if (arg === '--source') options.source = true;
     else if (arg === '--toolkit') options.toolkit = true;
-    else if (arg === '--no-agent') options.noAgent = true;
-    else if (arg.startsWith('--agent=')) options.agent = arg.slice('--agent='.length) || 'codex';
+    else if (arg === '--no-browser-agent') options.noBrowserAgent = true;
+    else if (arg === '--no-agent') {
+      options.noAgent = true;
+      options.agent = 'none';
+    } else if (arg.startsWith('--agent=')) {
+      options.agent = arg.slice('--agent='.length) || 'codex';
+      options.noAgent = false;
+    }
     else if (arg.startsWith('--version=')) options.version = arg.slice('--version='.length) || undefined;
     else if (arg.startsWith('--manifest=')) options.manifestUrl = arg.slice('--manifest='.length) || undefined;
     else options._.push(arg);
@@ -130,9 +142,9 @@ function selectedServices(options, fallbackAll = true) {
 }
 
 export function planStart(argv = [], cwd = process.cwd()) {
-  const options = parseDevArgs(argv);
+  const options = parseDevArgs(inferSourceStartArgs(argv, cwd));
   if (!options.source) {
-    return planToolkitStart({ agent: options.agent, noAgent: options.noAgent });
+    return planToolkitStart({ agent: options.agent, noAgent: options.noAgent, open: options.open, json: options.json, detach: options.detach });
   }
   const services = selectedServices(options, true);
   const projectDir = resolveProjectDir(cwd);
@@ -145,8 +157,20 @@ export function planStart(argv = [], cwd = process.cwd()) {
     updateBeforeStart: options.update,
     detach: options.detach,
     openBrowser: options.open && !options.noOpen && services.includes('web'),
+    json: options.json,
+    browserAgent: !options.docker && services.includes('web') && !options.noBrowserAgent,
     urls: Object.fromEntries(services.map(name => [name, URLS[name]])),
   };
+}
+
+function inferSourceStartArgs(argv, cwd) {
+  const options = parseDevArgs(argv);
+  if (options.source || options.toolkit || !options.open || options.noOpen) return argv;
+  const hasServiceSelection = options.all || options.web || options.hub || options.enterprise || options.backend || options.db;
+  const projectDir = resolveProjectDir(cwd);
+  if (hasServiceSelection || projectDir !== cwd) return argv;
+  if (!existsSync(join(projectDir, 'agent', 'index.js')) || !existsSync(join(projectDir, 'vite.config.ts'))) return argv;
+  return [...argv, '--source', '--web'];
 }
 
 export function planInstall(argv = [], cwd = process.cwd()) {
@@ -176,11 +200,12 @@ function printHelp(command = 'start') {
     'Usage: flovart start [options]',
     '',
     'Options:',
-    '  --agent=codex   启动 Codex Managed Agent（默认）',
-    '  --no-agent      只启动本地 Runtime/WebUI',
+    '  --agent=codex   启动 Toolkit 内置 Managed Agent companion（兼容参数；不会启动外部 Codex）',
+    '  --no-agent      不额外启动 Managed Agent，由 Desktop Runtime 按需管理（默认）',
     '  --plan          只打印启动计划，不真正启动服务',
     '  --source        在源码仓库运行 Vite/Go 开发服务',
     '  --docker        与 --source 搭配运行 SaaS Compose',
+    '  --no-browser-agent  不启动源码 Workflow Browser Agent（仅调试用）',
     '',
     'Examples:',
     '  flovart start',
@@ -296,8 +321,21 @@ export async function start(argv = []) {
   }
 
   if (plan.mode === 'toolkit') {
-    printPlan(plan, options.json);
-    startToolkit({ agent: options.agent, noAgent: options.noAgent });
+    if (!options.json) printPlan(plan);
+    const toolkit = startToolkit({ agent: options.agent, noAgent: options.noAgent, open: options.open, json: options.json, detach: options.detach, projectDir: process.cwd() });
+    const readiness = await waitForToolkitReady(toolkit);
+    if (options.json) {
+      console.log(JSON.stringify({ ok: readiness.ok, command: 'start', mode: plan.mode, toolkit: { version: plan.version, protocolVersion: plan.protocolVersion, openRequested: plan.open }, ...readiness }, null, 2));
+      if (!readiness.ok) {
+        toolkit.close();
+        process.exitCode = 1;
+      }
+    } else if (!readiness.ok) {
+      toolkit.close();
+      err(readiness.error || 'Flovart Desktop Runtime 启动失败。');
+      process.exitCode = 1;
+    }
+    if (options.json || options.detach) return;
     return;
   }
 
@@ -316,6 +354,83 @@ export async function start(argv = []) {
   }
 
   await startLocal(projectDir, plan);
+}
+
+export async function waitForToolkitReady(toolkit, { timeoutMs = 20_000, intervalMs = 250 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  const runtimeProcess = toolkit?.children?.find(item => item.name === 'runtime')?.child;
+  const managedAgentProcess = toolkit?.children?.find(item => item.name === 'agent')?.child;
+  const requiresBrowser = toolkit?.open === true;
+  const runtime = new FlovartRuntimeClient({ timeoutMs: Math.min(1_000, Math.max(250, intervalMs * 3)) });
+  let runtimeStatus = null;
+  let runtimeError = '等待 Flovart Desktop Runtime 就绪。';
+  let agentStatus = managedAgentProcess || requiresBrowser ? { status: 'starting', url: null } : { status: 'managed-by-desktop', url: null };
+  let browser = { status: requiresBrowser ? 'waiting' : 'managed-by-desktop', connected: null, clientId: null, projectId: null, revision: null };
+  while (Date.now() <= deadline) {
+    if (runtimeProcess?.exitCode !== null && runtimeProcess?.exitCode !== undefined && !runtimeStatus) {
+      runtimeError = `Flovart Desktop Runtime 在就绪前退出（code ${runtimeProcess.exitCode}）。`;
+      break;
+    }
+    try {
+      runtimeStatus = await runtime.status();
+      runtimeError = '';
+    } catch (error) {
+      runtimeError = error instanceof Error ? error.message : String(error);
+    }
+
+    if (managedAgentProcess || requiresBrowser) {
+      try {
+        const connection = readLocalAgentConnection();
+        const inspected = await inspectLocalAgent(connection, { timeoutMs: 800 });
+        if (inspected.state === 'ready') agentStatus = { status: 'ready', url: connection.url };
+        else if (inspected.state === 'auth_failed') {
+          agentStatus = { status: 'auth_failed', url: connection.url, error: inspected.error };
+          break;
+        }
+        const health = inspected.health || {};
+        const connected = inspected.state === 'ready' && Number(health.clients || 0) > 0 && Boolean(health.hasWorkflow);
+        browser = {
+          status: connected ? 'connected' : requiresBrowser ? 'waiting' : 'managed-by-desktop',
+          connected: connected || null,
+          clientId: health.clientId || null,
+          projectId: health.activeProjectId || null,
+          revision: numericOrNull(health.revision),
+        };
+      } catch (error) {
+        agentStatus = { status: requiresBrowser || managedAgentProcess ? 'starting' : 'managed-by-desktop', url: null, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+    const agentReady = !managedAgentProcess || agentStatus.status === 'ready';
+    const browserReady = !requiresBrowser || browser.status === 'connected';
+    if (runtimeStatus && agentReady && browserReady) {
+      return {
+        ok: true,
+        runtime: { status: 'ready', surface: 'desktop-runtime', version: runtimeStatus.runtimeVersion },
+        frontend: { status: 'ready', surface: 'embedded-desktop', url: null },
+        agent: agentStatus,
+        browser,
+      };
+    }
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+  return {
+    ok: false,
+    runtime: runtimeStatus ? { status: 'ready', surface: 'desktop-runtime', version: runtimeStatus.runtimeVersion } : { status: 'offline', surface: 'desktop-runtime' },
+    frontend: runtimeStatus ? { status: 'ready', surface: 'embedded-desktop', url: null } : { status: 'offline', surface: 'embedded-desktop', url: null },
+    agent: agentStatus,
+    browser,
+    error: agentStatus.status === 'auth_failed'
+      ? agentStatus.error
+      : requiresBrowser && browser.status !== 'connected'
+        ? '等待桌面 Workflow 绑定超时。请重新打开 Flovart。'
+        : runtimeError,
+  };
+}
+
+function numericOrNull(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 async function startDocker(projectDir, plan) {
@@ -341,6 +456,7 @@ async function startLocal(projectDir, plan) {
   const needsGo = plan.services.includes('hub') || plan.services.includes('enterprise');
   const hasGo = checkCommand('go');
   const children = [];
+  const detached = plan.detach || plan.json;
 
   if (plan.services.includes('db')) {
     if (checkCommand('docker')) {
@@ -361,25 +477,77 @@ async function startLocal(projectDir, plan) {
     ENTERPRISE_PORT: process.env.ENTERPRISE_PORT || '11453',
   };
 
-  printPlan(plan);
-  log('Press Ctrl+C to stop started services.\n');
+  if (!plan.json) {
+    printPlan(plan);
+    log('Press Ctrl+C to stop started services.\n');
+  }
 
+  let webProcess = null;
   if (plan.services.includes('web')) {
-    children.push(spawn('npm', ['run', 'dev'], { stdio: 'inherit', shell: true, cwd: projectDir, env }));
+    const preferredPort = Number(env.FLOVART_WEB_PORT) || Number(new URL(URLS.web).port);
+    const existingWebUrl = await findExistingWebUi({ preferredPort, env });
+    if (existingWebUrl) {
+      webProcess = { child: null, url: existingWebUrl, reused: true, getUrl: () => existingWebUrl };
+      if (!plan.json) log(`Reusing existing Flovart WebUI: ${existingWebUrl}`);
+    } else {
+      const webPort = await findAvailablePort(preferredPort);
+      webProcess = spawnWebUi(projectDir, env, { detached, json: plan.json, port: webPort });
+      children.push(webProcess.child);
+    }
+  }
+
+  let agentConnection = null;
+  let agentStartupError = null;
+  if (plan.browserAgent) {
+    try {
+      agentConnection = await ensureSourceAgent(projectDir, children, { detached, json: plan.json, env });
+    } catch (error) {
+      agentStartupError = error instanceof Error ? error.message : String(error);
+    }
   }
 
   if (needsGo && !hasGo) {
     warn('Go not found. Backend services were skipped.');
   } else {
     if (plan.services.includes('hub')) {
-      children.push(spawn('go', ['run', './cmd/server'], { stdio: 'inherit', shell: true, cwd: hubDir, env }));
+      children.push(spawn('go', ['run', './cmd/server'], { stdio: detached ? 'ignore' : 'inherit', shell: true, cwd: hubDir, env, detached, windowsHide: detached }));
     }
     if (plan.services.includes('enterprise')) {
-      children.push(spawn('go', ['run', './cmd/server'], { stdio: 'inherit', shell: true, cwd: entDir, env }));
+      children.push(spawn('go', ['run', './cmd/server'], { stdio: detached ? 'ignore' : 'inherit', shell: true, cwd: entDir, env, detached, windowsHide: detached }));
     }
   }
 
-  if (plan.openBrowser) setTimeout(() => openBrowser(URLS.web), 1800);
+  const bootstrap = await new FlovartBootstrapCoordinator({
+    openBrowser: url => openBrowser(url, { quiet: plan.json }),
+  }).start({
+    ensureAgent: plan.browserAgent ? async () => {
+      if (agentStartupError) throw new Error(agentStartupError);
+      return agentConnection;
+    } : undefined,
+    launchWeb: async () => webProcess,
+    open: plan.openBrowser,
+    timeoutMs: 20_000,
+  });
+  if (bootstrap.frontend.url && webProcess?.child) writeWebDiscovery({ url: bootstrap.frontend.url, pid: webProcess.child.pid }, env);
+
+  if (plan.json) {
+    console.log(JSON.stringify({ ok: bootstrap.ok, command: 'start', mode: plan.mode, detached, ...bootstrap }, null, 2));
+  }
+
+  if (!bootstrap.ok) {
+    for (const child of [...children].reverse()) {
+      try { child.kill(); } catch {}
+    }
+    if (webProcess?.child) clearWebDiscovery(webProcess.child.pid, env);
+    if (!plan.json) err(bootstrap.error || 'Flovart 本地服务未能就绪。');
+    process.exitCode = 1;
+    return;
+  }
+
+  if (detached) {
+    children.forEach(child => child.unref());
+    return;
+  }
   if (children.length === 0) return;
 
   let stopping = false;
@@ -389,6 +557,7 @@ async function startLocal(projectDir, plan) {
     for (const c of children) {
       try { c.kill(); } catch {}
     }
+    if (bootstrap.frontend.url && webProcess?.child) clearWebDiscovery(webProcess.child.pid, env);
     process.exit(0);
   };
   process.on('SIGINT', cleanup);
@@ -401,13 +570,117 @@ async function startLocal(projectDir, plan) {
   }
 }
 
-function openBrowser(url) {
-  const os = platform();
-  const cmd = os === 'win32' ? 'cmd' : os === 'darwin' ? 'open' : 'xdg-open';
-  const args = os === 'win32' ? ['/c', 'start', '', url] : [url];
+async function ensureSourceAgent(projectDir, children, options = {}) {
+  const env = options.env || process.env;
+  let existing = null;
+  try { existing = readLocalAgentConnection({ env }); } catch { /* startup below reports the invalid config */ }
+  if (existing) {
+    const state = await inspectLocalAgent(existing, { timeoutMs: 800 });
+    if (state.state === 'ready') return existing;
+    if (state.state === 'auth_failed') throw new Error(state.error || 'Flovart Agent Token 无效。');
+  }
+
+  const entry = join(projectDir, 'agent', 'index.js');
+  if (!existsSync(entry)) throw new Error(`源码 Workflow Agent 不存在：${entry}`);
+  const child = spawn(process.execPath, [entry], {
+    cwd: projectDir,
+    // Reuse the last recorded Agent port when it is free so a browser can
+    // reconnect after a supervised restart; agent/index.js falls back to an
+    // ephemeral port if an unrelated process owns it.
+    env: { ...env },
+    stdio: options.detached || options.json ? 'ignore' : 'inherit',
+    detached: Boolean(options.detached),
+    windowsHide: Boolean(options.detached),
+    shell: false,
+  });
+  children.push(child);
+  if (options.detached || options.json) child.unref();
+  const result = await waitForLocalAgent({ env, timeoutMs: 15_000 });
+  if (result.state === 'auth_failed') throw new Error(result.error || 'Flovart Agent Token 无效。');
+  if (result.state !== 'ready' || !result.connection) throw new Error(result.error || 'Flovart Agent 启动超时。');
+  return result.connection;
+}
+
+function spawnWebUi(projectDir, env, options = {}) {
+  let detectedUrl = null;
+  const npm = process.platform === 'win32'
+    ? [process.execPath, resolveNpmEntrypoint()]
+    : ['npm'];
+  const captureOutput = !options.detached && !options.json;
+  const child = spawn(npm[0], [...npm.slice(1), 'run', 'dev'], {
+    stdio: captureOutput ? ['ignore', 'pipe', 'pipe'] : 'ignore',
+    shell: false,
+    cwd: projectDir,
+    env: { ...env, FLOVART_DYNAMIC_WEB_PORT: env.FLOVART_DYNAMIC_WEB_PORT || '1', FLOVART_WEB_PORT: String(options.port || '') },
+    detached: Boolean(options.detached),
+    windowsHide: Boolean(options.detached),
+  });
+  const consume = (chunk, stream) => {
+    const output = String(chunk);
+    const match = output.match(/https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d+\/?/i);
+    if (match) detectedUrl = new URL(match[0]).origin;
+    if (!options.json) stream.write(chunk);
+  };
+  child.stdout?.on('data', chunk => consume(chunk, process.stdout));
+  child.stderr?.on('data', chunk => consume(chunk, process.stderr));
+  if (options.detached || options.json) child.unref();
+  return { child, url: options.port ? `http://127.0.0.1:${options.port}` : null, getUrl: () => detectedUrl };
+}
+
+function resolveNpmEntrypoint() {
+  const executableDir = dirname(process.execPath);
+  const candidates = [
+    process.env.npm_execpath,
+    join(executableDir, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    join(executableDir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    process.env.APPDATA ? join(process.env.APPDATA, 'npm', 'node_modules', 'npm', 'bin', 'npm-cli.js') : null,
+  ];
+  const entry = candidates.find(candidate => candidate && existsSync(candidate));
+  if (!entry) throw new Error('找不到 npm CLI 入口；请确认 Node.js 安装包含 npm。');
+  return entry;
+}
+
+export function findAvailablePort(preferredPort) {
+  const probe = port => new Promise(resolve => {
+    const server = createNetServer();
+    server.once('error', () => resolve(null));
+    server.listen(port || 0, '127.0.0.1', () => {
+      const actual = server.address()?.port || null;
+      server.close(() => resolve(actual));
+    });
+  });
+  return probe(preferredPort || 0).then(port => port || probe(0));
+}
+
+export async function findExistingWebUi({ preferredPort, env = process.env, probe = probeWebUi, discovery = readWebDiscovery } = {}) {
+  const candidates = [];
+  const discovered = discovery(env);
+  if (discovered?.url) candidates.push(discovered.url);
+  if (preferredPort) candidates.push(`http://127.0.0.1:${preferredPort}`);
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      const origin = await probe(candidate, { timeoutMs: 800 });
+      if (origin) return origin;
+    } catch {
+      // A stale discovery entry or an unrelated loopback service is not a startup blocker.
+    }
+  }
+  return null;
+}
+
+export function buildBrowserOpenCommand(url, os = platform()) {
+  const command = os === 'win32' ? 'rundll32.exe' : os === 'darwin' ? 'open' : 'xdg-open';
+  // The Windows shell treats `&` in a bootstrap URL as a command separator;
+  // use the OS URL handler directly so the short-lived token arrives intact.
+  const args = os === 'win32' ? ['url.dll,FileProtocolHandler', url] : [url];
+  return { command, args };
+}
+
+function openBrowser(url, options = {}) {
+  const { command, args } = buildBrowserOpenCommand(url);
   try {
-    spawn(cmd, args, { detached: true, stdio: 'ignore', shell: false }).unref();
-    log('Opened browser: ' + url);
+    spawn(command, args, { detached: true, stdio: 'ignore', shell: false }).unref();
+    if (!options.quiet) log('Opened browser: ' + redactBootstrapUrl(url));
   } catch (e) {
     warn('Could not open browser: ' + (e.message || e));
   }

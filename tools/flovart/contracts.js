@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { canonicalize } from 'json-canonicalize';
 
 import envelopeSchema from './contracts/runtime/schemas/command-envelope.v1.json' with { type: 'json' };
+import crewIntentSchema from './contracts/runtime/schemas/crew-intent.v1.json' with { type: 'json' };
+import crewReceiptSchema from './contracts/runtime/schemas/crew-receipt.v1.json' with { type: 'json' };
 import runtimeErrorSchema from './contracts/runtime/schemas/runtime-error.v1.json' with { type: 'json' };
 import runtimeEventSchema from './contracts/runtime/schemas/runtime-event.v1.json' with { type: 'json' };
 import runtimeStatusSchema from './contracts/runtime/schemas/runtime-status.v1.json' with { type: 'json' };
@@ -18,6 +20,8 @@ function createRuntimeValidator(schema, name) {
 
 const envelopeValidator = createRuntimeValidator(envelopeSchema, 'command-envelope');
 const outputValidators = Object.freeze({
+  'crew-intent': createRuntimeValidator(crewIntentSchema, 'crew-intent'),
+  'crew-receipt': createRuntimeValidator(crewReceiptSchema, 'crew-receipt'),
   'runtime-error': createRuntimeValidator(runtimeErrorSchema, 'runtime-error'),
   'runtime-event': createRuntimeValidator(runtimeEventSchema, 'runtime-event'),
   'runtime-status': createRuntimeValidator(runtimeStatusSchema, 'runtime-status'),

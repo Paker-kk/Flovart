@@ -1,4 +1,6 @@
-import { inspectLocalAgent, readLocalAgentConnection } from './local-agent.js';
+import { inspectLocalAgent, probeWebUi, readLocalAgentConnection } from './local-agent.js';
+import { readWebDiscovery } from './web-discovery.js';
+import { FlovartRuntimeClient } from './runtime-client.js';
 
 const DEFAULT_FRONTEND_URLS = Object.freeze([
   'http://127.0.0.1:37522',
@@ -9,20 +11,12 @@ function frontendCandidates(env = process.env) {
   const explicit = String(env.FLOVART_WEB_URL || '').trim();
   if (explicit) return [explicit];
   const configured = String(env.FLOVART_WEBUI_PORTS || '').split(',').map(value => value.trim()).filter(Boolean);
-  return configured.length ? configured : [...DEFAULT_FRONTEND_URLS];
+  const discovered = readWebDiscovery(env)?.url;
+  return [...new Set([...(discovered ? [discovered] : []), ...(configured.length ? configured : DEFAULT_FRONTEND_URLS)])];
 }
 
 async function probeFrontend(url, fetchImpl = globalThis.fetch) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 800);
-  try {
-    const response = await fetchImpl(url, { signal: controller.signal, redirect: 'follow' });
-    return response.ok || response.status === 404;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timer);
-  }
+  return Boolean(await probeWebUi(url, { fetchImpl, timeoutMs: 800 }).catch(() => null));
 }
 
 export async function getLocalStatus(options = {}) {
@@ -30,6 +24,7 @@ export async function getLocalStatus(options = {}) {
   const frontendUrl = (typeof fetchImpl === 'function'
     ? (await firstReachable(frontendCandidates(options.env || process.env), fetchImpl))
     : null);
+  const runtimeStatus = await readRuntimeStatus(options);
 
   let agent;
   try {
@@ -41,9 +36,13 @@ export async function getLocalStatus(options = {}) {
 
   const health = agent.health || {};
   const browserConnected = agent.state === 'ready' && Number(health.clients || 0) > 0 && Boolean(health.hasWorkflow);
+  const desktopReady = Boolean(runtimeStatus && browserConnected);
   const status = {
-    ready: Boolean(frontendUrl && agent.state === 'ready' && browserConnected),
-    frontend: { status: frontendUrl ? 'ready' : 'offline', url: frontendUrl },
+    ready: Boolean((frontendUrl && agent.state === 'ready' && browserConnected) || desktopReady),
+    runtime: runtimeStatus
+      ? { status: 'ready', surface: 'desktop-runtime', version: runtimeStatus.runtimeVersion }
+      : { status: 'offline', surface: 'desktop-runtime' },
+    frontend: { status: frontendUrl || runtimeStatus ? 'ready' : 'offline', url: frontendUrl },
     agent: { status: agent.state, url: agent.connection?.url || null },
     browser: {
       connected: browserConnected,
@@ -52,14 +51,28 @@ export async function getLocalStatus(options = {}) {
       revision: numericOrNull(health.revision),
       clients: Number(health.clients || 0),
       hasWorkflow: Boolean(health.hasWorkflow),
+      activeHostWriter: health.activeHostWriter || null,
     },
     browserConnected,
     clientId: health.clientId || null,
     projectId: health.activeProjectId || null,
     revision: numericOrNull(health.revision),
+    activeHostWriter: health.activeHostWriter || null,
   };
   if (agent.error) status.agent.error = agent.error;
   return status;
+}
+
+async function readRuntimeStatus(options) {
+  try {
+    const client = options.runtimeClient || new FlovartRuntimeClient({
+      discoveryPath: options.runtimeDiscoveryPath,
+      timeoutMs: options.timeoutMs || 800,
+    });
+    return await client.status();
+  } catch {
+    return null;
+  }
 }
 
 async function firstReachable(candidates, fetchImpl) {

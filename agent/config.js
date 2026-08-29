@@ -3,9 +3,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export const DEFAULT_AGENT_PORT = 17372;
-export const AGENT_DIR = path.join(os.homedir(), '.flovart');
-export const AGENT_CONFIG_FILE = process.env.FLOVART_AGENT_CONFIG || path.join(AGENT_DIR, 'agent.json');
+export const DEFAULT_AGENT_PORT = 17373;
+const configuredAgentConfig = process.env.FLOVART_AGENT_CONFIG
+  ? path.resolve(process.env.FLOVART_AGENT_CONFIG)
+  : null;
+export const AGENT_DIR = process.env.FLOVART_AGENT_HOME
+  ? path.resolve(process.env.FLOVART_AGENT_HOME)
+  : configuredAgentConfig
+    ? path.dirname(configuredAgentConfig)
+    : path.join(os.homedir(), '.flovart');
+export const AGENT_CONFIG_FILE = configuredAgentConfig || path.join(AGENT_DIR, 'agent.json');
 
 export function loadAgentConfig(create = false) {
   try {

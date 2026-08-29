@@ -1,13 +1,22 @@
 import http from 'node:http';
-import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadAgentConfig, saveAgentConfig, workspaceForProject } from './config.js';
-import { CodexAppServer } from './codex.js';
+import { DEFAULT_AGENT_PORT, loadAgentConfig, saveAgentConfig } from './config.js';
 import { FlovartAgentService } from './flovart.js';
-import { createFlovartAgentTools, startMcpServer } from './mcp.js';
-import { WorkflowAgentSession } from './session.js';
+import { createFlovartAgentTools } from './tools.js';
+import { SkillRegistry, BUNDLED_SKILL_IDS } from './skill-registry.js';
+import { WorkflowAgentSession, WorkflowAgentSessionError } from './session.js';
+import { CrewStore } from './crew/store.js';
+import { CrewService, CrewServiceError } from './crew/service.js';
+import { prepareAgentHostProjection } from './host-projection.js';
+import { importFlovartModule } from './flovart-modules.js';
+
+const { discoverAgentHosts } = await importFlovartModule('host-discovery');
+const { getAgentIdentity, resolveDirectorBinding } = await importFlovartModule('host-registry');
+
+const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const PROJECT_ROOT = path.resolve(process.env.FLOVART_PROJECT_DIR || REPOSITORY_ROOT);
+const WORKSPACE_ONLY = process.env.FLOVART_WORKSPACE_ONLY === '1';
 
 const json = (response, status, body) => {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -15,8 +24,6 @@ const json = (response, status, body) => {
 };
 
 const MAX_BODY_BYTES = 36 * 1024 * 1024;
-const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
-const MAX_TOTAL_ATTACHMENT_BYTES = 24 * 1024 * 1024;
 
 const readBody = request => new Promise((resolve, reject) => {
   let body = '';
@@ -40,49 +47,6 @@ const readBody = request => new Promise((resolve, reject) => {
   request.on('error', reject);
 });
 
-const threadValue = result => result?.thread || result || {};
-const threadInWorkspace = (thread, cwd) => {
-  const threadCwd = String(threadValue(thread)?.cwd || '');
-  return Boolean(threadCwd && path.resolve(threadCwd) === path.resolve(cwd));
-};
-
-async function requireWorkspaceThread(app, threadId, cwd, includeTurns = false) {
-  const result = await app.readThread(threadId, includeTurns);
-  if (!threadInWorkspace(result, cwd)) throw new Error('该 Codex 线程不属于当前 Workflow 工作空间');
-  return result;
-}
-
-function validateAttachments(value) {
-  if (!Array.isArray(value)) return [];
-  if (value.length > 6) throw new Error('最多上传 6 张图片');
-  let total = 0;
-  return value.map(item => {
-    const type = String(item?.type || '');
-    const name = String(item?.name || '未命名图片').slice(0, 180);
-    const dataUrl = String(item?.dataUrl || '');
-    const matched = dataUrl.match(/^data:image\/(?:png|jpe?g|webp|gif);base64,(.+)$/i);
-    if (!type.startsWith('image/') || !matched) throw new Error(`图片附件格式无效：${name}`);
-    const size = Buffer.byteLength(matched[1], 'base64');
-    if (size <= 0 || size > MAX_ATTACHMENT_BYTES) throw new Error(`单张图片不能超过 8MB：${name}`);
-    total += size;
-    return { type, name, size, dataUrl };
-  }).filter(item => {
-    if (total > MAX_TOTAL_ATTACHMENT_BYTES) throw new Error('图片附件总大小不能超过 24MB');
-    return true;
-  });
-}
-
-async function writeAttachments(attachments) {
-  return Promise.all(attachments.map(async item => {
-    const matched = item.dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-    if (!matched) throw new Error(`图片附件无效：${item.name}`);
-    const extension = matched[1].includes('png') ? 'png' : matched[1].includes('webp') ? 'webp' : matched[1].includes('gif') ? 'gif' : 'jpg';
-    const file = path.join(os.tmpdir(), `flovart-agent-${Date.now()}-${Math.random().toString(16).slice(2)}.${extension}`);
-    await fs.writeFile(file, Buffer.from(matched[2], 'base64'));
-    return file;
-  }));
-}
-
 const validToken = (request, url, token) => url.searchParams.get('token') === token || request.headers['x-flovart-agent-token'] === token;
 
 function setCors(request, response, url, config) {
@@ -102,18 +66,19 @@ function setCors(request, response, url, config) {
 
 export function startHttpServer() {
   const config = loadAgentConfig(true);
-  const port = Number(process.env.FLOVART_AGENT_PORT) || Number(new URL(config.url).port) || 17372;
-  config.url = `http://127.0.0.1:${port}`;
-  saveAgentConfig(config);
-  const session = new WorkflowAgentSession();
-  const flovart = new FlovartAgentService({
+  const requestedPort = process.env.FLOVART_AGENT_PORT === '0'
+    ? 0
+    : Number(process.env.FLOVART_AGENT_PORT) || Number(new URL(config.url).port) || DEFAULT_AGENT_PORT;
+  const session = new WorkflowAgentSession({ isKnownAgentIdentity: id => Boolean(getAgentIdentity(id)) });
+  const crew = new CrewService({
+    store: new CrewStore(),
+    callCommand: (command, args, source, idempotencyKey) => session.callCommand(command, args, source, idempotencyKey),
+  });
+  crew.recoverAfterRestart();
+  const skillRegistry = new SkillRegistry({ repoRoot: PROJECT_ROOT });
+  const flovart = WORKSPACE_ONLY ? null : new FlovartAgentService({
     tools: createFlovartAgentTools((...args) => session.callCommand(...args)),
   });
-  let codex;
-  const getCodex = async () => {
-    if (!codex) codex = await new CodexAppServer((type, payload) => session.emit(type, payload)).start();
-    return codex;
-  };
 
   const activeSse = new Set();
   const trackSse = response => {
@@ -125,7 +90,7 @@ export function startHttpServer() {
     const url = new URL(request.url || '/', config.url);
     if (!setCors(request, response, url, config)) return json(response, 403, { ok: false, error: 'origin not allowed' });
     if (request.method === 'OPTIONS') return json(response, 200, { ok: true });
-    if (url.pathname === '/health') return json(response, 200, session.health());
+    if (url.pathname === '/health') return json(response, 200, { ...session.health(), serviceMode: WORKSPACE_ONLY ? 'workspace-only' : 'agent' });
     if (url.pathname === '/config') return json(response, 200, { ok: true, url: config.url, hasToken: true, originBound: Boolean(config.origin) });
     if (!validToken(request, url, config.token)) return json(response, 401, { ok: false, error: 'invalid token' });
 
@@ -135,24 +100,193 @@ export function startHttpServer() {
         trackSse(response);
         return;
       }
+      if (request.method === 'GET' && url.pathname === '/hosts') {
+        return json(response, 200, {
+          ...discoverAgentHosts({
+            refresh: url.searchParams.get('refresh') === 'true',
+            includeVersion: url.searchParams.get('includeVersion') !== 'false',
+          }),
+          activeHostWriter: session.hostWriterState(),
+        });
+      }
+      if (request.method === 'POST' && url.pathname === '/hosts/prepare') {
+        const body = await readBody(request);
+        const result = prepareAgentHostProjection({
+          agentIdentity: body.agentIdentity || body.host,
+          projectDir: PROJECT_ROOT,
+        });
+        const status = result.ok ? 200 : result.error?.code === 'HOST_UNAVAILABLE' ? 409 : 400;
+        return json(response, status, result);
+      }
+      if (request.method === 'POST' && url.pathname === '/host/activate') {
+        const body = await readBody(request);
+        const agentIdentity = String(body.agentIdentity || body.host || '').trim().toLowerCase();
+        const host = discoverAgentHosts({ includeVersion: false }).agents.find(item => item.id === agentIdentity);
+        if (!host?.available) {
+          return json(response, 409, { ok: false, error: { code: 'HOST_UNAVAILABLE', message: `${agentIdentity || '该 Agent Host'} 当前未在本机就绪。` } });
+        }
+        return json(response, 200, { ok: true, ...session.activateAgentHost({
+          agentIdentity,
+          hostSessionId: body.hostSessionId || body['host-session-id'],
+          projectId: body.projectId || body['project-id'],
+        }) });
+      }
+      if (request.method === 'POST' && url.pathname === '/workflow/native/register') {
+        return json(response, 200, { ok: true, ...session.activateNativeWorkspace() });
+      }
+      if (request.method === 'GET' && url.pathname === '/workflow/native/state') {
+        return json(response, 200, { ok: true, ...session.nativeWorkspaceState() });
+      }
       if (request.method === 'POST' && url.pathname === '/workflow/state') {
         session.updateSnapshot(await readBody(request), url.searchParams.get('clientId') || undefined);
         return json(response, 200, { ok: true });
+      }
+      if (request.method === 'POST' && url.pathname === '/workflow/activate') {
+        const body = await readBody(request);
+        return json(response, 200, { ok: true, activeWriter: session.activateClient({
+          clientId: body.clientId || url.searchParams.get('clientId'),
+          projectId: body.projectId || url.searchParams.get('projectId'),
+        }) });
       }
       if (request.method === 'POST' && url.pathname === '/workflow/result') {
         session.resolveResult(await readBody(request));
         return json(response, 200, { ok: true });
       }
+      if (request.method === 'GET' && url.pathname === '/crew/protocol') {
+        return json(response, 200, { ok: true, ...crew.protocol() });
+      }
+      if (request.method === 'POST' && url.pathname === '/crew/intent') {
+        const body = await readBody(request);
+        const result = crew.submitIntent({
+          intentText: body.intentJson || body.intentText,
+          projectId: body.projectId,
+          idempotencyKey: body.idempotencyKey,
+          director: body.director || null,
+        });
+        return json(response, 200, { ok: true, ...result });
+      }
+      if (request.method === 'GET' && /^\/crew\/intent\/[^/]+$/.test(url.pathname)) {
+        return json(response, 200, { ok: true, intent: crew.getIntent(decodeURIComponent(url.pathname.split('/').pop())) });
+      }
+      if (request.method === 'POST' && /^\/crew\/intent\/[^/]+\/cancel$/.test(url.pathname)) {
+        const body = await readBody(request);
+        const intentId = decodeURIComponent(url.pathname.split('/').slice(-2)[0]);
+        const { intent, receipt, alreadyFinal } = crew.cancelIntent(intentId, body.reason);
+        return json(response, 200, { ok: true, intent, receipt, alreadyFinal });
+      }
+      if (request.method === 'GET' && /^\/crew\/receipt\/[^/]+$/.test(url.pathname)) {
+        return json(response, 200, { ok: true, receipt: crew.getReceipt(decodeURIComponent(url.pathname.split('/').pop())) });
+      }
+      if (request.method === 'GET' && url.pathname === '/crew/events') {
+        const after = Number(url.searchParams.get('afterEventId') ?? url.searchParams.get('after') ?? 0);
+        const limit = Number(url.searchParams.get('limit') ?? 100);
+        return json(response, 200, { ok: true, ...crew.listEvents({ afterEventId: after, limit }) });
+      }
+      if (request.method === 'POST' && url.pathname === '/director/bind') {
+        const body = await readBody(request);
+        const binding = crew.bindDirector({
+          hostKind: resolveDirectorBinding(body.agentIdentity || body.host || body.hostKind)?.runtimeHostKind,
+          sessionId: body.sessionId,
+          hostInstanceId: body.hostInstanceId,
+          projectId: body.projectId,
+        });
+        return json(response, 200, { ok: true, binding });
+      }
+      if (request.method === 'POST' && url.pathname === '/director/handoff') {
+        const body = await readBody(request);
+        const binding = crew.handoffDirector({
+          hostKind: resolveDirectorBinding(body.agentIdentity || body.host || body.hostKind)?.runtimeHostKind,
+          sessionId: body.sessionId,
+          hostInstanceId: body.hostInstanceId,
+          projectId: body.projectId,
+          expectedBindingId: body.expectedBindingId,
+        });
+        return json(response, 200, { ok: true, binding });
+      }
+      if (request.method === 'GET' && url.pathname === '/director/status') {
+        return json(response, 200, { ok: true, ...crew.directorStatus({
+          hostKind: resolveDirectorBinding(url.searchParams.get('agentIdentity') || url.searchParams.get('host'))?.runtimeHostKind,
+          sessionId: url.searchParams.get('sessionId') || undefined,
+          projectId: url.searchParams.get('projectId') || undefined,
+        }) });
+      }
+      if (request.method === 'POST' && url.pathname === '/director/unbind') {
+        const body = await readBody(request);
+        return json(response, 200, crew.unbindDirector({ bindingId: body.bindingId }));
+      }
+      if (request.method === 'GET' && url.pathname === '/api/skills') {
+        return json(response, 200, { ok: true, skills: await skillRegistry.scan() });
+      }
+      if (request.method === 'GET' && /^\/api\/skills\/[^/]+$/.test(url.pathname)) {
+        const id = decodeURIComponent(url.pathname.split('/').at(-1));
+        let manifest;
+        try {
+          manifest = await skillRegistry.manifest(id);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const notFound = /不在本机注册表|无效的 Skill id/.test(message);
+          return json(response, notFound ? 404 : 400, { ok: false, error: { message } });
+        }
+        return json(response, 200, { ok: true, manifest });
+      }
+      if (request.method === 'POST' && url.pathname === '/api/skills/install') {
+        const body = await readBody(request);
+        const id = String(body.id || '');
+        const hubUrl = String(body.hubUrl || '');
+        let hub;
+        try {
+          hub = new URL(hubUrl);
+        } catch {
+          return json(response, 400, { ok: false, error: { message: 'Skill Hub 地址无效。' } });
+        }
+        const loopbackHosts = new Set(['127.0.0.1', 'localhost', '[::1]']);
+        const loopbackHttp = hub.protocol === 'http:' && loopbackHosts.has(hub.hostname);
+        if (hub.protocol !== 'https:' && !loopbackHttp) {
+          return json(response, 400, { ok: false, error: { message: 'Skill Hub 只允许 https 或本机 loopback http。' } });
+        }
+        let packageResponse;
+        try {
+          packageResponse = await fetch(new URL(`/api/skills/${encodeURIComponent(id)}/package.json`, hub.origin));
+        } catch {
+          return json(response, 502, { ok: false, error: { message: `无法从 Skill Hub 下载 ${id}。` } });
+        }
+        if (!packageResponse.ok) {
+          return json(response, 502, { ok: false, error: { message: `Skill Hub 返回 HTTP ${packageResponse.status}。` } });
+        }
+        const pkg = await packageResponse.json().catch(() => null);
+        if (!pkg || typeof pkg !== 'object' || String(pkg.id) !== id) {
+          return json(response, 400, { ok: false, error: { message: 'Skill 包格式无效。' } });
+        }
+        try {
+          const skill = await skillRegistry.installPackage({
+            id,
+            version: typeof pkg.version === 'string' ? pkg.version : undefined,
+            files: Array.isArray(pkg.files) ? pkg.files : [],
+          });
+          return json(response, 200, { ok: true, skill });
+        } catch (error) {
+          return json(response, 400, { ok: false, error: { message: error instanceof Error ? error.message : String(error) } });
+        }
+      }
+      if (request.method === 'POST' && url.pathname === '/api/skills/uninstall') {
+        const body = await readBody(request);
+        try {
+          await skillRegistry.uninstall(String(body.id || ''));
+          return json(response, 200, { ok: true });
+        } catch (error) {
+          return json(response, 400, { ok: false, error: { message: error instanceof Error ? error.message : String(error) } });
+        }
+      }
       if (request.method === 'POST' && url.pathname === '/api/tools') {
         const body = await readBody(request);
-        const result = await session.callCommand(body.command, body.args || {}, body.source || 'agent', body.idempotencyKey);
+        const result = await session.callCommand(body.command, body.args || {}, body.source || 'agent', body.idempotencyKey, undefined, body.caller);
         return json(response, 200, { ok: true, result });
       }
-      if (request.method === 'GET' && url.pathname === '/agent/flovart/session') {
+      if (flovart && request.method === 'GET' && url.pathname === '/agent/flovart/session') {
         const projectId = url.searchParams.get('projectId') || 'default';
         return json(response, 200, { ok: true, ...(await flovart.snapshot(projectId)) });
       }
-      if (request.method === 'POST' && url.pathname === '/agent/flovart/turn') {
+      if (flovart && request.method === 'POST' && url.pathname === '/agent/flovart/turn') {
         const body = await readBody(request);
         const projectId = String(body.projectId || 'default');
         response.writeHead(200, {
@@ -197,95 +331,48 @@ export function startHttpServer() {
         }
         return;
       }
-      if (request.method === 'POST' && url.pathname === '/agent/flovart/cancel') {
+      if (flovart && request.method === 'POST' && url.pathname === '/agent/flovart/cancel') {
         const body = await readBody(request);
         await flovart.cancel(String(body.projectId || 'default'));
         return json(response, 200, { ok: true });
       }
-      if (request.method === 'GET' && url.pathname === '/agent/codex/threads') {
-        const cwd = workspaceForProject(url.searchParams.get('projectId') || 'default');
-        const result = await (await getCodex()).listThreads(url.searchParams.get('searchTerm') || '', cwd);
-        const data = Array.isArray(result?.data) ? result.data.filter(thread => threadInWorkspace(thread, cwd)) : [];
-        return json(response, 200, { ok: true, ...result, data });
-      }
-      if (request.method === 'GET' && url.pathname.startsWith('/agent/codex/threads/')) {
-        const threadId = decodeURIComponent(url.pathname.split('/').pop());
-        const cwd = workspaceForProject(url.searchParams.get('projectId') || 'default');
-        return json(response, 200, { ok: true, ...(await requireWorkspaceThread(await getCodex(), threadId, cwd, true)) });
-      }
-      if (request.method === 'POST' && url.pathname === '/agent/codex/threads/new') {
-        const body = await readBody(request);
-        const projectId = String(body.projectId || 'default');
-        const thread = await (await getCodex()).startThread(workspaceForProject(projectId));
-        const threadId = String(thread?.id || '');
-        config.threads ||= {};
-        config.threads[projectId] = threadId;
-        saveAgentConfig(config);
-        return json(response, 200, { ok: true, thread, threadId, messages: [] });
-      }
-      if (request.method === 'POST' && /\/agent\/codex\/threads\/[^/]+\/resume$/.test(url.pathname)) {
-        const body = await readBody(request);
-        const threadId = decodeURIComponent(url.pathname.split('/').slice(-2)[0]);
-        const projectId = String(body.projectId || 'default');
-        const cwd = workspaceForProject(projectId);
-        await requireWorkspaceThread(await getCodex(), threadId, cwd);
-        const thread = await (await getCodex()).resumeThread(threadId, cwd);
-        config.threads ||= {};
-        config.threads[projectId] = threadId;
-        saveAgentConfig(config);
-        const history = await requireWorkspaceThread(await getCodex(), threadId, cwd, true);
-        return json(response, 200, { ok: true, thread, ...history });
-      }
-      if (request.method === 'POST' && url.pathname === '/agent/codex/turn') {
-        const body = await readBody(request);
-        const projectId = String(body.projectId || 'default');
-        const cwd = workspaceForProject(projectId);
-        const app = await getCodex();
-        let threadId = String(body.threadId || config.threads?.[projectId] || '');
-        if (threadId) {
-          await requireWorkspaceThread(app, threadId, cwd);
-          await app.resumeThread(threadId, cwd);
-        }
-        else {
-          const thread = await app.startThread(cwd);
-          threadId = String(thread?.id || '');
-          config.threads ||= {};
-          config.threads[projectId] = threadId;
-          saveAgentConfig(config);
-        }
-        const attachments = validateAttachments(body.attachments);
-        const files = await writeAttachments(attachments);
-        void app.startTurn(threadId, `你正在操作 Flovart Workflow。先使用 flovart_workflow_inspect 读取状态，修改时使用 Flovart MCP 原子命令。不得猜测节点 ID，不得读取或输出 API Key、storageKey、本地路径。\n\n用户请求：${String(body.prompt || '')}`, files)
-          .catch(error => session.emit('agent_error', { message: error instanceof Error ? error.message : String(error) }))
-          .finally(() => Promise.all(files.map(file => fs.unlink(file).catch(() => undefined))));
-        return json(response, 200, { ok: true, threadId });
-      }
-      if (request.method === 'POST' && /\/agent\/codex\/threads\/[^/]+\/archive$/.test(url.pathname)) {
-        const body = await readBody(request);
-        const threadId = decodeURIComponent(url.pathname.split('/').slice(-2)[0]);
-        const projectId = String(body.projectId || 'default');
-        const cwd = workspaceForProject(projectId);
-        const app = await getCodex();
-        await requireWorkspaceThread(app, threadId, cwd);
-        await app.archiveThread(threadId);
-        if (config.threads?.[projectId] === threadId) delete config.threads[projectId];
-        saveAgentConfig(config);
-        return json(response, 200, { ok: true });
-      }
       return json(response, 404, { ok: false, error: 'not found' });
     } catch (error) {
+      if (error instanceof WorkflowAgentSessionError) {
+        const status = ['AGENT_WRITER_INACTIVE', 'AGENT_HOST_REQUIRED', 'AGENT_HOST_SESSION_MISMATCH', 'AGENT_PROJECT_INACTIVE'].includes(error.code) ? 409 : 400;
+        return json(response, status, { ok: false, error: error.toJSON() });
+      }
+      if (error instanceof CrewServiceError) {
+        const status = error.code === 'NOT_FOUND' ? 404
+          : error.code === 'BINDING_CONFLICT' || error.code === 'IDEMPOTENCY_CONFLICT' ? 409
+            : error.code === 'RECEIPT_PENDING' ? 202 : 400;
+        return json(response, status, { ok: false, error: error.toJSON(), crew: true });
+      }
       return json(response, 500, { ok: false, error: { message: error instanceof Error ? error.message : String(error) } });
     }
   });
 
-  server.listen(port, '127.0.0.1', () => {
-    console.log('Flovart Agent');
-    console.log(`Local URL: ${config.url}`);
-    console.log(`Codex MCP: codex mcp add flovart -- node "${fileURLToPath(new URL('./index.js', import.meta.url))}" mcp`);
-  });
+  const listen = port => {
+    server.once('error', error => {
+      if (error?.code === 'EADDRINUSE' && port !== 0 && process.env.FLOVART_AGENT_PORT !== '0') {
+        listen(0);
+        return;
+      }
+      console.error(`[flovart-agent] unable to listen on localhost:${port}: ${error?.message || error}`);
+      process.exitCode = 1;
+    });
+    server.listen(port, '127.0.0.1', () => {
+      const address = server.address();
+      const actualPort = typeof address === 'object' && address ? address.port : port;
+      config.url = `http://127.0.0.1:${actualPort}`;
+      saveAgentConfig(config);
+      console.log(WORKSPACE_ONLY ? 'Flovart Workspace Operator' : 'Flovart Agent');
+      console.log(`Local URL: ${config.url}`);
+    });
+  };
+  listen(requestedPort);
   const close = () => {
-    codex?.close();
-    void flovart.close();
+    if (flovart) void flovart.close();
     for (const res of activeSse) {
       try { res.end(); } catch { /* SSE connection already closed */ }
     }
@@ -297,5 +384,4 @@ export function startHttpServer() {
   return server;
 }
 
-if (process.argv[2] === 'mcp') await startMcpServer();
-else startHttpServer();
+startHttpServer();

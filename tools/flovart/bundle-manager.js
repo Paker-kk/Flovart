@@ -112,7 +112,7 @@ function validateBundle(bundle, manifest) {
 }
 
 async function writeLauncher(paths) {
-  const source = `import { readFileSync } from 'node:fs';\nimport { spawnSync } from 'node:child_process';\nimport { isAbsolute, resolve } from 'node:path';\nconst currentFile = ${JSON.stringify(paths.currentFile)};\nconst current = JSON.parse(readFileSync(currentFile, 'utf8'));\nconst bundleDir = current.bundleDir;\nconst bundle = JSON.parse(readFileSync(resolve(bundleDir, 'bundle.json'), 'utf8'));\nconst entry = bundle.entrypoints.cli;\nconst command = entry.command === '$NODE' ? process.execPath : (isAbsolute(entry.command) ? entry.command : resolve(bundleDir, entry.command));\nconst mapArg = value => { const text = String(value); if (text === '{bundle}') return bundleDir; if (/^\\{bundle\\}[\\\\/]/.test(text)) return resolve(bundleDir, text.slice(9)); return text.replaceAll('{bundle}', bundleDir); };\nconst args = [...(entry.args || []).map(mapArg), ...process.argv.slice(2)];\nconst result = spawnSync(command, args, { stdio: 'inherit', cwd: bundleDir, shell: false });\nprocess.exit(result.status ?? 1);\n`;
+const source = `import { readFileSync } from 'node:fs';\nimport { spawnSync } from 'node:child_process';\nimport { isAbsolute, resolve } from 'node:path';\nconst currentFile = ${JSON.stringify(paths.currentFile)};\nconst current = JSON.parse(readFileSync(currentFile, 'utf8'));\nconst bundleDir = current.bundleDir;\nconst bundle = JSON.parse(readFileSync(resolve(bundleDir, 'bundle.json'), 'utf8'));\nconst entry = bundle.entrypoints.cli;\nconst command = entry.command === '$NODE' ? process.execPath : (isAbsolute(entry.command) ? entry.command : resolve(bundleDir, entry.command));\nconst mapArg = value => { const text = String(value); if (text === '{bundle}') return bundleDir; if (/^\\{bundle\\}[\\\\/]/.test(text)) return resolve(bundleDir, text.slice(9)); return text.replaceAll('{bundle}', bundleDir); };\nconst args = [...(entry.args || []).map(mapArg), ...process.argv.slice(2)];\nconst result = spawnSync(command, args, { stdio: 'inherit', cwd: process.cwd(), shell: false });\nprocess.exit(result.status ?? 1);\n`;
   await mkdir(paths.binDir, { recursive: true });
   await writeFile(paths.launcherFile, source, 'utf8');
   const posixLauncher = join(paths.binDir, 'flovart');
@@ -215,15 +215,32 @@ export function planToolkitStart(options = {}) {
   const names = ['runtime'];
   if (options.agent !== 'none' && options.noAgent !== true) names.push('agent');
   const processes = names.map(name => ({ name, ...resolveEntrypoint(installed.current.bundleDir, installed.bundle.entrypoints[name]) }));
-  return { mode: 'toolkit', version: installed.current.version, protocolVersion: installed.current.protocolVersion, bundleDir: installed.current.bundleDir, processes };
+  return {
+    mode: 'toolkit',
+    version: installed.current.version,
+    protocolVersion: installed.current.protocolVersion,
+    bundleDir: installed.current.bundleDir,
+    open: options.open === true,
+    processes,
+  };
 }
 
 export function startToolkit(options = {}) {
   const plan = planToolkitStart(options);
+  const projectDir = resolve(options.projectDir || process.env.FLOVART_PROJECT_DIR || process.cwd());
+  const detached = options.detach === true || options.json === true;
+  const stdio = options.quiet === true || options.json === true ? 'ignore' : 'inherit';
   const children = plan.processes.map(item => ({
     name: item.name,
-    child: spawn(item.command, item.args, { cwd: item.cwd, stdio: 'inherit', shell: false, windowsHide: false, env: { ...process.env, FLOVART_TOOLKIT_DIR: plan.bundleDir } }),
+    child: spawn(item.command, item.args, {
+      cwd: item.cwd,
+      stdio,
+      shell: false,
+      windowsHide: detached,
+      env: { ...process.env, FLOVART_TOOLKIT_DIR: plan.bundleDir, FLOVART_PROJECT_DIR: projectDir },
+    }),
   }));
+  if (detached) children.forEach(({ child }) => child.unref());
   let stopping = false;
   const close = () => {
     if (stopping) return;

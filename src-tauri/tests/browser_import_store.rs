@@ -180,3 +180,116 @@ fn commit_rejects_bytes_that_do_not_match_the_declared_image_mime() {
     drop(store);
     fs::remove_dir_all(&root).expect("remove test root");
 }
+
+#[test]
+fn video_transfer_requires_the_video_capability_and_commits_a_video_artifact() {
+    let root = test_root();
+    let database_path = root.join("flovart-state.db");
+    let artifact_root = root.join("runtime-artifacts");
+    fs::create_dir_all(&root).expect("test root");
+    let store = BrowserImportStore::open(&database_path, &artifact_root).expect("import store");
+
+    // Image-only pairing cannot begin a video transfer.
+    store
+        .request_pairing(EXTENSION_ORIGIN, "1", &["browser.import.image".to_owned()])
+        .expect("image pairing request");
+    store.approve_pairing(EXTENSION_ORIGIN).expect("approve");
+    // WebM EBML magic: 0x1A 0x45 0xDF 0xA3 ...
+    let bytes: &[u8] = &[0x1A, 0x45, 0xDF, 0xA3, 1, 2, 3, 4, 5];
+    let denied = store
+        .begin_import(
+            EXTENSION_ORIGIN,
+            BrowserImportBegin {
+                request_id: "video-without-capability".to_owned(),
+                kind: "video".to_owned(),
+                name: "clip.webm".to_owned(),
+                mime_type: "video/webm".to_owned(),
+                byte_size: bytes.len() as u64,
+                sha256: hex::encode(Sha256::digest(bytes)),
+                source_url: None,
+                source_page_url: None,
+                source_title: None,
+                natural_width: None,
+                natural_height: None,
+            },
+        )
+        .expect_err("video without capability denied");
+    assert_eq!(denied.code, "PERMISSION_DENIED");
+
+    // A pairing declaring image+video capabilities enables the transfer.
+    let media_pairing = store
+        .request_pairing(
+            "chrome-extension://mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/",
+            "1",
+            &[
+                "browser.import.image".to_owned(),
+                "browser.import.video".to_owned(),
+            ],
+        )
+        .expect("media pairing request");
+    assert_eq!(media_pairing.capabilities.len(), 2);
+    store
+        .approve_pairing("chrome-extension://mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/")
+        .expect("approve media extension");
+
+    let transfer = store
+        .begin_import(
+            "chrome-extension://mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/",
+            BrowserImportBegin {
+                request_id: "video-transfer".to_owned(),
+                kind: "video".to_owned(),
+                name: "clip.webm".to_owned(),
+                mime_type: "video/webm".to_owned(),
+                byte_size: bytes.len() as u64,
+                sha256: hex::encode(Sha256::digest(bytes)),
+                source_url: None,
+                source_page_url: None,
+                source_title: None,
+                natural_width: None,
+                natural_height: None,
+            },
+        )
+        .expect("begin video transfer");
+    store
+        .append_chunk(
+            "chrome-extension://mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/",
+            &transfer.transfer_id,
+            0,
+            bytes,
+        )
+        .expect("append video bytes");
+
+    let receipt = store
+        .commit_import(
+            "chrome-extension://mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/",
+            &transfer.transfer_id,
+        )
+        .expect("commit video artifact");
+    assert_eq!(receipt.kind, "video");
+    assert_eq!(receipt.mime_type, "video/webm");
+    assert!(store.list_pending().expect("inbox has video").len() == 1);
+
+    // Unsupported media kinds and MIME types are still rejected.
+    let rejected_kind = store
+        .begin_import(
+            "chrome-extension://mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/",
+            BrowserImportBegin {
+                request_id: "audio-kind".to_owned(),
+                kind: "audio".to_owned(),
+                name: "sound.mp3".to_owned(),
+                mime_type: "audio/mpeg".to_owned(),
+                byte_size: 1,
+                sha256: hex::encode(Sha256::digest(b"x")),
+                source_url: None,
+                source_page_url: None,
+                source_title: None,
+                natural_width: None,
+                natural_height: None,
+            },
+        )
+        .expect_err("audio kind rejected");
+    assert_eq!(rejected_kind.code, "INVALID_ARGUMENT");
+
+    drop(store);
+    fs::remove_dir_all(&root).expect("remove test root");
+}

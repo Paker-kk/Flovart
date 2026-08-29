@@ -3,7 +3,8 @@ import { canonicalize } from 'json-canonicalize';
 import { useWorkflowStore } from '../components/workflow/store';
 import type { WorkflowProject } from '../components/workflow/types';
 import { getFlovartRuntimeApi, type RuntimeCommandEnvelope } from './flovartRuntime';
-import { dispatchWorkflowCommand, redactWorkflowAgentValue, type WorkflowCommandEnvelope, type WorkflowCommandResult } from './workflowDispatcher';
+import { createBrowserWorkflowContract, type BrowserWorkflowContract } from './browserWorkflowContract';
+import { redactWorkflowAgentValue, type WorkflowCommandEnvelope, type WorkflowCommandResult } from './workflowDispatcher';
 import { workflowCommandSummary } from '../components/workflow/agentOps';
 import { getWorkflowOperationCapabilityByNodeTool } from '../components/workflow/operationRegistry';
 
@@ -13,36 +14,12 @@ const RUNTIME_COMMANDS = new Set([
   'task.get', 'task.cancel', 'workflow.projection.get',
 ]);
 const RUNTIME_CONFIRM_COMMANDS = new Set(['production.approve', 'production.run', 'task.cancel']);
-const READ_COMMANDS = new Set(['runtime.status', 'status', 'provider.status', 'asset.list', 'workflow.project.list', 'workflow.inspect', 'command.list', 'command.schema']);
-const WORKFLOW_READ_COMMANDS = new Set(['workflow.project.list', 'workflow.inspect']);
-const MAX_ATTACHMENTS = 6;
-const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
-const MAX_TOTAL_ATTACHMENT_BYTES = 24 * 1024 * 1024;
+const READ_COMMANDS = new Set(['runtime.status', 'status', 'provider.status', 'asset.list', 'workflow.project.list', 'workflow.inspect', 'workflow.selection.get', 'command.list', 'command.schema']);
+const WORKFLOW_READ_COMMANDS = new Set(['workflow.project.list', 'workflow.inspect', 'workflow.selection.get']);
 const REQUEST_TIMEOUT_MS = 45_000;
-
-export interface WorkflowAgentAttachment {
-  id: string;
-  name: string;
-  type: string;
-  size: number;
-  dataUrl: string;
-  previewUrl?: string;
-}
 
 export function redactWorkflowAgentSnapshot<T>(snapshot: T): T {
   return redactWorkflowAgentValue(snapshot);
-}
-
-export function validateWorkflowAgentAttachments(attachments: WorkflowAgentAttachment[]) {
-  if (attachments.length > MAX_ATTACHMENTS) throw new Error(`最多上传 ${MAX_ATTACHMENTS} 张图片。`);
-  let total = 0;
-  attachments.forEach(attachment => {
-    if (!attachment.type.startsWith('image/')) throw new Error(`仅支持图片附件：${attachment.name}`);
-    if (!Number.isFinite(attachment.size) || attachment.size <= 0 || attachment.size > MAX_ATTACHMENT_BYTES) throw new Error(`单张图片不能超过 8MB：${attachment.name}`);
-    if (!/^data:image\/(?:png|jpe?g|webp|gif);base64,/i.test(attachment.dataUrl)) throw new Error(`图片附件格式无效：${attachment.name}`);
-    total += attachment.size;
-  });
-  if (total > MAX_TOTAL_ATTACHMENT_BYTES) throw new Error('图片附件总大小不能超过 24MB。');
 }
 
 export interface WorkflowAgentBridgeOptions {
@@ -52,6 +29,7 @@ export interface WorkflowAgentBridgeOptions {
   onStatus?: (status: 'connecting' | 'connected' | 'disconnected' | 'error') => void;
   confirm?: (summary: string) => boolean | Promise<boolean>;
   confirmWrite?: (summary: string) => boolean | Promise<boolean>;
+  workflowContract?: BrowserWorkflowContract;
 }
 
 export function requiresRuntimeAgentConfirmation(command: string) {
@@ -150,8 +128,15 @@ export class WorkflowAgentBridge {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
   private enabled = false;
+  private readonly workflowContract: BrowserWorkflowContract;
 
-  constructor(private options: WorkflowAgentBridgeOptions) {}
+  constructor(private options: WorkflowAgentBridgeOptions) {
+    this.workflowContract = options.workflowContract || createBrowserWorkflowContract();
+  }
+
+  getClientId(): string {
+    return this.clientId;
+  }
 
   connect() {
     this.enabled = true;
@@ -171,40 +156,8 @@ export class WorkflowAgentBridge {
     return this.post('/workflow/state', redactWorkflowAgentSnapshot(snapshot), { clientId: this.clientId });
   }
 
-  async sendPrompt(input: { projectId: string; prompt: string; threadId?: string; attachments?: WorkflowAgentAttachment[] }) {
-    const attachments = input.attachments || [];
-    validateWorkflowAgentAttachments(attachments);
-    return this.post('/agent/codex/turn', {
-      projectId: input.projectId,
-      prompt: input.prompt,
-      threadId: input.threadId,
-      attachments: attachments.map(({ name, type, size, dataUrl }) => ({ name, type, size, dataUrl })),
-    });
-  }
-
-  async listThreads(projectId: string, searchTerm = '') {
-    const url = new URL('/agent/codex/threads', this.options.url);
-    url.searchParams.set('projectId', projectId);
-    if (searchTerm) url.searchParams.set('searchTerm', searchTerm);
-    return this.request(url, { method: 'GET' });
-  }
-
-  async newThread(projectId: string) {
-    return this.post('/agent/codex/threads/new', { projectId });
-  }
-
-  async readThread(projectId: string, threadId: string) {
-    const url = new URL(`/agent/codex/threads/${encodeURIComponent(threadId)}`, this.options.url);
-    url.searchParams.set('projectId', projectId);
-    return this.request(url, { method: 'GET' });
-  }
-
-  async resumeThread(projectId: string, threadId: string) {
-    return this.post(`/agent/codex/threads/${encodeURIComponent(threadId)}/resume`, { projectId });
-  }
-
-  async archiveThread(projectId: string, threadId: string) {
-    return this.post(`/agent/codex/threads/${encodeURIComponent(threadId)}/archive`, { projectId });
+  async activateWriter(projectId?: string) {
+    return this.post('/workflow/activate', { clientId: this.clientId, ...(projectId ? { projectId } : {}) });
   }
 
   private openEvents() {
@@ -223,7 +176,7 @@ export class WorkflowAgentBridge {
     });
     source.addEventListener('ping', event => this.emit('ping', this.parseEvent(event)));
     source.addEventListener('tool_call', event => void this.handleToolCall(this.parseEvent(event)));
-    ['agent_event', 'agent_log', 'agent_error', 'agent_done'].forEach(type => source.addEventListener(type, event => this.emit(type, this.parseEvent(event))));
+    ['agent_event', 'agent_log', 'agent_error', 'agent_done', 'writer_changed', 'writer_unavailable', 'host_writer_changed'].forEach(type => source.addEventListener(type, event => this.emit(type, this.parseEvent(event))));
     source.onerror = () => {
       source.close();
       if (this.eventSource === source) this.eventSource = null;
@@ -270,19 +223,20 @@ export class WorkflowAgentBridge {
           }
         }
       } else if (envelope.command.startsWith('workflow.')) {
-        if (this.options.confirmWrite && !WORKFLOW_READ_COMMANDS.has(envelope.command)
-          && !requiresHighRiskWorkflowConfirmation(envelope)
+        const highRisk = requiresHighRiskWorkflowConfirmation(envelope);
+        const operatorDraftOnly = envelope.source === 'operator' && !highRisk;
+        if (this.options.confirmWrite && !WORKFLOW_READ_COMMANDS.has(envelope.command) && !highRisk && !operatorDraftOnly
           && !await this.options.confirmWrite(workflowCommandSummary(envelope.command, envelope.args))) {
           result = { ok: false, commandId: envelope.id, error: { code: 'DENIED', message: '用户拒绝了 Workflow 变更。' } };
           await this.post('/workflow/result', { requestId, clientId: this.clientId, result });
           this.emit('tool_result', { requestId, command: envelope.command, result });
           return;
         }
-        result = await dispatchWorkflowCommand(envelope);
+        result = await this.workflowContract.dispatch(envelope);
         if (result.confirmation?.required) {
           const approved = await this.confirm(result.confirmation.summary);
           result = approved
-            ? await dispatchWorkflowCommand({ ...envelope, args: { ...envelope.args, confirmed: true } })
+            ? await this.workflowContract.dispatch({ ...envelope, args: { ...envelope.args, confirmed: true } })
             : { ok: false, commandId: envelope.id, error: { code: 'DENIED', message: '用户拒绝了 Workflow 变更。' } } satisfies WorkflowCommandResult;
         }
       } else {

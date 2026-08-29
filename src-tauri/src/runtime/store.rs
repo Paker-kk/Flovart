@@ -27,6 +27,9 @@ pub struct ClaimedTask {
     pub progress: Option<Value>,
 }
 
+// 执行快照契约字段：由 worker 写入，供未来 UI / 断点恢复读取；
+// rustc 暂未见 crate 内读取方，保留为持久化/输出契约。
+#[allow(dead_code)]
 pub struct StageExec {
     pub id: String,
     pub stage_key: String,
@@ -38,6 +41,7 @@ pub struct StageExec {
     pub dependencies: Vec<String>,
 }
 
+#[allow(dead_code)]
 pub struct RunExecution {
     pub status: String,
     pub review_policy: String,
@@ -1173,6 +1177,9 @@ impl RuntimeStore {
         Ok(RuntimeTaskPage { tasks, next_cursor })
     }
 
+    /// 对外便捷包装（内部调度用 claim_next_task_filtered 区分任务类型）；
+    /// 保留给未来外部调用方（tauri command / CLI）。
+    #[allow(dead_code)]
     pub fn claim_next_task(
         &self,
         worker_id: &str,

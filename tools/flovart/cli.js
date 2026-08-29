@@ -1,15 +1,21 @@
 #!/usr/bin/env node
 import { COMMAND_REGISTRY, executeFlovartCommand, formatValue, normalizeCommandName, parseCliArgs, SETUP_TEXT } from './core.js';
+import { getCanonicalRegistry } from './registry.js';
+import { resolveDirectorBinding } from './host-registry.js';
 import { createShadowRuntimeFacade } from './shadow-runtime.js';
 import { readFile } from 'node:fs/promises';
 import { defaultRuntimeActor, FlovartRuntimeClient, RuntimeClientError } from './runtime-client.js';
 import { RUNTIME_COMMANDS, RUNTIME_WRITE_COMMANDS } from './runtime-command-surface.js';
 import { WORKSPACE_COMMANDS, WORKSPACE_WRITE_COMMANDS } from './workspace-command-surface.js';
+import { CREW_COMMANDS, CREW_WRITE_COMMANDS } from './crew-command-surface.js';
 import { RESEARCH_COMMANDS, RESEARCH_WRITE_COMMANDS } from './research-command-surface.js';
 import { collectTopicResearch } from './topic-research.js';
+import { runSkillCommand, SKILL_COMMAND_NAMES } from './skill-commands.js';
+import { getLocalStatus } from './local-status.js';
 import {
   createWorkspaceFacade,
   FlovartWorkspaceClient,
+  FlovartCrewClient,
   WorkspaceClientError,
 } from './workspace-client.js';
 
@@ -29,7 +35,7 @@ function normalizeAtomicAlias(rawCommand, parsedArgs) {
 }
 
 const LOCAL_COMMANDS = new Set([
-  'help', 'setup', 'init', 'doctor',
+  'help', 'setup', 'init', 'doctor', 'host.list',
   'inspiration.search', 'inspiration.get',
   'prompt.enhance', 'batch.plan',
   'preferences.manage', 'models.list',
@@ -37,16 +43,13 @@ const LOCAL_COMMANDS = new Set([
 const CLIENT_REGISTRY_COMMANDS = new Set(['command.list', 'command.schema']);
 
 const FILE_STATE_COMMANDS = new Set([
-  'status',
   'asset.list', 'export.project', 'video.status',
 ]);
 
-// 浏览器 Bridge 双轨路由已删除（docs/dev/production-runtime-s0-s1-work-items.md）：
-// 这些命令曾写入 .flovart/command-queue.json 由浏览器轮询执行，前端已无消费方，
-// 入队后永不被执行。现在直接返回明确错误，不再返回 ok:true 假成功。
+// 旧浏览器 Bridge 文件队列已删除；Workflow 节点运行/停止现在只通过
+// Workspace Adapter 转发到浏览器 Authority 的唯一 WorkflowExecutor。
 const RETIRED_COMMANDS = new Set([
   'provider.begin-setup', 'provider.select-model', 'provider.test',
-  'workflow.node.run', 'workflow.node.stop',
   'generate.images-batch',
 ]);
 
@@ -81,6 +84,16 @@ function runtimeInvocation(command, parsed) {
   return { commandArgs, options: { ...(idempotencyKey ? { idempotencyKey } : {}) } };
 }
 
+function directorAgentIdentity(parsed, { optional = false } = {}) {
+  const identity = parsed.agentIdentity || parsed['agent-identity'] || parsed.host || parsed._?.[0];
+  if (!identity && optional) return undefined;
+  const binding = resolveDirectorBinding(identity);
+  if (!binding) {
+    throw new WorkspaceClientError('INVALID_ARGUMENT', `Agent Identity 无可用的 Director Runtime Binding：${identity || '(empty)'}`, { retryable: false });
+  }
+  return binding.agentIdentityId;
+}
+
 const rawCommand = argv[0];
 
 if (rawCommand === 'tui' || rawCommand === 'ui' || rawCommand === 'interactive' || (!rawCommand && process.stdin.isTTY)) {
@@ -92,33 +105,31 @@ if (rawCommand === 'tui' || rawCommand === 'ui' || rawCommand === 'interactive' 
 if (['install', 'start', 'update'].includes(rawCommand)) {
   const mod = await import('./dev-commands.js');
   await mod[rawCommand](argv.slice(1));
-  process.exit(0);
-}
-
-if (rawCommand === 'agent') {
+} else if (rawCommand === 'agent') {
   await import('./managed-agent/index.js').catch(() => import('../../agent/index.js'));
-  process.exit(0);
-}
+} else {
+  const parsedArgs = parseCliArgs(argv.slice(1));
+  const normalizedAtomic = normalizeAtomicAlias(rawCommand, parsedArgs);
+  const command = normalizeCommandName(normalizedAtomic.command);
+  const args = normalizedAtomic.args;
+  let fileReadError = false;
 
-const parsedArgs = parseCliArgs(argv.slice(1));
-const normalizedAtomic = normalizeAtomicAlias(rawCommand, parsedArgs);
-const command = normalizeCommandName(normalizedAtomic.command);
-const args = normalizedAtomic.args;
-
-if (args.file) {
-  try {
-    const payload = JSON.parse(await readFile(args.file, 'utf8'));
-    if (command === 'generate.images-batch' || command === 'generate.video') args.items = payload.items || payload;
-    if (command === 'production.dry-run') args.spec = payload;
-  } catch (error) {
-    printCliResponse(false, command || 'unknown', null, { code: 'FILE_READ_ERROR', message: error instanceof Error ? error.message : String(error) });
-    process.exit(1);
+  if (args.file) {
+    try {
+      const payload = JSON.parse(await readFile(args.file, 'utf8'));
+      if (command === 'generate.images-batch' || command === 'generate.video') args.items = payload.items || payload;
+      if (command === 'production.dry-run') args.spec = payload;
+    } catch (error) {
+      printCliResponse(false, command || 'unknown', null, { code: 'FILE_READ_ERROR', message: error instanceof Error ? error.message : String(error) });
+      fileReadError = true;
+      process.exitCode = 1;
+    }
   }
-}
 
-async function main() {
+  async function main() {
+  if (fileReadError) return;
   if (!command) {
-    printCliResponse(true, 'help', { usage: 'flovart  # opens TUI; or flovart <command> --json', setup: SETUP_TEXT, commands: { tui: 'Open slash-command TUI', install: 'Download and verify the versioned Agent Toolkit', start: 'Launch local Runtime/WebUI and the managed coding agent', update: 'Install and switch to the latest compatible Toolkit', source: 'Add --source for Vite/Go/Docker contributor services' } });
+    printCliResponse(true, 'help', { usage: 'flovart  # opens TUI; or flovart <command> --json', setup: SETUP_TEXT, commands: { tui: 'Open slash-command TUI', install: 'Download and verify the versioned Agent Toolkit', start: 'Launch local Runtime/WebUI services', update: 'Install and switch to the latest compatible Toolkit', source: 'Add --source for Vite/Go/Docker contributor services' } });
     return;
   }
 
@@ -189,6 +200,97 @@ async function main() {
     return;
   }
 
+  if (CREW_COMMANDS.has(routingCommand)) {
+    const idempotencyKey = args.idempotencyKey || args['idempotency-key'];
+    if (CREW_WRITE_COMMANDS.has(routingCommand) && routingCommand === 'crew.intent.submit' && !idempotencyKey) {
+      printCliResponse(false, command, null, {
+        code: 'INVALID_ARGUMENT',
+        message: `${routingCommand} requires --idempotency-key so retries cannot duplicate Crew Intent work.`,
+        retryable: false,
+      }, { runtime: 'crew' });
+      return;
+    }
+    try {
+      const crew = new FlovartCrewClient();
+      const protocol = await crew.protocol();
+      const registry = getCanonicalRegistry();
+      if (protocol.protocolVersion !== registry.protocolVersion || protocol.registryHash !== registry.registryHash) {
+        printCliResponse(false, command, null, {
+          code: 'PROTOCOL_MISMATCH',
+          message: 'Workspace Adapter Crew 协议版本或 Registry Hash 与本地 CLI 不一致；请先升级或 command.list 重新读取。',
+          retryable: false,
+          details: { protocolVersion: protocol.protocolVersion, registryHash: protocol.registryHash },
+        }, { runtime: 'crew' });
+        return;
+      }
+      let result;
+      switch (routingCommand) {
+        case 'director.bind':
+          result = await crew.bindDirector({
+            agentIdentity: directorAgentIdentity(args),
+            sessionId: args.sessionId || args['session-id'],
+            hostInstanceId: args.hostInstanceId || args['host-instance-id'],
+            projectId: args.projectId || args['project-id'],
+          });
+          break;
+        case 'director.handoff':
+          result = await crew.handoffDirector({
+            agentIdentity: directorAgentIdentity(args),
+            sessionId: args.sessionId || args['session-id'],
+            hostInstanceId: args.hostInstanceId || args['host-instance-id'],
+            projectId: args.projectId || args['project-id'],
+            expectedBindingId: args.expectedBindingId || args['expected-binding-id'],
+          });
+          break;
+        case 'director.status':
+          result = await crew.directorStatus({
+            agentIdentity: directorAgentIdentity(args, { optional: true }),
+            sessionId: args.sessionId || args['session-id'],
+            projectId: args.projectId || args['project-id'],
+          });
+          break;
+        case 'director.unbind':
+          result = await crew.unbindDirector({ bindingId: args.bindingId || args['binding-id'] });
+          break;
+        case 'crew.intent.submit':
+          result = await crew.submitIntent({
+            intentJson: args.intentJson || args['intent-json'] || args._?.[0],
+            projectId: args.projectId || args['project-id'],
+            idempotencyKey,
+            director: args.director ? JSON.parse(args.director) : null,
+          });
+          break;
+        case 'crew.intent.get':
+          result = await crew.getIntent(args.intentId || args['intent-id'] || args._?.[0]);
+          break;
+        case 'crew.intent.cancel':
+          result = await crew.cancelIntent(args.intentId || args['intent-id'] || args._?.[0], args.reason);
+          break;
+        case 'crew.receipt.get':
+          result = await crew.getReceipt(args.intentId || args['intent-id'] || args._?.[0]);
+          break;
+        case 'crew.event.watch':
+          result = await crew.listEvents({
+            afterEventId: args.afterEventId ?? args.after ?? args['after-event-id'],
+            limit: args.limit,
+          });
+          break;
+      }
+      const ok = Boolean(result?.ok);
+      if (args.jsonl || args['jsonl']) {
+        for (const event of result?.events || []) console.log(JSON.stringify(event));
+      } else {
+        printCliResponse(ok, command, result, ok ? null : result?.error || null, { runtime: 'crew', protocolVersion: protocol.protocolVersion, registryHash: protocol.registryHash });
+      }
+    } catch (error) {
+      const crewError = error instanceof WorkspaceClientError
+        ? error.toJSON()
+        : { code: 'CREW_UNAVAILABLE', message: error instanceof Error ? error.message : String(error), retryable: true };
+      printCliResponse(false, command, null, crewError, { runtime: 'crew' });
+    }
+    return;
+  }
+
   if (RESEARCH_COMMANDS.has(routingCommand)) {
     const idempotencyKey = args.idempotencyKey || args['idempotency-key'];
     if (RESEARCH_WRITE_COMMANDS.has(routingCommand) && !idempotencyKey) {
@@ -218,6 +320,21 @@ async function main() {
     return;
   }
 
+  if (SKILL_COMMAND_NAMES.has(routingCommand)) {
+    try {
+      const result = await runSkillCommand(routingCommand, args);
+      const ok = Boolean(result && result.ok === true);
+      printCliResponse(ok, command, ok ? result : null, ok ? null : result.error || null, { runtime: 'skill-registry' });
+    } catch (error) {
+      printCliResponse(false, command, null, {
+        code: 'CLI_FATAL',
+        message: error instanceof Error ? error.message : String(error),
+        retryable: false,
+      }, { runtime: 'skill-registry' });
+    }
+    return;
+  }
+
   if (LOCAL_COMMANDS.has(routingCommand)) {
     const result = await executeFlovartCommand(command, args, {});
     const ok = isResultOk(result);
@@ -226,6 +343,12 @@ async function main() {
       console.log(formatValue(result.text || result));
       if (!ok) process.exitCode = 1;
     }
+    return;
+  }
+
+  if (routingCommand === 'status') {
+    const result = await getLocalStatus();
+    printCliResponse(true, command, result, null, { runtime: 'local-system' });
     return;
   }
 
@@ -247,9 +370,10 @@ async function main() {
 
   const result = await executeFlovartCommand(command, args, createShadowRuntimeFacade());
   printCliResponse(isResultOk(result), command, result, isResultOk(result) ? null : result.error || null, { runtime: 'file-state' });
-}
+  }
 
-main().catch(error => {
-  printCliResponse(false, command || 'unknown', null, { code: 'CLI_FATAL', message: error instanceof Error ? error.message : String(error) });
-  process.exit(1);
-});
+  main().catch(error => {
+    printCliResponse(false, command || 'unknown', null, { code: 'CLI_FATAL', message: error instanceof Error ? error.message : String(error) });
+    process.exitCode = 1;
+  });
+}

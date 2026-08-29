@@ -245,6 +245,8 @@ const COST_PER_1K: Record<string, number> = {
     'gemini-3.1-pro': 0.001,
     'gemini-2.5-flash': 0.0001,
     'gemini-2.5-pro': 0.001,
+    'deepseek-v4-flash': 0.0001,
+    'deepseek-v4-pro': 0.0002,
     'deepseek-chat': 0.0001,
     'deepseek-v3': 0.0001,
     'qwen-max': 0.0002,

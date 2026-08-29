@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1",
   "protocolVersion": "1",
-  "registryHash": "e31afad6b1193985ed8d3a84a0d1312c78bc733bba77a96310f7c317f5890bdf",
+  "registryHash": "16259085507641cce24209775a0a87a94a4e0c72f4aed5ed34781fee046b914e",
   "commands": [
     {
       "name": "runtime.status",
@@ -88,13 +88,13 @@
     },
     {
       "name": "init",
-      "summary": "Install the Flovart Skill and register its MCP server for a supported coding-agent host.",
+      "summary": "Install the Flovart Skill into one Distribution Target; it never configures an MCP server.",
       "args": {
-        "host": "project|codex|claude|opencode|cursor|windsurf|vscode|all",
+        "target": "project-skill|codex|codex-skill|codebuddy|codebuddy-code-skill|claude|claude-code-skill|opencode|opencode-skill",
         "projectDir": "string?",
         "dryRun": "boolean?"
       },
-      "availability": "legacy-only"
+      "availability": "available"
     },
     {
       "name": "doctor",
@@ -181,9 +181,17 @@
     },
     {
       "name": "status",
-      "summary": "Inspect runtime, provider, and media status.",
+      "summary": "Inspect local frontend, Agent, and visible Workflow readiness.",
       "args": {},
-      "availability": "legacy-only"
+      "availability": "available"
+    },
+    {
+      "name": "host.list",
+      "summary": "Discover local Agent Identity availability and its Distribution/Runtime projections without inspecting credentials.",
+      "args": {
+        "refresh": "boolean?"
+      },
+      "availability": "available"
     },
     {
       "name": "provider.status",
@@ -322,6 +330,27 @@
       "availability": "available"
     },
     {
+      "name": "workflow.selection.get",
+      "summary": "Read the current visible Workflow selection with media and secrets redacted.",
+      "args": {
+        "projectId": "string?"
+      },
+      "availability": "available"
+    },
+    {
+      "name": "workflow.apply",
+      "summary": "Atomically apply revisioned idempotent document operations to one visible Workflow project.",
+      "args": {
+        "projectId": "string",
+        "expectedRevision": "number",
+        "mutationId": "string",
+        "clientId": "string?",
+        "intent": "string?",
+        "operations": "array"
+      },
+      "availability": "available"
+    },
+    {
       "name": "workflow.projection.get",
       "summary": "Read the latest Runtime-authoritative Production Plan Projection for one Workflow project.",
       "args": {
@@ -450,18 +479,20 @@
       "summary": "Run one Workflow config node through browser providers.",
       "args": {
         "projectId": "string?",
-        "nodeId": "string"
+        "nodeId": "string",
+        "expectedRevision": "number?"
       },
-      "availability": "legacy-only"
+      "availability": "available"
     },
     {
       "name": "workflow.node.stop",
       "summary": "Stop the active generation for one Workflow node.",
       "args": {
         "projectId": "string?",
-        "nodeId": "string"
+        "nodeId": "string",
+        "expectedRevision": "number?"
       },
-      "availability": "legacy-only"
+      "availability": "available"
     },
     {
       "name": "workflow.node.tool",
@@ -550,6 +581,90 @@
         "format": "json?"
       },
       "availability": "legacy-only"
+    },
+    {
+      "name": "director.bind",
+      "summary": "Bind one supported Agent Identity session to a ProductionSession.",
+      "args": {
+        "agentIdentity": "codex|deepseek-harness|claude-code|opencode|pi",
+        "sessionId": "string",
+        "hostInstanceId": "string?",
+        "projectId": "string?"
+      },
+      "availability": "available"
+    },
+    {
+      "name": "director.handoff",
+      "summary": "Explicitly move one supported Agent Identity session or ProductionSession binding.",
+      "args": {
+        "agentIdentity": "codex|deepseek-harness|claude-code|opencode|pi",
+        "sessionId": "string",
+        "hostInstanceId": "string?",
+        "projectId": "string",
+        "expectedBindingId": "string?"
+      },
+      "availability": "available"
+    },
+    {
+      "name": "director.status",
+      "summary": "Inspect the active Director Session Binding.",
+      "args": {
+        "agentIdentity": "codex|deepseek-harness|claude-code|opencode|pi?",
+        "sessionId": "string?",
+        "projectId": "string?"
+      },
+      "availability": "available"
+    },
+    {
+      "name": "director.unbind",
+      "summary": "Archive the active Director Session Binding.",
+      "args": {
+        "bindingId": "string?"
+      },
+      "availability": "available"
+    },
+    {
+      "name": "crew.intent.submit",
+      "summary": "Submit one bounded Crew Intent to the Workspace Operator.",
+      "args": {
+        "intentJson": "string",
+        "projectId": "string?"
+      },
+      "availability": "available"
+    },
+    {
+      "name": "crew.intent.get",
+      "summary": "Return one Crew Intent by ID.",
+      "args": {
+        "intentId": "string"
+      },
+      "availability": "available"
+    },
+    {
+      "name": "crew.intent.cancel",
+      "summary": "Request cooperative cancellation of one Crew Intent.",
+      "args": {
+        "intentId": "string",
+        "reason": "string?"
+      },
+      "availability": "available"
+    },
+    {
+      "name": "crew.receipt.get",
+      "summary": "Return the Workspace Operator Receipt for one Crew Intent.",
+      "args": {
+        "intentId": "string"
+      },
+      "availability": "available"
+    },
+    {
+      "name": "crew.event.watch",
+      "summary": "Return Crew events strictly after a resumable event cursor.",
+      "args": {
+        "afterEventId": "number?",
+        "limit": "number?"
+      },
+      "availability": "available"
     }
   ]
 }

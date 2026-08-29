@@ -107,12 +107,6 @@ pub fn run() {
                 discovery_path.display()
             );
             let managed_agent = Arc::new(ManagedAgentHost::from_environment());
-            let warm_agent = managed_agent.clone();
-            std::thread::spawn(move || {
-                if let Err(error) = warm_agent.ensure_connection() {
-                    log::warn!("Managed Agent is not ready: {error}");
-                }
-            });
 
             // ── 5. 处理启动时可能携带的 flovart:// 链接 ──
             if let Some(args) = std::env::args().nth(1) {

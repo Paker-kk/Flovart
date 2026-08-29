@@ -7,21 +7,9 @@
 //! - `flovart://open?intent=run-command&command=...&args=...` 通用入队
 
 use crate::bridge::BridgeEntry;
-use crate::errors::{FlovartError, FlovartResult};
-use serde::Deserialize;
+use crate::errors::FlovartResult;
 use tauri::{AppHandle, Emitter, Manager};
 use url::Url;
-
-#[derive(Debug, Deserialize)]
-struct DeeplinkOpen {
-    intent: Option<String>,
-    src: Option<String>,
-    href: Option<String>,
-    name: Option<String>,
-    command: Option<String>,
-    args: Option<String>,
-    blob: Option<String>,
-}
 
 pub fn handle_deeplink_url(app: &AppHandle, raw: &str) {
     log::info!("flovart deeplink: {raw}");

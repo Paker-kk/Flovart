@@ -237,7 +237,7 @@ function dispatchShadowWorkflow(envelope, state) {
   if (!project) return fail('NOT_FOUND', 'No active Workflow project.');
   if (command === 'workflow.inspect') return done(redact(project));
   if (command === 'workflow.node.run' || command === 'workflow.node.stop') {
-    return fail('BROWSER_REQUIRED', 'Workflow provider generation requires an open Flovart browser tab.');
+    return fail('WORKSPACE_REQUIRED', 'Workflow 节点执行必须通过 Workspace Adapter 进入浏览器 WorkflowExecutor。');
   }
 
   let nodeId = args.nodeId || args.id;

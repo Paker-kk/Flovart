@@ -168,6 +168,7 @@ fn resolve_bundle_path(bundle_dir: &Path, raw: &str) -> Result<PathBuf, String> 
 pub struct ManagedAgentHost {
     launch: Result<ManagedAgentLaunch, String>,
     config_path: PathBuf,
+    project_dir: Option<PathBuf>,
     child: Mutex<Option<Child>>,
     shutting_down: AtomicBool,
 }
@@ -181,6 +182,7 @@ impl ManagedAgentHost {
         let config_path = std::env::var_os("FLOVART_AGENT_CONFIG")
             .map(PathBuf::from)
             .unwrap_or_else(|| home_dir.join(".flovart/agent.json"));
+        let project_dir = std::env::var_os("FLOVART_PROJECT_DIR").map(PathBuf::from);
         // The desktop bundle is also built directly from this source checkout during
         // local release verification. Keep the checked-out Agent as a safe fallback
         // when a versioned Toolkit has not been installed yet; installed builds still
@@ -196,6 +198,7 @@ impl ManagedAgentHost {
         Self {
             launch,
             config_path,
+            project_dir,
             child: Mutex::new(None),
             shutting_down: AtomicBool::new(false),
         }
@@ -240,6 +243,9 @@ impl ManagedAgentHost {
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())
                     .stderr(Stdio::null());
+                if let Some(project_dir) = &self.project_dir {
+                    command.env("FLOVART_PROJECT_DIR", project_dir);
+                }
                 #[cfg(windows)]
                 {
                     use std::os::windows::process::CommandExt;
@@ -326,6 +332,7 @@ mod tests {
         let host = ManagedAgentHost {
             launch: Err("test launch must not run".to_owned()),
             config_path: PathBuf::from("unused-agent-config.json"),
+            project_dir: None,
             child: Mutex::new(Some(child)),
             shutting_down: AtomicBool::new(false),
         };

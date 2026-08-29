@@ -20,7 +20,7 @@ export const isOpenAICompatibleProvider = (provider: AIProvider) => OPENAI_COMPA
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URLS: Partial<Record<AIProvider, string>> = {
     openai: 'https://api.openai.com/v1',
     openrouter: 'https://openrouter.ai/api/v1',
-    deepseek: 'https://api.deepseek.com/v1',
+    deepseek: 'https://api.deepseek.com',
     siliconflow: 'https://api.siliconflow.cn/v1',
     qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     minimax: 'https://api.minimax.chat/v1',
@@ -48,6 +48,10 @@ function safeParseUrl(value: string) {
 
 function isRootPath(pathname: string) {
     return pathname === '' || pathname === '/';
+}
+
+function isOfficialDeepSeekEndpoint(provider: AIProvider, url: URL) {
+    return provider === 'deepseek' && /^api\.deepseek\.com$/i.test(url.hostname);
 }
 
 /**
@@ -101,15 +105,20 @@ export function normalizeProviderBaseUrl(provider: AIProvider, baseUrl?: string)
 
     const parsed = safeParseUrl(trimmed);
     if (!parsed) return trimmed;
+    const officialDeepSeek = isOfficialDeepSeekEndpoint(provider, parsed);
 
     // 先尝试裁剪用户常见的误贴子路径
     const trimmedSub = trimKnownSubPaths(parsed);
-    if (trimmedSub) return trimmedSub;
+    if (trimmedSub) return officialDeepSeek ? trimmedSub.replace(/\/v\d+$/i, '') : trimmedSub;
 
     // 如果路径不是根（也不是可识别的子路径），保持原样
-    if (!isRootPath(parsed.pathname)) return trimmed;
+    if (!isRootPath(parsed.pathname)) {
+        if (officialDeepSeek && /^\/v1$/i.test(parsed.pathname)) return parsed.origin;
+        return trimmed;
+    }
 
     const origin = parsed.origin;
+    if (officialDeepSeek) return origin;
     if (provider === 'openrouter' || /openrouter/i.test(parsed.hostname)) {
         return `${origin}/api/v1`;
     }
