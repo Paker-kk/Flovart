@@ -1,52 +1,80 @@
 // @vitest-environment node
 
 import { describe, expect, it } from 'vitest';
-import { createFlovartAgentTools, getFlovartMcpTools } from '../agent/mcp.js';
+import { createFlovartAgentTools, getFlovartAgentTools } from '../agent/tools.js';
 
-describe('Managed Agent MCP Workspace surface', () => {
-  it('exposes visible Workflow commands plus the bounded Production Runtime loop', () => {
-    const commands = getFlovartMcpTools().map(tool => tool.command);
+describe('Flovart Agent tool surface', () => {
+  it('exposes only the stable inspect/apply/run Workflow contract', () => {
+    const commands = getFlovartAgentTools().map(tool => tool.command);
 
-    expect(commands).toContain('workflow.inspect');
-    expect(commands).toContain('workflow.node.create');
-    expect(commands).toContain('workflow.node.update');
-    expect(commands).toContain('production.dry-run');
-    expect(commands).toContain('production.status');
-    expect(commands).toContain('production.approve');
-    expect(commands).toContain('production.run');
-    expect(commands).toContain('workflow.projection.get');
-    expect(commands).not.toContain('generate.video');
-    expect(commands).not.toContain('workflow.node.run');
+    expect(commands).toEqual([
+      'status',
+      'workflow.inspect',
+      'workflow.selection.get',
+      'workflow.apply',
+      'workflow.node.run',
+    ]);
+    expect(commands).not.toContain('command.list');
+    expect(commands).not.toContain('command.schema');
+    expect(commands).not.toContain('workflow.node.create');
+    expect(commands).not.toContain('workflow.node.update');
+    expect(commands).not.toContain('production.run');
     expect(commands.some(command => /^(?:canvas|element)\./.test(command))).toBe(false);
   });
 
-  it('gives the built-in Flovart Agent the same bounded visible-Workflow surface', () => {
+  it('gives the built-in Flovart Agent typed tools for that same small surface', () => {
     const tools = createFlovartAgentTools(async () => ({ ok: true }));
     const names = tools.map(tool => tool.name);
-    const create = tools.find(tool => tool.name === 'flovart_workflow_node_create');
-    const dryRun = tools.find(tool => tool.name === 'flovart_production_dry_run');
-    const status = tools.find(tool => tool.name === 'flovart_production_status');
+    const apply = tools.find(tool => tool.name === 'flovart_workflow_apply');
+    const status = tools.find(tool => tool.name === 'flovart_status');
 
+    expect(names).toContain('flovart_status');
     expect(names).toContain('flovart_workflow_inspect');
-    expect(names).toContain('flovart_production_run');
-    expect(names).not.toContain('flovart_generate_video');
-    expect(create?.parameters.required).toContain('idempotencyKey');
-    expect(dryRun?.parameters.required).toContain('idempotencyKey');
+    expect(names).toContain('flovart_workflow_selection_get');
+    expect(names).toContain('flovart_workflow_node_run');
+    expect(names).toContain('flovart_workflow_apply');
+    expect(names).not.toContain('flovart_workflow_node_create');
+    expect(names).not.toContain('flovart_production_run');
+    expect(apply?.parameters.required).toContain('idempotencyKey');
+    expect(tools.find(tool => tool.name === 'flovart_workflow_node_run')?.parameters.required).toContain('idempotencyKey');
     expect(status?.parameters.required || []).not.toContain('idempotencyKey');
   });
 
   it('moves idempotencyKey to the command envelope instead of leaking it into Runtime args', async () => {
-    let call: any;
+    let call: unknown[] = [];
     const tools = createFlovartAgentTools(async (...args) => {
       call = args;
       return { ok: true };
     });
-    const run = tools.find(tool => tool.name === 'flovart_production_run');
+    const run = tools.find(tool => tool.name === 'flovart_workflow_apply');
 
-    await run?.execute('tool-call', { runId: 'run-1', idempotencyKey: 'run-once', changeSetId: 'turn-change-set' }, undefined);
+    await run?.execute('tool-call', {
+      projectId: 'project-1',
+      expectedRevision: 1,
+      mutationId: 'mutation-1',
+      operations: [{ type: 'add_node', node: { id: 'node-1', type: 'text', title: '提纲' } }],
+      idempotencyKey: 'apply-once',
+      changeSetId: 'turn-change-set',
+    }, undefined);
 
-    expect(call[0]).toBe('production.run');
-    expect(call[1]).toEqual({ runId: 'run-1' });
-    expect(call[3]).toBe('run-once');
+    expect(call[0]).toBe('workflow.apply');
+    expect(call[1]).toMatchObject({ projectId: 'project-1', mutationId: 'mutation-1' });
+    expect(call[1]).not.toHaveProperty('idempotencyKey');
+    expect(call[3]).toBe('apply-once');
+  });
+
+  it('pins Agent Workflow commands to the Browser workspace', async () => {
+    let call: unknown[] = [];
+    const tools = createFlovartAgentTools(async (...args) => {
+      call = args;
+      return { ok: true };
+    });
+    const inspect = tools.find(tool => tool.name === 'flovart_workflow_inspect');
+
+    await inspect?.execute('tool-call', {}, undefined);
+
+    expect(call[0]).toBe('workflow.inspect');
+    expect(call[1]).toMatchObject({ workspaceMode: 'browser' });
+    expect(call[2]).toBe('agent');
   });
 });

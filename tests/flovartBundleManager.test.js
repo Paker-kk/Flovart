@@ -95,6 +95,7 @@ describe('Flovart Agent Toolkit bundle manager', () => {
     expect(existsSync(toolkitPaths(homeDir).currentFile)).toBe(true);
     expect(readCurrentToolkit(homeDir)?.current.version).toBe('0.3.0');
     expect(readFileSync(toolkitPaths(homeDir).launcherFile, 'utf8')).toContain('entrypoints.cli');
+    expect(readFileSync(toolkitPaths(homeDir).launcherFile, 'utf8')).toContain('cwd: process.cwd()');
     const launch = spawnSync(process.execPath, [toolkitPaths(homeDir).launcherFile, '--help'], { encoding: 'utf8' });
     expect(launch.status).toBe(0);
     expect(launch.stdout).toContain('cli');

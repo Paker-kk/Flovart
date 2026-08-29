@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SettingsPanel } from '../components/SettingsPanel';
@@ -44,31 +44,24 @@ describe('SettingsPanel runtime credential selection', () => {
         runtimeExecute.mockResolvedValue({ providers: [multiCredentialStatus] });
     });
 
-    it('shows a per-provider credential selector when multiple Runtime credentials exist', async () => {
+    it('shows Runtime route metadata without exposing a browser credential selector', async () => {
         renderSettings();
         await waitFor(() => expect(runtimeExecute).toHaveBeenCalledWith(expect.objectContaining({ command: 'provider.status' })));
-        const select = await screen.findByLabelText('RunningHub Runtime 凭证选择') as HTMLSelectElement;
-        expect(Array.from(select.options).map(option => option.textContent)).toEqual(['生产账号', '测试账号']);
+        expect(await screen.findByText('可用凭证：生产账号、测试账号')).toBeInTheDocument();
         expect(screen.getByText('2 个安全凭证可供 Production Runtime 使用')).toBeInTheDocument();
+        expect(screen.queryByLabelText('RunningHub Runtime 凭证选择')).toBeNull();
+        expect(screen.queryByRole('button', { name: /导入到 API 配置/ })).toBeNull();
     });
 
-    it('lets the designer pick one Runtime credential before one-click import into the canvas API config', async () => {
+    it('keeps Runtime credentials in the Runtime boundary instead of synthesizing a browser API key', async () => {
         const onAddApiKey = vi.fn();
         renderSettings(onAddApiKey);
         await waitFor(() => expect(runtimeExecute).toHaveBeenCalled());
-        const select = await screen.findByLabelText('RunningHub Runtime 凭证选择');
-        fireEvent.change(select, { target: { value: 'cred-b' } });
-        fireEvent.click(screen.getByRole('button', { name: '一键导入到 API 配置' }));
-
-        expect(onAddApiKey).toHaveBeenCalledWith(expect.objectContaining({
-            provider: 'runningHub',
-            key: 'runtime:cred-b',
-            runtimeManaged: { credentialId: 'cred-b' },
-            name: 'RunningHub（Runtime 托管）',
-        }));
+        expect(screen.queryByRole('button', { name: '一键导入到 API 配置' })).toBeNull();
+        expect(onAddApiKey).not.toHaveBeenCalled();
     });
 
-    it('keeps the import button disabled once the selected credential is already imported', async () => {
+    it('does not offer a Runtime import action even when an old managed entry exists', async () => {
         const imported: Array<Record<string, unknown>> = [{
             id: 'imported-key',
             provider: 'runningHub',
@@ -95,8 +88,6 @@ describe('SettingsPanel runtime credential selection', () => {
             />,
         );
         await waitFor(() => expect(runtimeExecute).toHaveBeenCalled());
-        const select = await screen.findByLabelText('RunningHub Runtime 凭证选择');
-        fireEvent.change(select, { target: { value: 'cred-b' } });
-        expect(screen.getByRole('button', { name: '已导入 API 配置' })).toBeDisabled();
+        expect(screen.queryByRole('button', { name: /一键导入|已导入 API 配置/ })).toBeNull();
     });
 });

@@ -3,8 +3,10 @@ import { createWorkflowDispatcher, type WorkflowDispatcherDependencies } from '.
 import { createWorkflowProject } from '../components/workflow/store';
 import { createWorkflowNode } from '../components/workflow/constants';
 import { undoWorkflowDraftChangeSet } from '../components/workflow/draftAuthority';
+import { buildCanonicalGenerationInput, resolveWorkflowInputs } from '../components/workflow/inputResolver';
+import { createWorkflowExecutor, WorkflowExecutionError } from '../services/workflowExecutor';
 
-const setup = () => {
+const setup = (executor = createWorkflowExecutor({ runNode: vi.fn(), stopNode: vi.fn() })) => {
   let projects = [createWorkflowProject('测试')];
   projects[0].nodes = [createWorkflowNode('image-1', 'image', { x: 0, y: 0 }, { href: 'data:image/png;base64,SECRET', mimeType: 'image/png' })];
   projects[0].nodes[0].metadata.storageKey = 'workflow-media/private-key';
@@ -20,10 +22,9 @@ const setup = () => {
     setActiveProject: id => { activeProjectId = id; },
     deleteProjects: ids => { projects = projects.filter(project => !ids.includes(project.id)); },
     updateProject: (id, patch) => { projects = projects.map(project => project.id === id ? { ...project, ...patch } : project); },
-    runNode: vi.fn(),
-    stopNode: vi.fn(),
+    executor,
   };
-  return { dispatch: createWorkflowDispatcher(dependencies), dependencies };
+  return { dispatch: createWorkflowDispatcher(dependencies), dependencies, executor };
 };
 
 describe('workflow dispatcher', () => {
@@ -33,6 +34,39 @@ describe('workflow dispatcher', () => {
     expect(result.ok).toBe(true);
     expect(JSON.stringify(result.result)).not.toContain('base64,SECRET');
     expect(JSON.stringify(result.result)).not.toContain('private-key');
+  });
+
+  it('reads the current selection without changing document revision or exposing media', async () => {
+    const { dispatch, dependencies } = setup();
+    const project = dependencies.getState().projects[0];
+    project.selectedNodeIds = ['image-1', 'missing-node'];
+    const beforeRevision = project.draftVersion;
+    const result = await dispatch({ id: 'selection', command: 'workflow.selection.get', args: {}, source: 'agent' });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        projectId: project.id,
+        selectedNodeIds: ['image-1'],
+        nodes: [expect.objectContaining({ id: 'image-1' })],
+        draftVersion: beforeRevision,
+      },
+    });
+    expect(JSON.stringify(result.result)).not.toContain('base64,SECRET');
+    expect(JSON.stringify(result.result)).not.toContain('private-key');
+    expect(dependencies.getState().projects[0].draftVersion).toBe(beforeRevision);
+  });
+
+  it('does not cache selection reads under a reused Agent turn key', async () => {
+    const { dispatch, dependencies } = setup();
+    const project = dependencies.getState().projects[0];
+    project.selectedNodeIds = ['image-1'];
+    const first = await dispatch({ id: 'selection-1', command: 'workflow.selection.get', args: {}, source: 'agent', idempotencyKey: 'turn-1' });
+    project.selectedNodeIds = [];
+    const second = await dispatch({ id: 'selection-2', command: 'workflow.selection.get', args: {}, source: 'agent', idempotencyKey: 'turn-1' });
+
+    expect(first.result).toMatchObject({ selectedNodeIds: ['image-1'] });
+    expect(second.result).toMatchObject({ selectedNodeIds: [] });
   });
 
   it('applies reversible Agent canvas edits without stopping for confirmation', async () => {
@@ -90,6 +124,103 @@ describe('workflow dispatcher', () => {
     expect(project.draftChangeSets).toEqual([]);
   });
 
+  it('publishes workflow.apply as one atomic revisioned batch', async () => {
+    const { dispatch, dependencies } = setup();
+    const project = dependencies.getState().projects[0];
+    const result = await dispatch({
+      id: 'apply-batch',
+      command: 'workflow.apply',
+      source: 'cli',
+      args: {
+        projectId: project.id,
+        expectedRevision: 1,
+        mutationId: 'apply-batch-1',
+        operations: [
+          { type: 'add_node', node: createWorkflowNode('script-1', 'text', { x: 0, y: 320 }) },
+          { type: 'add_node', node: createWorkflowNode('shot-1', 'image', { x: 420, y: 320 }) },
+          { type: 'connect_nodes', id: 'edge-1', fromNodeId: 'script-1', toNodeId: 'shot-1' },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: { mutationId: 'apply-batch-1', previousRevision: 1, revision: 2, replayed: false },
+    });
+    const changed = dependencies.getState().projects[0];
+    expect(changed.draftVersion).toBe(2);
+    expect(changed.draftChangeSets).toHaveLength(1);
+    expect(changed.connections).toEqual([expect.objectContaining({ id: 'edge-1' })]);
+  });
+
+  it('replays persisted workflow.apply receipts across dispatcher instances and rejects payload reuse', async () => {
+    const first = setup();
+    const project = first.dependencies.getState().projects[0];
+    const request = {
+      id: 'apply-once', command: 'workflow.apply', source: 'agent' as const,
+      args: {
+        projectId: project.id, expectedRevision: 1, mutationId: 'persisted-mutation',
+        operations: [{ type: 'add_node', node: createWorkflowNode('persisted-node', 'text', { x: 40, y: 40 }) }],
+      },
+    };
+    const applied = await first.dispatch(request);
+    const dispatchAfterReload = createWorkflowDispatcher(first.dependencies);
+    const replayed = await dispatchAfterReload(request);
+    const reused = await dispatchAfterReload({
+      ...request,
+      args: { ...request.args, operations: [{ type: 'update_node', id: 'persisted-node', patch: { title: '冲突' } }] },
+    });
+
+    expect(applied).toMatchObject({ ok: true, result: { replayed: false, revision: 2 } });
+    expect(replayed).toMatchObject({ ok: true, result: { replayed: true, revision: 2 } });
+    expect(reused).toMatchObject({ ok: false, error: { code: 'IDEMPOTENCY_KEY_REUSE' } });
+    expect(first.dependencies.getState().projects[0].nodes).toHaveLength(2);
+    expect(first.dependencies.getState().projects[0].draftChangeSets).toHaveLength(1);
+  });
+
+  it('returns REVISION_CONFLICT for stale workflow.apply without committing', async () => {
+    const { dispatch, dependencies } = setup();
+    const project = dependencies.getState().projects[0];
+    const result = await dispatch({
+      id: 'stale-apply', command: 'workflow.apply', source: 'cli',
+      args: {
+        projectId: project.id, expectedRevision: 0, mutationId: 'stale-mutation',
+        operations: [{ type: 'add_node', node: createWorkflowNode('never-created', 'text', { x: 0, y: 0 }) }],
+      },
+    });
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'REVISION_CONFLICT' } });
+    expect(dependencies.getState().projects[0].nodes.some(node => node.id === 'never-created')).toBe(false);
+  });
+
+  it('adapts a granular command into the same mutation result as workflow.apply', async () => {
+    const legacy = setup();
+    const canonical = setup();
+    const legacyProject = legacy.dependencies.getState().projects[0];
+    const canonicalProject = canonical.dependencies.getState().projects[0];
+    const node = createWorkflowNode('parity-node', 'text', { x: 20, y: 30 });
+
+    await legacy.dispatch({
+      id: 'parity-mutation', command: 'workflow.node.create', source: 'cli',
+      args: { projectId: legacyProject.id, id: node.id, type: node.type, x: 20, y: 30 },
+    });
+    await canonical.dispatch({
+      id: 'canonical-command', command: 'workflow.apply', source: 'cli',
+      args: {
+        projectId: canonicalProject.id, expectedRevision: 1, mutationId: 'parity-mutation',
+        operations: [{ type: 'add_node', node }],
+      },
+    });
+
+    const legacyState = legacy.dependencies.getState().projects[0];
+    const canonicalState = canonical.dependencies.getState().projects[0];
+    expect(legacyState.nodes.map(({ id, type, position, objectVersion }) => ({ id, type, position, objectVersion })))
+      .toEqual(canonicalState.nodes.map(({ id, type, position, objectVersion }) => ({ id, type, position, objectVersion })));
+    expect(legacyState.connections).toEqual(canonicalState.connections);
+    expect(legacyState.draftVersion).toBe(canonicalState.draftVersion);
+    expect(legacyState.draftChangeSets?.map(changeSet => changeSet.id)).toEqual(['parity-mutation']);
+  });
+
   it('uses object versions for conflict detection and increments a changed object exactly once', async () => {
     const { dispatch, dependencies } = setup();
     const initial = dependencies.getState().projects[0];
@@ -116,7 +247,7 @@ describe('workflow dispatcher', () => {
 
   it('deduplicates confirmed mutations by idempotency key', async () => {
     const { dispatch, dependencies } = setup();
-    const envelope = { id: 'once', command: 'workflow.node.create', args: { type: 'text', confirmed: true }, source: 'mcp' as const, idempotencyKey: 'same' };
+    const envelope = { id: 'once', command: 'workflow.node.create', args: { type: 'text', confirmed: true }, source: 'operator' as const, idempotencyKey: 'same' };
     await dispatch(envelope);
     await dispatch(envelope);
     expect(dependencies.getState().projects[0].nodes).toHaveLength(2);
@@ -126,7 +257,7 @@ describe('workflow dispatcher', () => {
     const { dispatch, dependencies } = setup();
     const audio = await dispatch({ id: 'audio', command: 'workflow.node.create', args: { type: 'audio', confirmed: true }, source: 'agent' });
     expect(audio.ok).toBe(true);
-    const connected = await dispatch({ id: 'connected', command: 'workflow.node.create-connected', args: { type: 'text', fromNodeId: 'image-1', confirmed: true }, source: 'mcp' });
+    const connected = await dispatch({ id: 'connected', command: 'workflow.node.create-connected', args: { type: 'text', fromNodeId: 'image-1', confirmed: true }, source: 'operator' });
     expect(connected.ok).toBe(true);
     expect(dependencies.getState().projects[0].connections).toHaveLength(1);
   });
@@ -139,16 +270,67 @@ describe('workflow dispatcher', () => {
 
   it('fails run and stop commands when browser adapters are absent', async () => {
     const { dispatch, dependencies } = setup();
-    dependencies.runNode = undefined;
-    dependencies.stopNode = undefined;
+    dependencies.executor = undefined;
     expect((await dispatch({ id: 'run', command: 'workflow.node.run', args: { nodeId: 'image-1', confirmed: true }, source: 'agent' })).error?.code).toBe('RUNNER_UNAVAILABLE');
     expect((await dispatch({ id: 'stop', command: 'workflow.node.stop', args: { nodeId: 'image-1', confirmed: true }, source: 'agent' })).error?.code).toBe('RUNNER_UNAVAILABLE');
   });
 
-  it('records agent/mcp draft actions into the project draft log but skips pure UI edits', async () => {
+  it('routes UI, Browser Agent, CLI, and Runtime through one executor without changing canonical input', async () => {
+    const firstFrame = createWorkflowNode('A', 'image', { x: 0, y: 0 }, { href: 'https://cdn.example.com/a.png' });
+    const character = createWorkflowNode('C', 'image', { x: 0, y: 120 }, { href: 'https://cdn.example.com/c.png' });
+    const target = createWorkflowNode('B', 'video', { x: 420, y: 0 }, { prompt: '人物缓慢转身' });
+    const inputs = resolveWorkflowInputs(target, [firstFrame, character, target], [
+      { id: 'a-edge', fromNodeId: 'A', toNodeId: 'B', role: 'source_image' },
+      { id: 'c-edge', fromNodeId: 'C', toNodeId: 'B', role: 'reference_image' },
+    ]);
+    const canonicalInput = buildCanonicalGenerationInput({ targetNode: target, inputs, prompt: '人物缓慢转身', mode: 'video', submode: 'image-to-video' });
+    const runNode = vi.fn().mockImplementation(async command => ({
+      runId: 'adapter-run', projectId: command.projectId, nodeId: command.nodeId, canonicalInput,
+    }));
+    let sequence = 0;
+    const executor = createWorkflowExecutor({ runNode, stopNode: vi.fn() }, { createRunId: () => `run-${++sequence}` });
+    const { dispatch, dependencies } = setup(executor);
+    const projectId = dependencies.getState().activeProjectId!;
+    const command = { projectId, nodeId: 'image-1' };
+
+    const ui = await executor.runNode(command, { surface: 'ui', correlationId: 'ui-run' });
+    const agentResult = await dispatch({ id: 'agent-run', command: 'workflow.node.run', args: { nodeId: 'image-1', confirmed: true }, source: 'agent' });
+    await dispatch({ id: 'cli-run', command: 'workflow.node.run', args: { nodeId: 'image-1' }, source: 'cli' });
+    await dispatch({ id: 'runtime-run', command: 'workflow.node.run', args: { nodeId: 'image-1' }, source: 'operator' });
+
+    expect(ui.canonicalInput).toEqual(canonicalInput);
+    expect(agentResult.result).toMatchObject({ projectId, nodeId: 'image-1', runId: 'run-2' });
+    expect(runNode.mock.calls).toHaveLength(4);
+    expect(runNode.mock.calls.map(([, context]) => context.surface)).toEqual(['ui', 'browser-agent', 'cli', 'runtime']);
+    expect(runNode.mock.calls.map(([, context]) => context.correlationId)).toEqual(['ui-run', 'agent-run', 'cli-run', 'runtime-run']);
+    expect(runNode.mock.results.map(result => result.value)).toHaveLength(4);
+    expect(runNode.mock.calls.map(() => canonicalInput)).toEqual([canonicalInput, canonicalInput, canonicalInput, canonicalInput]);
+  });
+
+  it('rejects a stale expected revision before invoking the executor', async () => {
+    const { dispatch, executor } = setup();
+    const runNode = vi.spyOn(executor, 'runNode');
+    const result = await dispatch({ id: 'stale-run', command: 'workflow.node.run', args: { nodeId: 'image-1', expectedRevision: 2, confirmed: true }, source: 'cli' });
+
+    expect(result.error).toMatchObject({ code: 'REVISION_CONFLICT' });
+    expect(runNode).not.toHaveBeenCalled();
+  });
+
+  it('returns the same structured execution error to every dispatcher surface', async () => {
+    const executor = createWorkflowExecutor({
+      runNode: vi.fn().mockRejectedValue(new WorkflowExecutionError('PROVIDER_REQUEST_FAILED', 'Provider 暂时不可用。')),
+    });
+    const { dispatch } = setup(executor);
+
+    const result = await dispatch({ id: 'provider-error', command: 'workflow.node.run', args: { nodeId: 'image-1', confirmed: true }, source: 'agent' });
+
+    expect(result).toMatchObject({ ok: false, commandId: 'provider-error', error: { code: 'PROVIDER_REQUEST_FAILED', message: 'Provider 暂时不可用。' } });
+  });
+
+  it('records agent/operator draft actions into the project draft log but skips pure UI edits', async () => {
     const { dispatch, dependencies } = setup();
     await dispatch({ id: 'create', command: 'workflow.node.create', args: { type: 'text', title: '旁白', confirmed: true }, source: 'agent' });
-    await dispatch({ id: 'move', command: 'workflow.node.move', args: { nodeId: 'image-1', x: 10, y: 20, confirmed: true }, source: 'mcp' });
+    await dispatch({ id: 'move', command: 'workflow.node.move', args: { nodeId: 'image-1', x: 10, y: 20, confirmed: true }, source: 'operator' });
     await dispatch({ id: 'select', command: 'workflow.select', args: { ids: ['image-1'] }, source: 'ui' });
 
     const log = dependencies.getState().projects[0].draftLog || [];
@@ -158,7 +340,7 @@ describe('workflow dispatcher', () => {
     expect(log[0].summary).toBe('创建text节点「旁白」');
     const createdId = dependencies.getState().projects[0].nodes[1].id;
     expect(log[0].nodeIds).toEqual([createdId]);
-    expect(log[1].source).toBe('mcp');
+    expect(log[1].source).toBe('operator');
     expect(log[1].command).toBe('workflow.node.move');
     expect(log[1].summary).toBe('移动节点「image-1」');
     expect(log[1].nodeIds).toEqual(['image-1']);

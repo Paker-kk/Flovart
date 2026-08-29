@@ -1,14 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   bindProductionDraftEnvelope,
   prepareRuntimeAgentEnvelope,
   redactWorkflowAgentSnapshot,
   requiresRuntimeAgentConfirmation,
   runtimeAgentConfirmationSummary,
-  validateWorkflowAgentAttachments,
 } from '../services/workflowAgentBridge';
+import { dispatchWorkflowCommand, setWorkflowExecutor } from '../services/workflowDispatcher';
 import { createWorkflowNode } from '../components/workflow/constants';
-import { createWorkflowProject } from '../components/workflow/store';
+import { createWorkflowProject, useWorkflowStore } from '../components/workflow/store';
+import { createWorkflowExecutor } from '../services/workflowExecutor';
 
 describe('workflow Agent browser bridge', () => {
   it('removes media payloads before sending state to loopback Agent', () => {
@@ -22,9 +23,30 @@ describe('workflow Agent browser bridge', () => {
     expect(JSON.stringify(snapshot)).not.toContain('secret\\asset');
   });
 
-  it('accepts bounded image attachments and rejects other payloads', () => {
-    expect(() => validateWorkflowAgentAttachments([{ id: '1', name: 'a.png', type: 'image/png', size: 3, dataUrl: 'data:image/png;base64,AAA=' }])).not.toThrow();
-    expect(() => validateWorkflowAgentAttachments([{ id: '1', name: 'a.txt', type: 'text/plain', size: 3, dataUrl: 'data:text/plain;base64,AAA=' }])).toThrow('仅支持图片');
+  it('sends a Browser Agent node run through the globally installed WorkflowExecutor', async () => {
+    const project = createWorkflowProject('浏览器执行测试');
+    project.id = 'project-browser-agent';
+    project.nodes = [createWorkflowNode('image-1', 'image', { x: 0, y: 0 })];
+    useWorkflowStore.setState({ projects: [project], activeProjectId: project.id, hydrated: true });
+    const runNode = vi.fn().mockResolvedValue({ status: 'completed' });
+    setWorkflowExecutor(createWorkflowExecutor({ runNode }, { createRunId: () => 'run-browser-agent' }));
+
+    try {
+      const result = await dispatchWorkflowCommand({
+        id: 'browser-agent-run',
+        command: 'workflow.node.run',
+        args: { projectId: project.id, nodeId: 'image-1', confirmed: true },
+        source: 'agent',
+      });
+
+      expect(result).toMatchObject({ ok: true, result: { projectId: project.id, nodeId: 'image-1', runId: 'run-browser-agent' } });
+      expect(runNode).toHaveBeenCalledWith(
+        { projectId: project.id, nodeId: 'image-1' },
+        { surface: 'browser-agent', correlationId: 'browser-agent-run', runId: 'run-browser-agent' },
+      );
+    } finally {
+      setWorkflowExecutor(undefined);
+    }
   });
 
   it('routes Runtime writes with envelope idempotency and gates only paid or destructive actions', () => {

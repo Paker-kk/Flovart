@@ -18,11 +18,15 @@ describe('workflow CLI metadata', () => {
   });
 
   it('publishes canonical workflow commands and MCP-safe aliases', () => {
+    expect(COMMAND_REGISTRY['workflow.apply']).toBeTruthy();
+    expect(COMMAND_REGISTRY['workflow.selection.get']).toBeTruthy();
     expect(COMMAND_REGISTRY['workflow.node.create']).toBeTruthy();
     expect(COMMAND_REGISTRY['workflow.node.run']).toBeTruthy();
     expect(COMMAND_REGISTRY['workflow.node.stop']).toBeTruthy();
     expect(COMMAND_REGISTRY['workflow.node.create-connected']).toBeTruthy();
     expect(COMMAND_ALIASES.flovart_workflow_node_create).toBe('workflow.node.create');
+    expect(COMMAND_ALIASES.flovart_workflow_apply).toBe('workflow.apply');
+    expect(COMMAND_ALIASES.flovart_workflow_selection_get).toBe('workflow.selection.get');
     expect(normalizeCommandName('flovart_workflow_node_create')).toBe('workflow.node.create');
     expect(normalizeCommandName('flovart_workflow_node_stop')).toBe('workflow.node.stop');
   });
@@ -31,5 +35,31 @@ describe('workflow CLI metadata', () => {
     const dispatch = vi.fn().mockResolvedValue({ ok: true, commandId: 'cli', result: { nodeId: 'node-1' } });
     await executeFlovartCommand('flovart_workflow_node_create', { type: 'config' }, { workflow: { dispatch } });
     expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ command: 'workflow.node.create', source: 'cli', args: expect.objectContaining({ type: 'config' }) }));
+  });
+
+  it('normalizes typed arguments for the granular workflow node tool adapter', async () => {
+    const dispatch = vi.fn().mockResolvedValue({ ok: true });
+    await executeFlovartCommand('workflow.node.tool', {
+      'project-id': 'project-1',
+      'node-id': 'image-1',
+      tool: 'crop',
+      x: '0.1',
+      y: '0.2',
+      width: '0.5',
+      height: '0.4',
+      'idempotency-key': 'crop-image-1',
+    }, { workflow: { dispatch } });
+
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'workflow.node.tool',
+      args: expect.objectContaining({
+        projectId: 'project-1',
+        nodeId: 'image-1',
+        x: 0.1,
+        y: 0.2,
+        width: 0.5,
+        height: 0.4,
+      }),
+    }));
   });
 });

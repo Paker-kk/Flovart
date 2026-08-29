@@ -10,8 +10,6 @@ const RETIRED_COMMANDS: Array<[string, string[]]> = [
   ['provider.begin-setup', ['--provider', 'custom']],
   ['provider.select-model', ['--image-model', 'flovart:gpt-image-2']],
   ['provider.test', ['--purpose', 'both']],
-  ['workflow.node.run', ['--node-id', 'node-1']],
-  ['workflow.node.stop', ['--node-id', 'node-1']],
   ['generate.images-batch', ['--items-json', '[{"name":"a","prompt":"p"}]']],
 ];
 

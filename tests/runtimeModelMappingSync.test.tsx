@@ -62,18 +62,19 @@ describe('Runtime-only RunningHub model mapping', () => {
         runtimeExecute.mockResolvedValue({ providers: [runningHubStatus] });
     });
 
-    it('[BAD CASE] reproduces the missing Runtime-only recommendation', async () => {
+    it('shows Runtime route recommendations for a Runtime-only RH credential', async () => {
         renderSettings();
 
         fireEvent.click(screen.getByRole('button', { name: '模型映射' }));
         await waitFor(() => expect(runtimeExecute).toHaveBeenCalledWith(expect.objectContaining({ command: 'provider.status' })));
         await screen.findByTestId('model-mapping-sections');
 
-        expect(screen.getByText('请先在“API 配置”中添加 Provider，随后再建立模型映射。')).toBeInTheDocument();
-        expect(screen.queryByText(/Runtime 路线建议/)).not.toBeInTheDocument();
+        expect(screen.getByText('Runtime 路线建议')).toBeInTheDocument();
+        expect(screen.getByText(/rhart-image-g-2\/text-to-image/)).toBeInTheDocument();
+        expect(screen.queryByText('请先在“API 配置”中添加 Provider，随后再建立模型映射。')).not.toBeInTheDocument();
     });
 
-    it.fails('[BAD CASE] regression target: Runtime-only RH should expose non-secret route recommendations', async () => {
+    it('exposes non-secret route recommendations for Runtime-only RH', async () => {
         renderSettings();
 
         fireEvent.click(screen.getByRole('button', { name: '模型映射' }));

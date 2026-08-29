@@ -4,8 +4,9 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai';
 import { FlovartAgentKernel } from '../agent/kernel.js';
-import { createFlovartAgentTools } from '../agent/mcp.js';
+import { createFlovartAgentTools } from '../agent/tools.js';
 import { createProductionSkillAttachment, getBundledProductionSkill } from '../services/productionSkillCatalog';
+import { createWorkflowNode } from '../components/workflow/constants';
 import { createWorkflowProject, useWorkflowStore } from '../components/workflow/store';
 import { dispatchWorkflowCommand } from '../services/workflowDispatcher';
 
@@ -22,6 +23,32 @@ afterEach(async () => {
 });
 
 describe('Flovart Agent Kernel', () => {
+  it('pins the inspect-first Canvas contract in the Agent instructions', async () => {
+    const directory = await temporaryDirectory();
+    let systemPrompt = '';
+    const faux = fauxProvider({ tokensPerSecond: 0 });
+    faux.setResponses([context => {
+      systemPrompt = context.systemPrompt;
+      return fauxAssistantMessage('已读取当前 Workflow。');
+    }]);
+    const kernel = new FlovartAgentKernel({
+      databasePath: join(directory, 'agent-sessions.db'),
+      model: faux.getModel(),
+      streamFn: faux.provider.streamSimple,
+    });
+
+    await kernel.openSession({ projectId: 'project-contract', cwd: directory });
+    await kernel.send('检查当前画布');
+    expect(systemPrompt).toContain('flovart_workflow_inspect');
+    expect(systemPrompt).toContain('flovart_workflow_selection_get');
+    expect(systemPrompt).toContain('flovart_workflow_apply');
+    expect(systemPrompt).toContain('flovart_workflow_node_run');
+    expect(systemPrompt).toContain('不得模拟鼠标');
+    expect(systemPrompt).toContain('不能切换到 Native');
+    expect(systemPrompt).toContain('不能自行解析 Provider');
+    await kernel.close();
+  });
+
   it('restores the main production conversation from the PI SQLite session store', async () => {
     const directory = await temporaryDirectory();
     const databasePath = join(directory, 'agent-sessions.db');
@@ -59,11 +86,11 @@ describe('Flovart Agent Kernel', () => {
     const calls: unknown[] = [];
     const faux = fauxProvider({ tokensPerSecond: 0 });
     faux.setResponses([
-      fauxAssistantMessage(fauxToolCall('flovart_workflow_node_create', {
-        type: 'text',
-        title: '脚本大纲',
-        x: 120,
-        y: 80,
+      fauxAssistantMessage(fauxToolCall('flovart_workflow_apply', {
+        projectId: 'project-tools',
+        expectedRevision: 1,
+        mutationId: 'agent-create-outline-v1',
+        operations: [{ type: 'add_node', node: createWorkflowNode('outline-1', 'text', { x: 120, y: 80 }, { content: '脚本大纲' }) }],
         idempotencyKey: 'agent-create-outline-v1',
       }), { stopReason: 'toolUse' }),
       fauxAssistantMessage('脚本大纲节点已经写入可见 Workflow。'),
@@ -74,7 +101,7 @@ describe('Flovart Agent Kernel', () => {
       streamFn: faux.provider.streamSimple,
       tools: createFlovartAgentTools(async (command, args, source, idempotencyKey) => {
         calls.push({ command, args, source, idempotencyKey });
-        return { ok: true, node: { id: 'outline-1', title: args.title } };
+        return { ok: true, node: { id: 'outline-1', title: '脚本大纲' } };
       }),
     });
 
@@ -82,13 +109,13 @@ describe('Flovart Agent Kernel', () => {
     await kernel.send('创建一个脚本大纲节点');
 
     expect(calls).toEqual([expect.objectContaining({
-      command: 'workflow.node.create',
+      command: 'workflow.apply',
       source: 'agent',
       idempotencyKey: 'agent-create-outline-v1',
     })]);
     expect((await kernel.snapshot()).messages.map(message => [message.role, message.toolName, message.text])).toEqual([
       ['user', undefined, '创建一个脚本大纲节点'],
-      ['tool', 'flovart_workflow_node_create', expect.stringContaining('"outline-1"')],
+      ['tool', 'flovart_workflow_apply', expect.stringContaining('"outline-1"')],
       ['assistant', undefined, '脚本大纲节点已经写入可见 Workflow。'],
     ]);
     await kernel.close();
@@ -100,13 +127,14 @@ describe('Flovart Agent Kernel', () => {
     useWorkflowStore.setState({ projects: [project], activeProjectId: project.id, hydrated: true });
     const faux = fauxProvider({ tokensPerSecond: 0 });
     faux.setResponses([
-      fauxAssistantMessage(fauxToolCall('flovart_workflow_node_create', {
+      fauxAssistantMessage(fauxToolCall('flovart_workflow_apply', {
         projectId: project.id,
-        type: 'text',
-        title: '画布脚本',
+        expectedRevision: 1,
+        mutationId: 'real-draft-create-v1',
+        operations: [{ type: 'add_node', node: createWorkflowNode('draft-outline', 'text', { x: 0, y: 0 }, { content: '画布脚本' }) }],
         idempotencyKey: 'real-draft-create-v1',
       }), { stopReason: 'toolUse' }),
-      fauxAssistantMessage('节点已写入同一画布。'),
+      fauxAssistantMessage('节点已写入同一 Workflow。'),
     ]);
     const kernel = new FlovartAgentKernel({
       databasePath: join(directory, 'agent-sessions.db'),
@@ -118,11 +146,12 @@ describe('Flovart Agent Kernel', () => {
     });
 
     await kernel.openSession({ projectId: project.id, cwd: directory });
-    await kernel.send('在当前画布创建脚本节点');
+    await kernel.send('在当前 Workflow 创建脚本节点');
 
     const changed = useWorkflowStore.getState().projects[0];
     expect(changed.nodes).toHaveLength(1);
-    expect(changed.nodes[0]).toMatchObject({ title: '画布脚本', objectVersion: 1 });
+    expect(changed.nodes[0]).toMatchObject({ id: 'draft-outline', objectVersion: 1 });
+    expect(changed.nodes[0].metadata.content).toBe('画布脚本');
     expect(changed.draftChangeSets).toHaveLength(1);
     expect(changed.draftChangeSets?.[0]).toMatchObject({ actor: 'agent', status: 'completed' });
     await kernel.close();
@@ -158,14 +187,18 @@ describe('Flovart Agent Kernel', () => {
     const calls: Array<{ command: string; args: Record<string, unknown> }> = [];
     const faux = fauxProvider({ tokensPerSecond: 0 });
     faux.setResponses([
-      fauxAssistantMessage(fauxToolCall('flovart_workflow_node_create', {
-        type: 'text',
-        title: '节点一',
+      fauxAssistantMessage(fauxToolCall('flovart_workflow_apply', {
+        projectId: 'project-turn',
+        expectedRevision: 1,
+        mutationId: 'turn-create-v1',
+        operations: [{ type: 'add_node', node: createWorkflowNode('node-1', 'text', { x: 0, y: 0 }, { content: '节点一' }) }],
         idempotencyKey: 'turn-create-v1',
       }), { stopReason: 'toolUse' }),
-      fauxAssistantMessage(fauxToolCall('flovart_workflow_node_update', {
-        nodeId: 'node-1',
-        patch: { title: '节点一改' },
+      fauxAssistantMessage(fauxToolCall('flovart_workflow_apply', {
+        projectId: 'project-turn',
+        expectedRevision: 2,
+        mutationId: 'turn-update-v1',
+        operations: [{ type: 'update_node', id: 'node-1', patch: { title: '节点一改' } }],
         idempotencyKey: 'turn-update-v1',
       }), { stopReason: 'toolUse' }),
       fauxAssistantMessage('节点已创建并更新。'),

@@ -6,6 +6,26 @@ import { createWorkflowDispatcher, type WorkflowCommandEnvelope } from '../servi
 import { executeFlovartCommand } from '../tools/flovart/core.js';
 
 describe('workspace command synchronization', () => {
+  it('keeps external Host identity in the transport envelope instead of Workflow args', async () => {
+    const dispatch = vi.fn(async (envelope: WorkflowCommandEnvelope & { caller?: Record<string, unknown> }) => ({
+      ok: true,
+      commandId: envelope.id,
+      result: envelope,
+    }));
+
+    await executeFlovartCommand('workflow.inspect', {
+      projectId: 'project-1',
+      'agent-identity': 'codex',
+      'host-session-id': 'session-1',
+    }, { workflow: { dispatch } });
+
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      caller: { agentIdentity: 'codex', hostSessionId: 'session-1' },
+    }));
+    expect(dispatch.mock.calls[0][0].args).not.toHaveProperty('agentIdentity');
+    expect(dispatch.mock.calls[0][0].args).not.toHaveProperty('hostSessionId');
+  });
+
   it('normalizes JSON object and array strings before dispatching CLI workspace commands', async () => {
     const dispatch = vi.fn(async (envelope: WorkflowCommandEnvelope) => ({
       ok: true,

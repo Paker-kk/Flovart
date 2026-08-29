@@ -57,6 +57,29 @@ describe('Workflow Draft Authority', () => {
     expect(redone.project.nodes.find(node => node.id === 'outline-1')).toMatchObject({ title: '大纲 v2' });
   });
 
+  it('does not duplicate nodes when redoing a mutation that preserves node order', () => {
+    let project = createWorkflowProject('稳定顺序');
+    project = {
+      ...project,
+      nodes: [
+        createWorkflowNode('source-1', 'text', { x: 0, y: 0 }),
+        createWorkflowNode('shot-1', 'image', { x: 420, y: 0 }),
+      ],
+    };
+    const applied = apply(project, 'rename-1', 'agent', '修改节点', [
+      { type: 'update_node', id: 'source-1', patch: { title: '已修改' } },
+    ]);
+    const undone = undoWorkflowDraftChangeSet(applied.project);
+    expect(undone.ok).toBe(true);
+    if (undone.ok === false) throw new Error(undone.error.message);
+    const redone = redoWorkflowDraftChangeSet(undone.project);
+    expect(redone.ok).toBe(true);
+    if (redone.ok === false) throw new Error(redone.error.message);
+    expect(redone.project.nodes.map(node => node.id)).toEqual(['source-1', 'shot-1']);
+    expect(redone.project.nodes).toHaveLength(2);
+    expect(redone.project.nodes[0].title).toBe('已修改');
+  });
+
   it('does not merge across different changeSetIds or after a human edit interleaves', () => {
     let project = createWorkflowProject('回合');
     const first = apply(project, 'turn-1', 'agent', '创建大纲', [

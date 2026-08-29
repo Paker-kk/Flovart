@@ -58,7 +58,7 @@ describe('studio layout contracts', () => {
     const workflowStyles = source('styles/workflow.css');
 
     expect(workflowStyles).toContain('.workflow-toolbar__add-menu { position: absolute; bottom: calc(100% + 6px);');
-    expect(toolbar).toContain("style={constrained ? { left: `calc((100% - ${rightInset}px) / 2)` } : undefined}");
+    expect(toolbar).toContain("style={constrained ? { left: `calc((100% - ${Math.min(rightInset, 220)}px) / 2)` } : undefined}");
     expect(workflow).toContain('Math.max(72, 56 + 28 * project.viewport.k)');
     expect(workflow).toContain('const dockSafeTop = rootHeight - 60;');
     expect(workflowStyles.match(/overflow: clip/g)?.length).toBeGreaterThanOrEqual(2);

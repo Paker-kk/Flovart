@@ -5,10 +5,6 @@ import { createWorkflowProject, useWorkflowStore } from '../components/workflow/
 import { workflowMediaStorage } from '../components/workflow/storage';
 import type { AssetLibrary } from '../types';
 
-vi.mock('../components/agent/FlovartAgentPanel', () => ({
-  FlovartAgentPanel: ({ project }: { project: { title: string } }) => <div data-testid="flovart-main-agent">PI Agent · {project.title}</div>,
-}));
-
 const TEST_ASSET_LIBRARY: AssetLibrary = {
   folders: [],
   items: [
@@ -83,12 +79,14 @@ describe('Workflow right panel', () => {
     expect(document.querySelector('.workflow-sidebar')).toBeInTheDocument();
   });
 
-  it('mounts the iterative Flovart PI Agent beside the visible Workflow', () => {
+  it('shows production status without mounting a second Agent chat', () => {
     renderWorkspace();
 
-    expect(screen.getByTestId('flovart-main-agent')).toHaveTextContent('PI Agent · 右侧面板测试');
-    expect(screen.queryByText('网站')).toBeNull();
-    expect(screen.queryByText('本机')).toBeNull();
+    expect(screen.getByRole('region', { name: 'Production Crew 状态' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '外部 Director Host 是指挥入口' })).toBeInTheDocument();
+    expect(screen.getByText('由当前 Host Projection 决定')).toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByTestId('flovart-main-agent')).toBeNull();
   });
 
   it('searches Workflow assets in the left sidebar popup', () => {

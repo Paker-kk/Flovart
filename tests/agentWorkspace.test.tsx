@@ -11,23 +11,22 @@ describe('Agent workspace', () => {
     });
   });
 
-  it('mounts one stable Flovart Agent conversation beside spatial production context', () => {
+  it('shows production control without mounting a second Agent conversation', () => {
     const project = { ...createWorkflowProject('Agent 项目'), id: 'project' };
     render(
       <AgentWorkspace
         project={project}
         onCreateProject={vi.fn()}
-        onProjectChange={vi.fn()}
         onOpenWorkflow={vi.fn()}
         onOpenTable={vi.fn()}
-        onOpenSettings={vi.fn()}
       />,
     );
 
     expect(screen.getByTestId('agent-main-workspace')).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Flovart Agent 主对话' })).toBeInTheDocument();
-    expect(screen.getByText('新对话')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '添加 Codex 子任务' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Production Crew 状态' })).toBeInTheDocument();
+    expect(screen.getByText('外部 Director Host 是指挥入口')).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /开始你的创作/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('历史对话')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '调整面板大小' })).not.toBeInTheDocument();
   });
 
@@ -47,7 +46,7 @@ describe('Agent workspace', () => {
         connectionChanges: [],
       }],
     };
-    render(<AgentWorkspace project={project} onCreateProject={vi.fn()} onProjectChange={vi.fn()} onOpenWorkflow={vi.fn()} onOpenTable={vi.fn()} onOpenSettings={vi.fn()} />);
+    render(<AgentWorkspace project={project} onCreateProject={vi.fn()} onOpenWorkflow={vi.fn()} onOpenTable={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: /时间线/ }));
     expect(screen.getByText('搭建 VOX 分镜画布')).toBeInTheDocument();
@@ -56,11 +55,11 @@ describe('Agent workspace', () => {
 
   it('keeps brief, artifacts, and timeline as lightweight context instead of floating windows', () => {
     const project = { ...createWorkflowProject('移动项目'), id: 'project' };
-    render(<AgentWorkspace project={project} onCreateProject={vi.fn()} onProjectChange={vi.fn()} onOpenWorkflow={vi.fn()} onOpenTable={vi.fn()} onOpenSettings={vi.fn()} />);
+    render(<AgentWorkspace project={project} onCreateProject={vi.fn()} onOpenWorkflow={vi.fn()} onOpenTable={vi.fn()} />);
 
     expect(screen.getByText(/生成结果会自动汇集在这里/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Brief/ }));
-    expect(screen.getByText(/Agent 与你编辑同一份 Workflow Draft/)).toBeInTheDocument();
+    expect(screen.getByText(/外部 Director Host 与 Production Crew 共享同一份 Workflow Draft/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /打开 Workflow/ })).toBeInTheDocument();
   });
 });

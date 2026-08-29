@@ -3,6 +3,7 @@ import { setBrowserWorkflowBinding } from '../services/browserWorkflowBinding';
 import {
   agentBootstrapStorageKeys,
   bootstrapLocalAgentConnection,
+  consumeBrowserWriterAutoActivation,
   resetAgentConnectionBootstrapForTests,
 } from '../services/agentConnectionBootstrap';
 import { useAgentConnectionStore } from '../stores/useAgentConnectionStore';
@@ -50,9 +51,31 @@ describe('AgentConnectionBootstrap', () => {
     expect(replaceState).toHaveBeenCalledWith(null, expect.any(String), '/#/app');
     expect(session.getItem(agentBootstrapStorageKeys.url)).toBe('http://127.0.0.1:17373');
     expect(session.getItem(agentBootstrapStorageKeys.token)).toBe('bootstrap-secret');
+    expect(consumeBrowserWriterAutoActivation(session)).toBe(false);
     expect(useAgentConnectionStore.getState()).toMatchObject({ status: 'connecting', url: 'http://127.0.0.1:17373' });
     expect(JSON.stringify(useAgentConnectionStore.getState())).not.toContain('bootstrap-secret');
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('arms only launcher pages for one-shot Browser Writer activation and scrubs the flag', async () => {
+    const session = storage();
+    const replaceState = vi.fn();
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => new URL(String(input)).pathname === '/health'
+      ? response({ ok: true })
+      : response({ ok: true, protocolVersion: '1' }));
+    const location = {
+      href: 'http://127.0.0.1:37522/?agentUrl=http%3A%2F%2F127.0.0.1%3A17373&agentToken=bootstrap-secret&activateBrowserWriter=1#/app',
+      search: '?agentUrl=http%3A%2F%2F127.0.0.1%3A17373&agentToken=bootstrap-secret&activateBrowserWriter=1',
+      hash: '#/app',
+      pathname: '/',
+    };
+
+    await expect(bootstrapLocalAgentConnection({ location, history: { replaceState }, sessionStorage: session, fetchImpl, maxAttempts: 1 })).resolves.toMatchObject({ state: 'ready' });
+    expect(session.getItem(agentBootstrapStorageKeys.autoActivate)).toBe('1');
+    expect(replaceState).toHaveBeenCalledWith(null, expect.any(String), '/#/app');
+    expect(consumeBrowserWriterAutoActivation(session)).toBe(true);
+    expect(session.getItem(agentBootstrapStorageKeys.autoActivate)).toBeNull();
+    expect(consumeBrowserWriterAutoActivation(session)).toBe(false);
   });
 
   it('reports auth failure, clears bootstrap credentials, and does not create a binding', async () => {
@@ -74,6 +97,7 @@ describe('AgentConnectionBootstrap', () => {
     expect(result.state).toBe('auth_failed');
     expect(useAgentConnectionStore.getState().status).toBe('auth_failed');
     expect(session.getItem(agentBootstrapStorageKeys.token)).toBeNull();
+    expect(session.getItem(agentBootstrapStorageKeys.autoActivate)).toBeNull();
     expect(replaceState).toHaveBeenCalledWith(null, expect.any(String), '/#/app');
   });
 });

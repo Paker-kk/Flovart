@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -13,34 +13,26 @@ import {
 } from '../tools/flovart/agent-kit.js';
 
 describe('flovart agent kit', () => {
-  it('builds host-specific CLI config without writing in dry-run mode', () => {
+  it('installs the CLI-first SKILL attachment without writing any MCP config', () => {
     const projectDir = process.cwd();
 
-    expect(initCliHost({ host: 'opencode', projectDir, dryRun: true })).toMatchObject({
+    const result = initCliHost({ target: 'project-skill', projectDir, dryRun: true });
+    expect(result).toMatchObject({
       ok: true,
-      writes: [
-        expect.objectContaining({
-          wrapperKey: 'mcp',
-          config: { mcp: { flovart: expect.objectContaining({ type: 'local', command: expect.any(Array) }) } },
-        }),
-      ],
-      skill: expect.objectContaining({ target: expect.stringContaining('.agents') }),
+      target: 'project-skill',
+      skill: expect.objectContaining({ target: expect.stringContaining('.agents'), exists: true, dryRun: true }),
+      bootstrapSkill: expect.objectContaining({ target: expect.stringContaining('open-flovart'), exists: true, dryRun: true }),
     });
+    expect(result.writes).toBeUndefined();
 
-    expect(initCliHost({ host: 'vscode', projectDir, dryRun: true })).toMatchObject({
-      ok: true,
-      writes: [
-        expect.objectContaining({
-          wrapperKey: 'servers',
-          config: { servers: { flovart: expect.objectContaining({ type: 'stdio', command: process.execPath }) } },
-        }),
-      ],
-    });
+    for (const target of ['opencode-skill', 'codebuddy-code-skill', 'codex-skill', 'claude-code-skill', 'project-skill']) {
+      const single = initCliHost({ target, projectDir, dryRun: true });
+      expect(single.ok).toBe(true);
+      expect(single.skill.target).toContain(target === 'codebuddy-code-skill' ? '.codebuddy' : target === 'claude-code-skill' ? '.claude' : '.agents');
+    }
 
-    expect(initCliHost({ host: 'codex', projectDir, dryRun: true })).toMatchObject({
-      ok: true,
-      writes: [expect.objectContaining({ registration: { command: 'codex', args: expect.arrayContaining(['mcp', 'add', 'flovart']) } })],
-    });
+    const codexAlias = initCliHost({ target: 'codex', projectDir, dryRun: true });
+    expect(codexAlias).toMatchObject({ requestedTarget: 'codex', target: 'codex-skill' });
   });
 
   it('enhances prompts and plans batches deterministically', () => {
@@ -55,6 +47,22 @@ describe('flovart agent kit', () => {
     expect(plan.items).toHaveLength(3);
     expect(plan.items[0]).toEqual(expect.objectContaining({ clientShotId: 'shot-1', prompt: expect.stringContaining('red sports car') }));
   });
+
+  it('writes the zero-config readiness loop from the canonical Skill source', () => {
+    const projectDir = mkdtempSync(join(tmpdir(), 'flovart-codex-skill-'));
+    try {
+      const result = initCliHost({ target: 'codex', projectDir });
+      const content = readFileSync(result.skill.target, 'utf8');
+      expect(content).toContain('npx flovart-cli status --json');
+      expect(content).toContain('npx flovart-cli start --open --json');
+      expect(content).toContain('npx flovart-cli workflow.inspect --json');
+      expect(content).toContain('not part of the normal model-facing loop');
+      expect(content).not.toContain('npx flovart-cli command.list --json\n');
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
   it('lists Seedance 2.0 as the default agent-facing video package', () => {
     const result = listAgentModels({ purpose: 'video' });
     const seedance = result.models.video.find(m => m.id === 'flovart:seedance-2');

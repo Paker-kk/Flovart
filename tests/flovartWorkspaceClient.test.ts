@@ -70,6 +70,7 @@ describe('Flovart Workspace Adapter client', () => {
       args: { id: 'node-1', type: 'text' },
       source: 'cli',
       idempotencyKey: 'create-node-1',
+      caller: { agentIdentity: 'codex' },
     })).resolves.toMatchObject({ ok: true });
 
     const [, init] = fetch.mock.calls[0];
@@ -78,6 +79,7 @@ describe('Flovart Workspace Adapter client', () => {
       command: 'workflow.node.create',
       source: 'cli',
       idempotencyKey: 'create-node-1',
+      caller: { agentIdentity: 'codex' },
     });
   });
 
@@ -93,6 +95,27 @@ describe('Flovart Workspace Adapter client', () => {
       code: 'WORKSPACE_UNAVAILABLE',
       retryable: true,
     } satisfies Partial<WorkspaceClientError>);
+  });
+
+  it('preserves structured Host writer errors from the Workspace Adapter', async () => {
+    const client = new FlovartWorkspaceClient({
+      config,
+      fetch: vi.fn(async () => new Response(JSON.stringify({
+        ok: false,
+        error: {
+          code: 'AGENT_WRITER_INACTIVE',
+          message: '请先显式切换 Host。',
+          retryable: false,
+          details: { activeHostWriter: { agentIdentity: 'codex' } },
+        },
+      }), { status: 409, headers: { 'content-type': 'application/json' } })),
+    });
+
+    await expect(client.execute('workflow.inspect', {}, 'cli')).rejects.toMatchObject({
+      code: 'AGENT_WRITER_INACTIVE',
+      retryable: false,
+      details: { activeHostWriter: { agentIdentity: 'codex' } },
+    });
   });
 
   it('routes CLI node mutations to the connected Workspace Adapter', async () => {
@@ -167,6 +190,32 @@ describe('Flovart Workspace Adapter client', () => {
         title: '可见节点',
         metadata: { content: '需要细修的镜头' },
       },
+    });
+
+    const { stdout: runStdout } = await execFileAsync(process.execPath, [
+      join(process.cwd(), 'tools', 'flovart', 'cli.js'),
+      'workflow.node.run',
+      '--node-id',
+      'node-1',
+      '--expected-revision',
+      '1',
+      '--idempotency-key',
+      'run-node-1',
+      '--json',
+    ], {
+      env: { ...process.env, FLOVART_AGENT_CONFIG: configPath },
+      windowsHide: true,
+    });
+    expect(JSON.parse(runStdout)).toMatchObject({
+      ok: true,
+      command: 'workflow.node.run',
+      runtime: 'workspace-adapter',
+    });
+    expect(received[1]).toMatchObject({
+      command: 'workflow.node.run',
+      source: 'cli',
+      idempotencyKey: 'run-node-1',
+      args: { nodeId: 'node-1', expectedRevision: '1' },
     });
   });
 });

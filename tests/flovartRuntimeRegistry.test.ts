@@ -23,6 +23,7 @@ import {
   WORKSPACE_COMMAND_NAMES,
   WORKSPACE_WRITE_COMMAND_NAMES,
 } from '../tools/flovart/workspace-command-surface.js';
+import { CREW_COMMAND_NAMES } from '../tools/flovart/crew-command-surface.js';
 import {
   RESEARCH_COMMAND_NAMES,
   RESEARCH_WRITE_COMMAND_NAMES,
@@ -34,7 +35,7 @@ describe('Production Runtime canonical registry', () => {
     const commandNames = Object.keys(registry.commands);
 
     expect(registry.protocolVersion).toBe('1');
-    expect(registry.registryHash).toBe('e31afad6b1193985ed8d3a84a0d1312c78bc733bba77a96310f7c317f5890bdf');
+    expect(registry.registryHash).toBe('16259085507641cce24209775a0a87a94a4e0c72f4aed5ed34781fee046b914e');
     expect(hashCanonicalRegistryDocument(registryDocument)).toBe(registry.registryHash);
     expect(Object.isFrozen(registry.commands)).toBe(true);
     expect(Object.isFrozen(registry.commands['runtime.status'].args)).toBe(true);
@@ -47,6 +48,7 @@ describe('Production Runtime canonical registry', () => {
       'task.list',
       'task.cancel',
       'event.stream',
+      'workflow.selection.get',
     ]));
     for (const command of ['runtime.test.delay', 'task.get', 'task.list', 'task.cancel', 'event.stream']) {
       expect(registry.commands[command]?.availability).toBe('available');
@@ -60,6 +62,17 @@ describe('Production Runtime canonical registry', () => {
 
     expect(COMMAND_REGISTRY).toEqual(registry.commands);
     expect(COMMAND_REGISTRY['workflow.node.create']?.availability).toBe('available');
+    expect(COMMAND_REGISTRY['workflow.node.run']?.availability).toBe('available');
+    expect(COMMAND_REGISTRY['workflow.node.stop']?.availability).toBe('available');
+    expect(COMMAND_REGISTRY['director.handoff']).toMatchObject({
+      availability: 'available',
+      args: expect.objectContaining({
+        agentIdentity: 'codex|deepseek-harness|claude-code|opencode|pi',
+        sessionId: 'string',
+        projectId: 'string',
+        expectedBindingId: 'string?',
+      }),
+    });
   });
 
   it('keeps the public CLI and MCP adapters aligned with available registry commands', () => {
@@ -68,7 +81,11 @@ describe('Production Runtime canonical registry', () => {
     expect(new Set(available)).toEqual(new Set([
       ...RUNTIME_COMMAND_NAMES,
       ...WORKSPACE_COMMAND_NAMES,
+      ...CREW_COMMAND_NAMES,
       ...RESEARCH_COMMAND_NAMES,
+      'status', // CLI local-system adapter
+      'host.list', // CLI local Host discovery adapter
+      'init', // CLI Distribution Target installer
     ]));
     expect(RUNTIME_WRITE_COMMAND_NAMES).toEqual([
       'runtime.test.delay',
