@@ -23,3 +23,12 @@ button:disabled { cursor: wait; opacity: .65; }
 .hint { margin: 0; }
 .receipt { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid color-mix(in srgb, CanvasText 12%, transparent); padding-top: 12px; }
 .receipt strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history { border-top: 1px solid color-mix(in srgb, CanvasText 12%, transparent); padding-top: 12px; }
+.history__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.history__head span { color: GrayText; font-size: 12px; }
+.history__head button { border-radius: 6px; padding: 3px 8px; background: transparent; color: GrayText; font-size: 11px; font-weight: 500; }
+.history__head button:hover { background: color-mix(in srgb, CanvasText 8%, transparent); filter: none; }
+.history ul { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.history li { display: flex; flex-direction: column; gap: 1px; overflow: hidden; border-radius: 8px; padding: 8px 10px; background: color-mix(in srgb, CanvasText 6%, transparent); }
+.history li span { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.history li small { color: GrayText; font-size: 11px; }

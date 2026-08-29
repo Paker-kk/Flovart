@@ -3,8 +3,11 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
-// Tauri 期望固定端口，开发时失败则退出而非随机换端口
+// Tauri 期望固定端口；CLI source bootstrap 通过 FLOVART_DYNAMIC_WEB_PORT
+// 显式启用动态端口，避免把用户带到无关的 localhost 服务。
 const host = process.env.TAURI_DEV_HOST;
+const dynamicPort = process.env.FLOVART_DYNAMIC_WEB_PORT === '1';
+const configuredPort = Number(process.env.FLOVART_WEB_PORT);
 
 export default defineConfig(() => {
     return {
@@ -16,9 +19,9 @@ export default defineConfig(() => {
         process.env.CF_PAGES_BASEPATH ||
         (process.env.CF_PAGES ? '/' : './'),
       server: {
-        port: 37521,
+        port: configuredPort > 0 ? configuredPort : 37522,
         host: host || '127.0.0.1',
-        strictPort: true,
+        strictPort: !dynamicPort,
         headers: {
           'Cross-Origin-Opener-Policy': 'same-origin',
           'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -37,6 +40,9 @@ export default defineConfig(() => {
       resolve: {
         // 优先加载 .tsx/.ts 源文件，避免陈旧未跟踪 .js 副本遮蔽源码
         extensions: ['.tsx', '.ts', '.jsx', '.js', '.json', '.mjs'],
+        // dsh-plugin pins an independent RC8 dev graph; host tests still need
+        // one shared React dispatcher.
+        dedupe: ['react', 'react-dom'],
         alias: {
           '@': path.resolve(__dirname, '.'),
         }

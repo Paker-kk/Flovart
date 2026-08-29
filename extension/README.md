@@ -1,6 +1,6 @@
 # Flovart Browser Import（本地开发）
 
-这个扩展是 Desktop-first 的薄伴侣：只把用户明确右键选择的图片，以分块 Native Messaging 传给 Flovart Desktop。它不保存 Provider Secret、不直连 Provider、不内嵌完整 WebUI，也不扫描整页。
+这个扩展是 Desktop-first 的薄伴侣：只把用户明确右键选择的图片或视频（MP4/WebM），以分块 Native Messaging 传给 Flovart Desktop。它不保存 Provider Secret、不直连 Provider、不内嵌完整 WebUI，也不扫描整页。导入时有分块进度反馈，popup 保留最近 5 条导入历史与失败引导（Desktop 未启动 / 连接被拒）。视频导入需要 Desktop 侧的 `browser.import.video` 能力（协议 V1，配对新扩展时自动批准）。
 
 ## 本地安装
 
