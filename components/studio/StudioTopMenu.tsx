@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router';
 import { useAuth } from '../../hooks/useAuth';
 import { useUpdaterStore } from '../../stores/useUpdaterStore';
 import { useDeploymentStore } from '../../stores/useDeploymentStore';
+import { useAgentConnectionStore } from '../../stores/useAgentConnectionStore';
 import { AuthModal } from '../auth/AuthModal';
 import type { ThemeMode } from '../../types';
 
@@ -120,6 +121,12 @@ export const StudioTopMenu: React.FC<StudioTopMenuProps> = ({ model }) => {
         : upStatus === 'up-to-date'
           ? (isChinese ? '已是最新版本' : 'Up to date')
           : (isChinese ? '检查更新' : 'Check for updates');
+  const agentConnectionStatus = useAgentConnectionStore(state => state.status);
+  const agentReady = agentConnectionStatus === 'ready';
+  const agentLabel = isChinese
+    ? agentReady ? '本机 Agent 已连接' : agentConnectionStatus === 'connecting' ? '本机 Agent 连接中' : agentConnectionStatus === 'auth_failed' ? '本机 Agent 认证失败' : '本机 Agent 离线'
+    : agentReady ? 'Local Agent Ready' : agentConnectionStatus === 'connecting' ? 'Local Agent Connecting' : agentConnectionStatus === 'auth_failed' ? 'Local Agent Auth Failed' : 'Local Agent Offline';
+  const agentColor = agentReady ? 'var(--isl-mint-deep)' : agentConnectionStatus === 'auth_failed' || agentConnectionStatus === 'error' ? 'var(--isl-coral-deep)' : 'var(--isl-ink-soft)';
 
   return (
     <>
@@ -251,8 +258,8 @@ export const StudioTopMenu: React.FC<StudioTopMenuProps> = ({ model }) => {
         <Link
           to="/prompts"
           className="isl-icon-btn max-sm:!hidden h-8 items-center gap-1.5 px-2 sm:!flex"
-          title={isChinese ? '提示词社区' : 'Prompt community'}
-          aria-label={isChinese ? '提示词社区' : 'Prompt community'}
+          title={isChinese ? 'SKILL 社区' : 'Skill community'}
+          aria-label={isChinese ? 'SKILL 社区' : 'Skill community'}
         >
           <BookOpen size={15} />
         </Link>
@@ -298,6 +305,17 @@ export const StudioTopMenu: React.FC<StudioTopMenuProps> = ({ model }) => {
             )}
           </button>
         )}
+        <Link
+          to="/dock"
+          data-testid="agent-connection-status"
+          className="isl-icon-btn flex h-8 items-center gap-1.5 px-2"
+          title={isChinese ? '打开本机 Agent 开发者诊断' : 'Open Local Agent diagnostics'}
+          aria-label={agentLabel}
+          style={{ color: agentColor }}
+        >
+          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: agentColor }} />
+          <span className="hidden whitespace-nowrap text-[11px] font-semibold xl:inline">{agentLabel}</span>
+        </Link>
         <button
           type="button"
           className="isl-icon-btn flex h-8 min-w-8 shrink-0 items-center gap-1.5 px-2"

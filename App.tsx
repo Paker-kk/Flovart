@@ -16,12 +16,12 @@ import { getGenerationCapability, type GenerationMode } from './services/generat
 import { cancelWorkflowGeneration, runWorkflowGeneration } from './services/workflowGeneration';
 import { ingestWorkflowMedia, loadWorkflowMediaBlob, releaseWorkflowMediaRecord } from './components/workflow/media';
 import { createWorkflowNode } from './components/workflow/constants';
-import { setWorkflowNodeRunner, setWorkflowNodeToolRunner } from './services/workflowDispatcher';
-import { runWorkflowOnlineAgent } from './services/workflowOnlineAgent';
+import { setWorkflowExecutor, setWorkflowNodeToolRunner } from './services/workflowDispatcher';
+import { createWorkflowExecutor, normalizeWorkflowExecutionError, WorkflowExecutionError, type WorkflowExecutionContext, type WorkflowRunAdapterResult, type WorkflowRunCommand } from './services/workflowExecutor';
+import type { CanonicalGenerationInput } from './components/workflow/inputResolver';
+import type { PromptIntent } from './components/workflow/promptIntent';
 import type { WorkflowNodeToolName, WorkflowNodeToolRuntime } from './services/workflowNodeTools';
-import { getManagedAgentConnection } from './services/managedAgentConnection';
-import { getStudioRuntimeStatus, type AgentRuntimeState } from './services/studioRuntimeStatus';
-import type { WorkflowOnlineTurnInput } from './components/workflow/WorkflowAgentPanel';
+import type { WorkflowProject } from './components/workflow/types';
 import { translations } from './utils/translations';
 import './styles/generation.css';
 import type { TableProcessResult } from './services/tableMediaProcessor';
@@ -74,7 +74,6 @@ const App: React.FC = () => {
     const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
     const [isAssetPanelOpen, setIsAssetPanelOpen] = useState(false);
     const [tableSourceNodeId, setTableSourceNodeId] = useState<string | null>(null);
-    const [agentRuntimeState, setAgentRuntimeState] = useState<AgentRuntimeState>({ kind: 'checking' });
 
     const toast = useToast();
 
@@ -103,17 +102,6 @@ const App: React.FC = () => {
         handleAddApiKey, handleDeleteApiKey, handleUpdateApiKey, handleSetDefaultApiKey,
         dynamicModelOptions, usageSummaryMap,
     } = useApiKeys(isSettingsPanelOpen);
-
-    useEffect(() => {
-        let active = true;
-        void getManagedAgentConnection()
-            .then(connection => { if (active) setAgentRuntimeState({ kind: connection ? 'ready' : 'web' }); })
-            .catch(error => {
-                console.warn('Managed Agent auto-start unavailable.', error);
-                if (active) setAgentRuntimeState({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
-            });
-        return () => { active = false; };
-    }, []);
 
     useEffect(() => {
         Promise.all([
@@ -233,9 +221,14 @@ const App: React.FC = () => {
         prompt: item.prompt,
     })), [generationHistory]);
 
-    const handleRunWorkflowNode = useCallback(async (projectId: string, nodeId: string) => {
+    const handleRunWorkflowNode = useCallback(async (command: WorkflowRunCommand, context: WorkflowExecutionContext): Promise<WorkflowRunAdapterResult | void> => {
+        const { projectId, nodeId } = command;
         let project = useWorkflowStore.getState().projects.find(item => item.id === projectId);
         if (!project) return;
+        const currentRevision = project.draftVersion || 1;
+        if (command.expectedRevision !== undefined && command.expectedRevision !== currentRevision) {
+            throw new WorkflowExecutionError('REVISION_CONFLICT', `Workflow 草稿版本已变化：期望 ${command.expectedRevision}，当前 ${currentRevision}。`, context.runId);
+        }
         const requestedNode = project.nodes.find(item => item.id === nodeId);
         const capabilityId = requestedNode?.metadata.operation?.capabilityId;
         const operationCapability = capabilityId ? getWorkflowOperationCapability(capabilityId) : undefined;
@@ -245,7 +238,7 @@ const App: React.FC = () => {
                 getProject: () => useWorkflowStore.getState().projects.find(item => item.id === projectId) || null,
                 onProjectChange: next => { useWorkflowStore.getState().updateProject(projectId, next); },
             });
-            return;
+            return { status: 'completed' };
         }
         if (requestedNode?.type === 'operation' && operationCapability?.executor === 'local-transform' && operationCapability.mediaType === 'audio') {
             const { rerunWorkflowAudioOperation } = await import('./services/workflowAudioOperations');
@@ -253,7 +246,7 @@ const App: React.FC = () => {
                 getProject: () => useWorkflowStore.getState().projects.find(item => item.id === projectId) || null,
                 onProjectChange: next => { useWorkflowStore.getState().updateProject(projectId, next); },
             });
-            return;
+            return { status: 'completed' };
         }
         if (requestedNode?.type === 'operation' && operationCapability?.mediaType === 'image' && capabilityId !== 'image.generate@1') {
             const { rerunWorkflowImageOperation } = await import('./services/workflowImageOperations');
@@ -262,7 +255,7 @@ const App: React.FC = () => {
                 getProject: () => useWorkflowStore.getState().projects.find(item => item.id === projectId) || null,
                 onProjectChange: next => { useWorkflowStore.getState().updateProject(projectId, next); },
             });
-            return;
+            return { status: 'completed' };
         }
         const prepared = await ensureWorkflowImageGenerateOperation({ project, nodeId, createId: generateId });
         const executableNodeId = prepared.operationNodeId;
@@ -275,14 +268,34 @@ const App: React.FC = () => {
                 draftVersion: project.draftVersion,
             });
         }
-        await runWorkflowGeneration(project, executableNodeId, {
+        let canonicalInput: CanonicalGenerationInput | undefined;
+        const generated = await runWorkflowGeneration(project, executableNodeId, {
             userApiKeys,
             confirmRouteFallback,
+            runId: context.runId,
+            promptIntent: command.promptIntent?.targetNodeId === executableNodeId ? command.promptIntent : undefined,
+            onCanonicalInput: input => { canonicalInput = input; },
+            assets: assetLibrary.items.map(({ id, name, mimeType }) => ({ id, name, mimeType })),
             getProject: () => useWorkflowStore.getState().projects.find(item => item.id === projectId) || null,
             onProjectChange: (next) => useWorkflowStore.getState().updateProject(projectId, next),
             saveHistory: saveGenerationToHistory,
         });
-    }, [confirmRouteFallback, saveGenerationToHistory, userApiKeys]);
+        const generatedNode = generated.nodes.find(item => item.id === executableNodeId);
+        const failureMessage = generatedNode?.metadata.status === 'error' ? generatedNode.metadata.error : undefined;
+        if (failureMessage) {
+            const normalized = normalizeWorkflowExecutionError(new Error(failureMessage), context.runId);
+            return { status: 'failed', error: { code: normalized.code, message: normalized.message }, canonicalInput };
+        }
+        return { status: 'completed', canonicalInput };
+    }, [assetLibrary.items, confirmRouteFallback, saveGenerationToHistory, userApiKeys]);
+
+    const workflowExecutor = useMemo(() => createWorkflowExecutor({
+        runNode: (command, context) => handleRunWorkflowNode(command, context),
+        stopNode: ({ projectId, nodeId }) => { cancelWorkflowGeneration(projectId, nodeId); },
+    }), [handleRunWorkflowNode]);
+    const runWorkflowNodeFromUi = useCallback((projectId: string, nodeId: string, promptIntent?: PromptIntent) => {
+        void workflowExecutor.runNode({ projectId, nodeId, ...(promptIntent ? { promptIntent } : {}) }, { surface: 'ui' });
+    }, [workflowExecutor]);
 
     const handleSaveWorkflowMedia = useCallback(async (projectId: string, nodeId: string) => {
         const node = useWorkflowStore.getState().projects.find(item => item.id === projectId)?.nodes.find(item => item.id === nodeId);
@@ -292,16 +305,10 @@ const App: React.FC = () => {
         setAddAssetModal({ open: true, dataUrl: await blobToDataUrl(blob), mimeType: blob.type, width: node.width || 0, height: node.height || 0 });
     }, []);
 
-    const handleWorkflowOnlineAgentTurn = useCallback((input: WorkflowOnlineTurnInput) => runWorkflowOnlineAgent(input, {
-        userApiKeys,
-        confirmRouteFallback,
-    }), [confirmRouteFallback, userApiKeys]);
-
     useEffect(() => {
-        setWorkflowNodeRunner(handleRunWorkflowNode, (projectId, nodeId) => {
-            cancelWorkflowGeneration(projectId, nodeId);
-        });
-    }, [handleRunWorkflowNode]);
+        setWorkflowExecutor(workflowExecutor);
+        return () => setWorkflowExecutor(undefined);
+    }, [workflowExecutor]);
 
     const handleWorkflowNodeTool = useCallback(async (projectId: string, nodeId: string, tool: string, args: Record<string, unknown>) => {
         // 画布二次处理工具服务含 ffmpeg 等重型依赖，懒加载避免拖进主 chunk。
@@ -377,7 +384,11 @@ const App: React.FC = () => {
         toast.show('已保存到我的素材。', 'success');
     }, [toast]);
 
-    const studioRuntimeStatus = useMemo(() => getStudioRuntimeStatus(language, agentRuntimeState), [agentRuntimeState, language]);
+    const studioRuntimeStatus = useMemo(() => ({
+        tone: 'ready' as const,
+        label: language === 'zho' ? '制作台就绪' : 'Production ready',
+        detail: language === 'zho' ? 'DeepSeek Harness 是唯一指挥入口' : 'DeepSeek Harness is the single director',
+    }), [language]);
     const studioMenuModel: StudioMenuModel = useMemo(() => ({
         mode: activeView,
         title: activeView === 'workflow' ? activeWorkflowTitle : activeView === 'table' ? 'Table' : 'Agent',
@@ -409,8 +420,8 @@ const App: React.FC = () => {
                 resolveGenerationCapability={resolveWorkflowGenerationCapability}
                 sharedMedia={workflowSharedMedia}
                 onReversePrompt={handleWorkflowReversePrompt}
-                onRunNode={handleRunWorkflowNode}
-                onStopNode={(projectId, nodeId) => { cancelWorkflowGeneration(projectId, nodeId); }}
+                onRunNode={runWorkflowNodeFromUi}
+                onStopNode={(projectId, nodeId) => workflowExecutor.stopNode?.({ projectId, nodeId }, { surface: 'ui' })}
                 onSaveWorkflowMedia={handleSaveWorkflowMedia}
                 assetLibrary={assetLibrary}
                 onRenameAsset={(id, name) => setAssetLibrary(prev => renameAsset(prev, id, name))}
@@ -450,11 +461,8 @@ const App: React.FC = () => {
             <AgentWorkspace
                 project={activeWorkflowProject}
                 onCreateProject={() => workflowCreateProject(language === 'zho' ? '未命名工作流' : 'Untitled workflow')}
-                onProjectChange={(projectId, patch) => useWorkflowStore.getState().updateProject(projectId, patch)}
-                onOnlineTurn={handleWorkflowOnlineAgentTurn}
                 onOpenWorkflow={() => setActiveView('workflow')}
                 onOpenTable={handleOpenTable}
-                onOpenSettings={() => setIsSettingsPanelOpen(true)}
             />
         </Suspense>
     );

@@ -19,31 +19,10 @@ export type { MentionItem } from './MentionList';
 import { extractMentions, type MentionData } from './MediaMentionExtension';
 import type { ImageReferenceChip } from './workflow/references';
 import { useWorkflowMediaUrl } from './workflow/media';
-import { PROVIDER_LABELS, type VideoAspectRatio } from '../services/aiGateway';
+import { createPromptBarGenerationPolicy, PROMPT_IMAGE_MODE_ORDER, PROMPT_VIDEO_MODE_ORDER, type VideoAspectRatio } from '../services/promptBarPolicy';
 
 import { readColdMedia } from '../utils/mediaIndexedDB';
-import { modelRefLabel, modelRefModelId, modelRefProvider } from '../utils/modelRefs';
-import {
-    getProductModel,
-    getProductModels,
-    getEffectiveProductModelCapabilities,
-    getEffectiveReferenceLimits,
-    explainReferenceCompatibility,
-    getResolvableVideoModes,
-    getResolvableImageModes,
-    routedImageSupportsImageToImage,
-    IMAGE_MODE_ORDER,
-    explainUnsupportedVideoMode,
-    explainUnsupportedImageMode,
-    isProductModelConfigured,
-    resolveProductModelRoute,
-    resolveAnyProductRoute,
-    sanitizeProductGenerationParams,
-    VIDEO_MODE_ORDER,
-} from '../services/productModelCatalog';
 import { AssetReferencePicker, type ReferencePickerWorkflowItem } from './studio/AssetReferencePicker';
-import { estimateApiCost } from '../utils/usageMonitor';
-import { resolveRouteMapping } from '../services/routeMapping';
 
 export interface PromptBarProps {
     t: (key: string, ...args: any[]) => string;
@@ -174,16 +153,6 @@ const PRODUCT_MODE_LABELS: Record<ProductModelMode, string> = {
     'video-extension': '视频扩展',
 };
 
-function getProductFamily(model: ReturnType<typeof getProductModels>[number]): string {
-    if (model.id.includes('seedance')) return 'Seedance';
-    if (model.id.includes('seedream')) return 'Seedream';
-    if (model.id.includes('kling')) return 'Kling';
-    if (model.id.includes('veo')) return 'Veo';
-    if (model.id.includes('gpt-image')) return 'GPT Image';
-    if (model.id.includes('gemini')) return 'Gemini Image';
-    return model.company;
-}
-
 function ReferenceChipPreview({ chip }: { chip: ImageReferenceChip }) {
     const media = useWorkflowMediaUrl(chip.storageKey, chip.thumbnail);
     if (chip.elementType === 'audio') return <div className="flex h-full w-full items-center justify-center text-[10px] font-bold" style={{ color: 'var(--isl-mint-deep)', background: 'var(--isl-mint-bg)' }}>AU</div>;
@@ -191,17 +160,6 @@ function ReferenceChipPreview({ chip }: { chip: ImageReferenceChip }) {
     return chip.elementType === 'video'
         ? <video src={media.url} className="h-full w-full object-cover" muted playsInline preload="metadata" />
         : <img src={media.url} alt={chip.label} className="h-full w-full object-cover" />;
-}
-
-function getModelLabel(mode: GenerationMode, textModel?: string, imageModel?: string, videoModel?: string, userApiKeys: UserApiKey[] = []): string {
-    if (mode === 'text') return '文本映射';
-    const model = mode === 'video' || mode === 'keyframe' ? videoModel : imageModel;
-    if (!model) return mode === 'video' || mode === 'keyframe' ? '选择视频模型' : '选择图片模型';
-    const product = getProductModel(model);
-    if (product) return product.name;
-    const provider = modelRefProvider(model, userApiKeys);
-    const shortProvider = PROVIDER_LABELS[provider]?.split(' ')[0] || provider;
-    return `${shortProvider} · ${modelRefModelId(model).replace(/^(google|openai|anthropic|openrouter)\//, '')}`;
 }
 
 const MenuOptionButton: React.FC<{ label: string; active?: boolean; description?: string; onClick: () => void }> = ({ label, active = false, description, onClick }) => (
@@ -504,116 +462,31 @@ export const PromptBar: React.FC<PromptBarProps> = ({
         return result;
     }, [assetItems, editorReferenceItems, referenceItems]);
 
-    /** 当前视频模型是否为 Seedance（用于 Fast 限制 1080p 等模型专属逻辑） */
-    const videoLikeMode = generationMode === 'video' || generationMode === 'keyframe';
-    const activeModel = generationMode === 'text' ? selectedTextModel : videoLikeMode ? selectedVideoModel : selectedImageModel;
-    const activeProductModel = useMemo(() => getProductModel(activeModel), [activeModel]);
-    const activeSubmode = generationSubmode || (generationMode === 'video' ? 'text-to-video' : 'text-to-image');
-    const activeRoute = activeProductModel
-        ? resolveProductModelRoute(activeProductModel.id, activeSubmode, userApiKeys)
-        : generationMode === 'text'
-            ? resolveRouteMapping({ kind: 'runtime-capability', capability: 'agent-text' }, userApiKeys)
-            : null;
-    const activeRouteContext = useMemo(() => ({ provider: activeRoute?.key.provider, routeId: activeRoute?.routeId }), [activeRoute?.key.provider, activeRoute?.routeId]);
-    const activeCapabilities = useMemo(() => {
-        if (!activeProductModel) return undefined;
-        return getEffectiveProductModelCapabilities(activeProductModel.id, activeSubmode, activeRouteContext);
-    }, [activeProductModel, activeRouteContext, activeSubmode]);
-    /** 图片/视频产品模型按产品家族分组：左侧选家族，右侧渐进披露具体版本。 */
-    const productModels = useMemo(
-        () => generationMode === 'text' ? [] : getProductModels(videoLikeMode ? 'video' : 'image'),
-        [generationMode, videoLikeMode]
-    );
-    const productModelGroups = useMemo(() => {
-        const groups = new Map<string, typeof productModels>();
-        productModels.forEach(product => {
-            const family = getProductFamily(product);
-            groups.set(family, [...(groups.get(family) || []), product]);
-        });
-        return [...groups].map(([family, models]) => ({ family, company: models[0]?.company || '', models }));
-    }, [productModels]);
-    const modelCapabilityFilters = useMemo(() => [...new Set(productModels.flatMap(product => product.capabilities.modes))], [productModels]);
-    const filteredProductModelGroups = useMemo(() => productModelGroups
-        .map(group => ({ ...group, models: group.models.filter(product => modelCapabilityFilter === 'all' || product.capabilities.modes.includes(modelCapabilityFilter)) }))
-        .filter(group => group.models.length > 0), [modelCapabilityFilter, productModelGroups]);
-    const displayedModelGroup = filteredProductModelGroups.find(group => group.family === activeModelFamily) || filteredProductModelGroups[0];
-
-    useEffect(() => {
-        if (!activeProductModel) return;
-        setActiveModelFamily(getProductFamily(activeProductModel));
-    }, [activeProductModel]);
     /** 当前生效的比例 setter：图片用 imageAspectRatio，视频用 videoAspectRatio */
     const activeRatio = generationMode === 'image' ? imageAspectRatio : videoAspectRatio;
     const setActiveRatio = (ratio: VideoAspectRatio) => {
         if (generationMode === 'image') setImageAspectRatio?.(ratio);
         else setVideoAspectRatio(ratio);
     };
-    /** 参数摘要：用于 chip 上显示浓度等信息 */
-    const paramSummary = useMemo(() => {
-        if (!activeProductModel || !activeCapabilities) return '';
-        const parts: string[] = [];
-        if (activeProductModel.capability === 'image' && generationQuality) {
-            parts.push(generationQuality === 'low' ? '低画面' : generationQuality === 'medium' ? '标准' : '高画面');
-        }
-        if (activeCapabilities.resolutions.length > 0 && videoResolution) parts.push(videoResolution);
-        if (activeCapabilities.aspectRatios.length > 0 && activeRatio) parts.push(preserveReferenceAspectRatio ? '原比例' : activeRatio === 'adaptive' ? '自适应' : activeRatio);
-        if (generationMode === 'video' && activeCapabilities.durations.length > 0) parts.push(videoDurationSec === -1 ? '无限时' : `${videoDurationSec}s`);
-        if (batchCount > 1) parts.push(`×${batchCount}`);
-        return parts.filter(Boolean).join(' · ');
-    }, [activeCapabilities, activeProductModel, generationMode, generationQuality, videoResolution, activeRatio, videoDurationSec, batchCount, preserveReferenceAspectRatio]);
-    const isSeedanceVideoModel = useMemo(() => {
-        return videoLikeMode && !!selectedVideoModel && modelRefModelId(selectedVideoModel).toLowerCase().includes('seedance');
-    }, [selectedVideoModel, videoLikeMode]) || activeProductModel?.id.includes('seedance') === true;
-    const isSeedanceFastModel = isSeedanceVideoModel && modelRefModelId(selectedVideoModel).toLowerCase().includes('fast');
+    const policy = useMemo(() => createPromptBarGenerationPolicy({
+        generationMode, selectedTextModel, selectedImageModel, selectedVideoModel,
+        textModelOptions, imageModelOptions, videoModelOptions, userApiKeys, generationSubmode,
+        imageReferenceChips, modelCapabilityFilter, activeModelFamily, generationQuality,
+        videoResolution, activeRatio, videoDurationSec, batchCount, preserveReferenceAspectRatio,
+    }), [activeModelFamily, activeRatio, batchCount, generationMode, generationQuality, generationSubmode, imageReferenceChips, imageModelOptions, modelCapabilityFilter, preserveReferenceAspectRatio, selectedImageModel, selectedTextModel, selectedVideoModel, textModelOptions, userApiKeys, videoDurationSec, videoModelOptions, videoResolution]);
+    const {
+        videoLikeMode, activeModel, activeProductModel, activeSubmode, activeRoute, activeRouteContext,
+        activeCapabilities, productModels, productModelGroups, modelCapabilityFilters, filteredProductModelGroups, displayedModelGroup,
+        paramSummary, isSeedanceVideoModel, isSeedanceFastModel, routedVideoModes, routedImageModes, activeKey,
+        estimatedCostLabel, mentionedReferences, mentionedImageCount, effectiveReferenceLimits, videoInputRequirement,
+        paramDisabledReason, currentModelOptions,
+    } = policy;
 
-    const currentModelOptions = generationMode === 'text' ? textModelOptions : videoLikeMode ? videoModelOptions : imageModelOptions;
-    const routedVideoModes = useMemo(() => activeProductModel?.capability === 'video'
-        ? getResolvableVideoModes(activeProductModel.id, userApiKeys)
-        : [], [activeProductModel, userApiKeys]);
-    const routedImageModes = useMemo(() => activeProductModel?.capability === 'image'
-        ? getResolvableImageModes(activeProductModel.id, userApiKeys)
-        : [], [activeProductModel, userApiKeys]);
-    const activeKey = activeRoute?.key || userApiKeys.find(k => k.isDefault) || userApiKeys[0];
-    const estimatedCost = useMemo(() => activeRoute && activeProductModel ? estimateApiCost({
-        key: activeRoute.key,
-        productModelId: activeProductModel.id,
-        routeId: activeRoute.routeId,
-        type: activeProductModel.capability,
-        durationSec: generationMode === 'video' ? videoDurationSec : undefined,
-        count: batchCount,
-        resolution: videoResolution,
-        quality: generationQuality,
-    }) : null, [activeProductModel, activeRoute, batchCount, generationMode, generationQuality, videoDurationSec, videoResolution]);
-    const estimatedCostLabel = estimatedCost
-        ? `${estimatedCost.currency === 'CNY' ? '¥' : '$'}${estimatedCost.amount < 1 ? estimatedCost.amount.toFixed(3).replace(/0+$/, '').replace(/\.$/, '') : estimatedCost.amount.toFixed(2)}`
-        : null;
-    const mentionedReferences = imageReferenceChips?.filter(reference => reference.mentioned) || [];
-    const mentionedImageCount = mentionedReferences.filter(reference => reference.elementType === 'image').length;
-    const effectiveReferenceLimits = activeProductModel
-        ? getEffectiveReferenceLimits(activeProductModel.id, activeSubmode, activeRouteContext)
-        : { image: 0, video: 0, audio: 0 };
-    const referenceCompatibilityIssue = generationMode === 'video'
-        ? explainReferenceCompatibility(activeProductModel?.id, activeSubmode, mentionedReferences.map(reference => reference.elementType), activeRouteContext)
-        : null;
-    const videoInputRequirement = generationMode !== 'video' ? null
-        : activeSubmode === 'image-to-video' && mentionedImageCount < 1 ? '图生视频需要添加 1 张图片'
-            : activeSubmode === 'first-last-frame' && mentionedImageCount < 2 ? '首尾帧需要按顺序添加 2 张图片'
-                : activeSubmode === 'reference-to-video' && mentionedReferences.length < 1 ? '全能参考需要添加至少 1 个素材'
-                    : referenceCompatibilityIssue;
-    const paramDisabledReason = useCallback((kind: 'resolution' | 'aspectRatio' | 'durationSec', value: string | number): string | null => {
-        if (!activeProductModel) return '请先选择模型';
-        const base: {
-            mode: ProductModelMode;
-            aspectRatio?: VideoAspectRatio;
-            resolution?: string;
-            durationSec?: number;
-        } = { mode: activeSubmode };
-        if (kind === 'aspectRatio') base.aspectRatio = value as VideoAspectRatio; else base.aspectRatio = activeRatio;
-        if (kind === 'resolution') base.resolution = String(value); else base.resolution = videoResolution;
-        if (kind === 'durationSec') base.durationSec = Number(value); else base.durationSec = videoDurationSec;
-        const probe = sanitizeProductGenerationParams(activeProductModel.id, base, activeRouteContext);
-        return (probe[kind] as string | number) === value ? null : '当前模式下此选项不可用';
-    }, [activeProductModel, activeRatio, activeRouteContext, activeSubmode, videoDurationSec, videoResolution]);
+    useEffect(() => {
+        if (!activeProductModel) return;
+        const selectedGroup = productModelGroups.find(group => group.models.some(product => product.id === activeProductModel.id));
+        if (selectedGroup) setActiveModelFamily(selectedGroup.family);
+    }, [activeProductModel, productModelGroups]);
     const changeActiveModel = (model: string) => generationMode === 'text' ? onTextModelChange?.(model) : videoLikeMode ? onVideoModelChange?.(model) : onImageModelChange?.(model);
     const promptCharCount = prompt.trim().length;
     const promptReady = runWithoutPrompt || Boolean(prompt.trim());
@@ -723,19 +596,14 @@ export const PromptBar: React.FC<PromptBarProps> = ({
         if (activeRatio && !capabilities.aspectRatios.includes(activeRatio)) {
             setActiveRatio(capabilities.aspectRatios[0]);
         }
-        const normalized = sanitizeProductGenerationParams(activeProductModel.id, {
-            mode: activeSubmode,
-            aspectRatio: activeRatio,
-            resolution: videoResolution,
-            durationSec: videoDurationSec,
-        }, activeRouteContext);
+        const normalized = policy.sanitizeParameters(activeSubmode, activeRatio, videoResolution, videoDurationSec);
         if (normalized.resolution && normalized.resolution !== videoResolution) {
             onVideoResolutionChange?.(normalized.resolution);
         }
         if (generationMode === 'video' && normalized.durationSec !== undefined && normalized.durationSec !== videoDurationSec) {
             onVideoDurationSecChange?.(normalized.durationSec);
         }
-    }, [activeCapabilities, activeProductModel, activeRatio, activeRouteContext, activeSubmode, generationMode, onGenerationSubmodeChange, onVideoDurationSecChange, onVideoResolutionChange, routedVideoModes, setActiveRatio, videoDurationSec, videoResolution]);
+    }, [activeCapabilities, activeProductModel, activeRatio, activeSubmode, generationMode, onGenerationSubmodeChange, onVideoDurationSecChange, onVideoResolutionChange, policy, routedVideoModes, setActiveRatio, videoDurationSec, videoResolution]);
 
     const prevFocusSignalRef = useRef<number | undefined>(undefined);
     useEffect(() => {
@@ -1065,7 +933,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                                 className={`flex h-8 w-full items-center gap-1.5 rounded-[5px] px-1.5 text-left transition ${active ? 'bg-[var(--isl-mint-bg)]' : 'hover:bg-[var(--isl-surface-2)]'}`}
                                                 title={group.family}
                                             >
-                                                <span className="min-w-0 flex-1"><span className="block truncate text-[11px] font-semibold" style={{ color: active ? 'var(--isl-mint-deep)' : 'var(--isl-ink)' }}>{group.family}</span><span className="block text-[8px]" style={{ color: 'var(--isl-ink-ghost)' }}>{group.company} · {group.models.filter(product => isProductModelConfigured(product.id, userApiKeys)).length}/{group.models.length}</span></span>
+                                        <span className="min-w-0 flex-1"><span className="block truncate text-[11px] font-semibold" style={{ color: active ? 'var(--isl-mint-deep)' : 'var(--isl-ink)' }}>{group.family}</span><span className="block text-[8px]" style={{ color: 'var(--isl-ink-ghost)' }}>{group.company} · {group.models.filter(product => policy.isProductModelConfigured(product.id)).length}/{group.models.length}</span></span>
                                                 <span aria-hidden="true" style={{ color: 'var(--isl-ink-ghost)', fontSize: 9 }}>{active ? '‹' : '›'}</span>
                                             </button>;
                                         })}
@@ -1075,9 +943,9 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                     <div className="px-1 pb-1 text-[10px] font-semibold" style={{ color: 'var(--isl-ink-soft)' }}>{displayedModelGroup?.family || '模型'}</div>
                                     <div className="min-h-0 max-h-[270px] space-y-0.5 overflow-y-auto pr-0.5 isl-scrollbar">
                                         {displayedModelGroup?.models.map(product => {
-                                            const configured = isProductModelConfigured(product.id, userApiKeys);
-                                            const selected = activeModel === product.id || getProductModel(activeModel)?.id === product.id;
-                                            const route = resolveAnyProductRoute(product.id, userApiKeys);
+                                            const configured = policy.isProductModelConfigured(product.id);
+                                            const selected = activeModel === product.id || activeProductModel?.id === product.id;
+                                            const route = policy.resolveAnyProductRoute(product.id);
                                             return <button key={product.id} type="button" onClick={() => {
                                                 if (!configured) { onOpenSettings?.(); setExpandedPanel(null); return; }
                                                 changeActiveModel(product.id);
@@ -1101,7 +969,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                     <button type="button" onClick={() => { onOpenSettings?.(); setExpandedPanel(null); }} className="mt-2 w-full rounded-[6px] border border-[var(--isl-border)] px-3 py-2 text-xs font-semibold">打开模型映射</button>
                                 </> : <>
                                     <div className="px-2 pb-2 text-[11px] font-semibold" style={{ color: 'var(--isl-ink-soft)' }}>选择模型</div>
-                                    {currentModelOptions.map(model => <button key={model} type="button" onClick={() => { changeActiveModel(model); setExpandedPanel(null); }} className={`mb-1 w-full rounded-[6px] border-0 px-2.5 py-2 text-left text-xs font-semibold ${activeModel === model ? 'bg-[var(--isl-mint-bg)] text-[var(--isl-mint-deep)]' : 'text-[var(--isl-ink)] hover:bg-[var(--isl-surface-2)]'}`}>{modelRefLabel(model, userApiKeys)}</button>)}
+                                    {currentModelOptions.map(model => <button key={model} type="button" onClick={() => { changeActiveModel(model); setExpandedPanel(null); }} className={`mb-1 w-full rounded-[6px] border-0 px-2.5 py-2 text-left text-xs font-semibold ${activeModel === model ? 'bg-[var(--isl-mint-bg)] text-[var(--isl-mint-deep)]' : 'text-[var(--isl-ink)] hover:bg-[var(--isl-surface-2)]'}`}>{policy.modelLabel(model)}</button>)}
                                     {currentModelOptions.length === 0 && <div className="px-4 py-12 text-center text-xs" style={{ color: 'var(--isl-ink-soft)' }}>没有可用模型</div>}
                                 </>}
                             </div>
@@ -1118,11 +986,11 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                 <div data-testid="prompt-video-mode-panel" data-density="compact">
                                     <div className="mb-2 px-1 text-xs font-extrabold" style={{ color: 'var(--isl-ink)' }}>生成方式</div>
                                     <div className="flex flex-col gap-1 px-0.5 pb-0.5">
-                                        {VIDEO_MODE_ORDER.map(mode => {
+                                        {PROMPT_VIDEO_MODE_ORDER.map(mode => {
                                             const supported = !!activeProductModel && routedVideoModes.includes(mode);
                                             const reason = !activeProductModel
                                                 ? '请先选择视频模型'
-                                                : (explainUnsupportedVideoMode(activeProductModel.id, mode) || '未映射该模式的 API 线路，请在设置中配置');
+                                                : (policy.explainUnsupportedVideoMode(mode) || '未映射该模式的 API 线路，请在设置中配置');
                                             return (
                                                 <button
                                                     key={mode}
@@ -1152,11 +1020,11 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                 <div data-testid="prompt-image-mode-panel" data-density="compact">
                                     <div className="mb-2 px-1 text-xs font-extrabold" style={{ color: 'var(--isl-ink)' }}>生成方式</div>
                                     <div className="flex flex-col gap-1 px-0.5 pb-0.5">
-                                        {IMAGE_MODE_ORDER.map(mode => {
+                                        {PROMPT_IMAGE_MODE_ORDER.map(mode => {
                                             const supported = !!activeProductModel && routedImageModes.includes(mode);
                                             const reason = !activeProductModel
                                                 ? '请先选择图片模型'
-                                                : (explainUnsupportedImageMode(activeProductModel.id, mode) || '未映射该模式的 API 线路，请在设置中配置');
+                                                : (policy.explainUnsupportedImageMode(mode) || '未映射该模式的 API 线路，请在设置中配置');
                                             return (
                                                 <button
                                                     key={mode}
@@ -1355,8 +1223,8 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                     <div className="space-y-1">
                                         {userApiKeys.length > 0 && (
                                             <MenuOptionButton
-                                                label={`API Key · ${userApiKeys.length} 个`}
-                                                description={userApiKeys.find(k => k.isDefault)?.name || '点击打开设置管理 Key 与映射'}
+                                                label={`AI 服务 · ${userApiKeys.length} 个`}
+                                                description={userApiKeys.find(k => k.isDefault)?.name || '点击打开设置管理访问凭证与模型路线'}
                                                 onClick={() => { onOpenSettings?.(); setExpandedPanel(null); }}
                                             />
                                         )}
@@ -1471,10 +1339,10 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                             onClick={onOpenSettings}
                                             className={`${triggerClass} shrink-0 ${compactMode ? 'h-7 w-7 px-0 text-[11px]' : 'h-8 px-3 text-xs'}`}
                                             style={{ color: 'var(--isl-coral-deep)' }}
-                                            aria-label="配置 API Key"
-                                            title="尚未配置 API Key，点击打开设置"
+                                            aria-label="配置 AI 服务"
+                                            title="尚未配置访问凭证，点击打开设置"
                                         >
-                                            🔑<span className={compactMode ? 'sr-only' : 'ml-1'}>未配置 API Key</span>
+                                            🔑<span className={compactMode ? 'sr-only' : 'ml-1'}>未配置 AI 服务</span>
                                         </button>
                                     );
                                 }
@@ -1483,12 +1351,12 @@ export const PromptBar: React.FC<PromptBarProps> = ({
 
                             {!hideGenerationOptions && <div className="relative">
                                 <button type="button" aria-haspopup="dialog" aria-expanded={expandedPanel === 'model'} onClick={event => togglePanel('model', event.currentTarget)} className={`${triggerClass} shrink-0 ${expandedPanel === 'model' ? activeTriggerClass : ''}`}>
-                                    <span className="max-w-[150px] truncate">{getModelLabel(generationMode, selectedTextModel, selectedImageModel, selectedVideoModel, userApiKeys)}</span>
+                                    <span className="max-w-[150px] truncate">{policy.modelLabelForMode()}</span>
                                     
                                 </button>
                             </div>}
 
-                            {!hideGenerationOptions && generationMode === 'video' && VIDEO_MODE_ORDER.length > 1 && (
+                            {!hideGenerationOptions && generationMode === 'video' && PROMPT_VIDEO_MODE_ORDER.length > 1 && (
                                 <button type="button" aria-haspopup="dialog" aria-expanded={expandedPanel === 'submode'} onClick={event => togglePanel('submode', event.currentTarget)} className={`${triggerClass} shrink-0 ${expandedPanel === 'submode' ? activeTriggerClass : ''}`} title="视频生成方式">
                                     <span>{PRODUCT_MODE_LABELS[activeSubmode]}</span>
 

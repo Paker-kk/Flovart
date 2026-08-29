@@ -1,4 +1,4 @@
-import { AtSign, Box, Check, Circle, Hand, History, Image as ImageIcon, Plus, RotateCw, Send, Settings2, ShieldCheck, Square, Video, WandSparkles, X } from 'lucide-react';
+import { AtSign, Box, Check, Circle, Hand, History, Image as ImageIcon, Plus, RotateCw, Send, Settings2, ShieldCheck, Square, Trash2, Video, WandSparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getManagedAgentConnection } from '../../services/managedAgentConnection';
 import {
@@ -13,9 +13,11 @@ import type { AgentPanelStatus } from './agentWorkspaceStore';
 import { ProductionSkillDeck } from './ProductionSkillDeck';
 import {
   createProductionSkillAttachment,
+  createSkillAttachment,
   getBundledProductionSkill,
   type ProductionSkillAttachment,
 } from '../../services/productionSkillCatalog';
+import { createLocalSkillRegistry } from '../../services/localSkillRegistry';
 import { consumePendingProductionSkill } from '../../stores/useProductionSkillComposerStore';
 import { BrowserAgentKernel, createBrowserAgentTools, resolveBrowserAgentTextRoute } from '../../services/browserAgentKernel';
 import type { AssetLibrary, UserApiKey } from '../../types';
@@ -47,6 +49,16 @@ function isAgentTextConfigurationError(error?: string) {
 
 function displayError(error: string) {
   return isAgentTextConfigurationError(error) ? AGENT_TEXT_CONFIGURATION_MESSAGE : error;
+}
+
+function formatSessionTime(value: string) {
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return '';
+  const delta = Date.now() - time;
+  if (delta < 60_000) return '刚刚';
+  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)} 分钟前`;
+  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)} 小时前`;
+  return new Date(time).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
 }
 
 function snapshotNeedsConfiguration(snapshot: FlovartAgentSnapshot) {
@@ -107,6 +119,9 @@ export function FlovartAgentPanel({ project, onActivityChange, onOpenSettings, a
   const [attachmentOpen, setAttachmentOpen] = useState(false);
   const [replaceTarget, setReplaceTarget] = useState<AgentReference | null>(null);
   const [infoPanel, setInfoPanel] = useState<'context' | 'safety' | null>(null);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [sessionList, setSessionList] = useState<Array<{ id: string; title: string; updatedAt: string }>>([]);
+  const [activeSessionId, setActiveSessionId] = useState('');
 
   const referenceGroups = useMemo(() => {
     const query = mentionQuery.trim().toLowerCase();
@@ -130,26 +145,38 @@ export function FlovartAgentPanel({ project, onActivityChange, onOpenSettings, a
     const pending = consumePendingProductionSkill(project.id);
     if (!pending) return;
     setPrompt(pending.prompt);
-    const skill = getBundledProductionSkill(pending.skillId);
-    if (!skill || skill.version !== pending.skillVersion) {
-      setMessages(items => [...items, {
-        id: crypto.randomUUID(),
-        role: 'error',
-        text: `制作 Skill 不可用：${pending.skillId}@${pending.skillVersion}`,
-      }]);
+    const showError = (message: string) => {
+      skillAttachmentDirty.current = false;
+      setMessages(items => [...items, { id: crypto.randomUUID(), role: 'error', text: message }]);
+    };
+    const bundled = getBundledProductionSkill(pending.skillId);
+    if (bundled && bundled.version === pending.skillVersion) {
+      skillAttachmentDirty.current = true;
+      void createProductionSkillAttachment(bundled)
+        .then(setSkillAttachment)
+        .catch(error => showError(errorMessage(error)));
       return;
     }
-    skillAttachmentDirty.current = true;
-    void createProductionSkillAttachment(skill)
-      .then(setSkillAttachment)
-      .catch(error => {
-        skillAttachmentDirty.current = false;
-        setMessages(items => [...items, {
-          id: crypto.randomUUID(),
-          role: 'error',
-          text: errorMessage(error),
-        }]);
-      });
+    void (async () => {
+      try {
+        const registry = await createLocalSkillRegistry();
+        if (!registry) throw new Error('本机 Skill 需要桌面端 Managed Agent 连接。');
+        const manifest = await registry.getSkillManifest(pending.skillId);
+        if (manifest.version !== pending.skillVersion) {
+          throw new Error(`制作 Skill 版本不匹配：${pending.skillId}@${pending.skillVersion}`);
+        }
+        skillAttachmentDirty.current = true;
+        setSkillAttachment(createSkillAttachment({
+          id: manifest.id,
+          version: manifest.version,
+          contentHash: manifest.contentHash,
+          displayName: manifest.displayName,
+          trustTier: manifest.trustTier,
+        }));
+      } catch (error) {
+        showError(errorMessage(error));
+      }
+    })();
   }, [project.id]);
   useEffect(() => {
     let active = true;
@@ -196,6 +223,7 @@ export function FlovartAgentPanel({ project, onActivityChange, onOpenSettings, a
       setWorkspaceStatus('ready');
       setNeedsConfiguration(false);
       activity.current(snapshot.messages.length ? 'done' : 'idle');
+      void refreshSessions();
     };
 
     void getManagedAgentConnection()
@@ -299,7 +327,58 @@ export function FlovartAgentPanel({ project, onActivityChange, onOpenSettings, a
       }, `tool-${event.toolCallId || ''}`);
       return;
     }
+    if (event.type === 'session_switched') {
+      const kernel = kernelRef.current;
+      if (kernel) void kernel.snapshot().then(snapshot => setMessages(displayMessages(snapshot as FlovartAgentSnapshot)));
+      return;
+    }
   }, []);
+
+  const refreshSessions = useCallback(async () => {
+    const kernel = kernelRef.current;
+    if (!kernel) return;
+    try {
+      setSessionList(await kernel.listSessions());
+      const snapshot = await kernel.snapshot();
+      setActiveSessionId(String((snapshot as { sessionId?: string }).sessionId || ''));
+    } catch { /* 会话列表读取失败时保持现状 */ }
+  }, []);
+
+  const handleNewConversation = async () => {
+    const kernel = kernelRef.current;
+    if (!kernel) return;
+    try {
+      await kernel.newSession();
+      await refreshSessions();
+      setSessionsOpen(false);
+    } catch (error) {
+      setMessages(items => [...items, { id: crypto.randomUUID(), role: 'error', text: errorMessage(error) }]);
+    }
+  };
+
+  const handleOpenSession = async (sessionId: string) => {
+    const kernel = kernelRef.current;
+    if (!kernel || sending) return;
+    try {
+      abort.current?.abort();
+      await kernel.openSessionById(sessionId);
+      await refreshSessions();
+      setSessionsOpen(false);
+    } catch (error) {
+      setMessages(items => [...items, { id: crypto.randomUUID(), role: 'error', text: errorMessage(error) }]);
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    const kernel = kernelRef.current;
+    if (!kernel) return;
+    try {
+      await kernel.deleteSession(sessionId);
+      await refreshSessions();
+    } catch (error) {
+      setMessages(items => [...items, { id: crypto.randomUUID(), role: 'error', text: errorMessage(error) }]);
+    }
+  };
 
   useEffect(() => { handleEventRef.current = handleEvent; });
 
@@ -427,12 +506,37 @@ export function FlovartAgentPanel({ project, onActivityChange, onOpenSettings, a
   return (
     <div className="workflow-agent is-embedded agent-conversation">
       <header className="workflow-agent__utility agent-conversation__header">
-        <strong>新对话</strong>
+        <strong>对话</strong>
         <span className={`workflow-agent__status is-${needsConfiguration || workspaceStatus === 'error' ? 'error' : status === 'ready' && workspaceStatus === 'ready' ? 'connected' : status}`}>
           <Circle size={8} />{status === 'connecting' ? '连接中' : status === 'error' ? '连接失败' : needsConfiguration ? '需要配置' : workspaceStatus === 'error' ? '工作区断开' : workspaceStatus !== 'ready' ? '同步工作区' : '已就绪'}
         </span>
         {needsConfiguration && <button type="button" className="ml-2 flex items-center gap-1 text-[9px] font-semibold" onClick={onOpenSettings}><Settings2 size={10} />打开模型映射</button>}
-        <span className="ml-auto flex items-center gap-1 text-[9px]" style={{ color: 'var(--isl-ink-ghost)' }}><History size={12} />主对话自动恢复</span>
+        <span className="agent-conversation__history ml-auto">
+          <button
+            type="button"
+            aria-label="历史对话"
+            aria-expanded={sessionsOpen}
+            title="历史对话"
+            onClick={() => { setSessionsOpen(open => !open); if (!sessionsOpen) void refreshSessions(); }}
+          ><History size={13} />{sessionList.length ? `${sessionList.length}` : ''}</button>
+          {sessionsOpen && (
+            <div className="agent-session-menu" role="menu" aria-label="历史对话列表">
+              <button type="button" role="menuitem" onClick={() => void handleNewConversation()}><Plus size={14} /><span><strong>新对话</strong><small>开启一段全新会话</small></span></button>
+              <div className="agent-session-menu__list">
+                {sessionList.length === 0 && <p className="agent-session-menu__empty">暂无历史对话</p>}
+                {sessionList.map(session => (
+                  <div key={session.id} className={`agent-session-menu__item${session.id === activeSessionId ? ' is-active' : ''}`}>
+                    <button type="button" role="menuitem" onClick={() => void handleOpenSession(session.id)}>
+                      <strong>{session.title || '新对话'}</strong>
+                      <small>{formatSessionTime(session.updatedAt)}</small>
+                    </button>
+                    <button type="button" aria-label={`删除对话 ${session.title}`} onClick={() => void handleDeleteSession(session.id)}><Trash2 size={12} /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </span>
       </header>
       <section className="workflow-agent__body">
         <div className="agent-conversation__messages"><WorkflowAgentMessages messages={messages} running={sending} /></div>

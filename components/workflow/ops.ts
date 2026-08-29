@@ -292,6 +292,15 @@ export function applyWorkflowOps(initial: WorkflowSnapshot, ops: WorkflowOp[]): 
       };
       return;
     }
+    if (op.type === 'reorder_nodes') {
+      const byId = new Map(snapshot.nodes.map(node => [node.id, node]));
+      if (op.ids.length !== byId.size || new Set(op.ids).size !== byId.size || op.ids.some(id => !byId.has(id))) {
+        reject(opIndex, op, '节点顺序必须完整且不能重复');
+        return;
+      }
+      snapshot = { ...snapshot, nodes: op.ids.map(id => byId.get(id)!) };
+      return;
+    }
     if (op.type === 'reorder_connections') {
       const byId = new Map(snapshot.connections.map(connection => [connection.id, connection]));
       if (op.ids.length !== byId.size || new Set(op.ids).size !== byId.size || op.ids.some(id => !byId.has(id))) {

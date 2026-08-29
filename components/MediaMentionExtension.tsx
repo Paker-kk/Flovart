@@ -11,6 +11,7 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import { ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
 import React from 'react';
+import { isFetchableMediaHref } from './workflow/media';
 
 // ---- 可视化节点渲染 ----------------------------------------
 
@@ -69,7 +70,7 @@ const MentionNodeView: React.FC<MentionNodeViewProps> = ({ node, deleteNode }) =
                 }}
                 title={label}
             >
-                {thumbnail ? (
+                {thumbnail && isFetchableMediaHref(thumbnail) ? (
                     <img
                         src={thumbnail}
                         alt={label}

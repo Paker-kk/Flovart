@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { subscribeBrowserWorkflowBinding } from '../../services/browserWorkflowBinding';
 import { WorkflowWorkspaceAdapter } from '../../services/workflowWorkspaceAdapter';
 import type { WorkflowProject } from './types';
 
@@ -19,14 +20,22 @@ export function useWorkflowWorkspaceAdapter(
 ) {
   const adapter = useRef<WorkspaceAdapter | null>(null);
   const snapshot = project || EMPTY_WORKFLOW_SNAPSHOT;
+  const latestSnapshot = useRef(snapshot);
+  latestSnapshot.current = snapshot;
 
   useEffect(() => {
     const current = createAdapter();
     adapter.current = current;
-    void current.start(snapshot).catch(error => {
+    const start = () => current.start(latestSnapshot.current).catch(error => {
       console.warn('Managed Agent auto-connect unavailable.', error);
     });
+    void start();
+    const unsubscribe = subscribeBrowserWorkflowBinding(() => {
+      current.stop();
+      void start();
+    });
     return () => {
+      unsubscribe();
       current.stop();
       if (adapter.current === current) adapter.current = null;
     };

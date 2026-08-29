@@ -2,6 +2,7 @@ export const WORKFLOW_MUTATION_COMMANDS = new Set([
   'workflow.project.create',
   'workflow.project.use',
   'workflow.project.delete',
+  'workflow.apply',
   'workflow.node.create',
   'workflow.node.create-connected',
   'workflow.node.update',

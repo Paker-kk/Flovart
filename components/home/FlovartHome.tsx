@@ -25,11 +25,11 @@ import detailFrame from '../../tools/flovart/evaluations/vox-sky-blue-2026-08-04
 import payoffFrame from '../../tools/flovart/evaluations/vox-sky-blue-2026-08-04/preview-payoff.jpg';
 import workflowPreview from '../../tools/flovart/evaluations/reddit-politics-2026-07-25/workflow-cli-sync.png';
 import { createWorkflowNode } from '../workflow/constants';
+import { applyWorkflowMutation } from '../workflow/draftAuthority';
 import { useWorkflowStore } from '../workflow/store';
 import type { WorkflowProject, WorkflowNodeType } from '../workflow/types';
-import type { BundledProductionSkill } from '../../services/productionSkillCatalog';
+import type { SelectableSkill } from './ProductionSkillShelf';
 import { buildProductionSkillStarterPrompt } from '../../services/productionSkillLaunch';
-import { queuePendingProductionSkill } from '../../stores/useProductionSkillComposerStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { ProductionSkillShelf } from './ProductionSkillShelf';
 import '../../styles/home.css';
@@ -90,16 +90,16 @@ const CAPABILITIES: Capability[] = [
     icon: Table2,
   },
   {
-    title: 'Agent + Production Skill',
-    description: '让 Agent 读取项目上下文，按制作方法推进并回写产物。',
-    badge: 'Agent',
+    title: 'Production Crew + Skill',
+    description: '由当前 Director Host 读取项目上下文，按制作方法指挥 Crew 推进。',
+    badge: 'Crew',
     media: payoffFrame,
     target: 'skill',
     icon: Bot,
   },
 ];
 
-const TYPE_LABELS: Record<WorkflowNodeType, string> = {
+const TYPE_LABELS: Partial<Record<WorkflowNodeType, string>> = {
   image: '图片',
   video: '视频',
   audio: '音频',
@@ -189,7 +189,7 @@ function Hero({ onCreate, onOpen }: {
         <div className="home-hero__copy">
           <span className="home-eyebrow"><Sparkles size={13} /> AI 原生制作空间</span>
           <h1 id="home-hero-title">一张 Workflow，<br />把想法连到最终成片</h1>
-          <p>从素材、生成、处理到 Agent 协作，每一步都留在可编辑的节点关系里。</p>
+          <p>从素材、生成、处理到制作协作，每一步都留在可编辑的节点关系里。</p>
           <button type="button" className="home-primary-action" onClick={onCreate}><Plus size={17} />新建 Workflow</button>
         </div>
         <div className="home-capability-grid">
@@ -201,7 +201,7 @@ function Hero({ onCreate, onOpen }: {
           [MonitorPlay, '图片 / 视频生成', '结果直接成为节点'],
           [WorkflowIcon, '自由编排', '关系与版本可追溯'],
           [Table2, '媒体处理', '输入输出显式连接'],
-          [Bot, 'Agent 协作', '读取上下文并回写'],
+          [Bot, '制作协作', '读取上下文并回写'],
         ].map(([Icon, title, detail]) => (
           <span key={String(title)}><i><Icon size={16} /></i><strong>{String(title)}</strong><small>{String(detail)}</small></span>
         ))}
@@ -283,7 +283,7 @@ function RecentProjects({ projects, onCreate, onOpen, onOpenAll }: {
             result[node.type] = (result[node.type] || 0) + 1;
             return result;
           }, {});
-          const summary = Object.entries(counts).slice(0, 3).map(([type, count]) => `${count} ${TYPE_LABELS[type as WorkflowNodeType]}`).join(' · ') || '空白 Workflow';
+          const summary = Object.entries(counts).slice(0, 3).map(([type, count]) => `${count} ${TYPE_LABELS[type as WorkflowNodeType] || type}`).join(' · ') || '空白 Workflow';
           return (
             <button type="button" className="home-project-card" key={project.id} onClick={() => onOpen(project.id)}>
               <ProjectPreview project={project} />
@@ -310,6 +310,29 @@ export default function FlovartHome() {
     setActiveView(view);
     linkTo('/app');
   };
+  const seedProject = (projectId: string, node: WorkflowProject['nodes'][number], intent: string) => {
+    const state = useWorkflowStore.getState();
+    const project = state.projects.find(item => item.id === projectId);
+    if (!project) return;
+    const result = applyWorkflowMutation(project, {
+      projectId,
+      expectedRevision: project.draftVersion || 1,
+      mutationId: nanoid(),
+      source: 'ui',
+      intent,
+      ops: [{ type: 'add_node', node }],
+    });
+    if (result.ok === false) throw new Error(result.error.message);
+    state.updateProject(projectId, {
+      nodes: result.project.nodes,
+      connections: result.project.connections,
+      selectedNodeIds: result.project.selectedNodeIds,
+      draftVersion: result.project.draftVersion,
+      draftChangeSets: result.project.draftChangeSets,
+      draftRedoStack: result.project.draftRedoStack,
+      workflowMutationReceipts: result.project.workflowMutationReceipts,
+    });
+  };
   const createEmpty = () => {
     const id = createProject();
     setActiveProject(id);
@@ -319,9 +342,9 @@ export default function FlovartHome() {
     const title = idea.length > 28 ? `${idea.slice(0, 28)}…` : idea;
     const projectId = createProject(title);
     const node = createWorkflowNode(nanoid(), 'text', { x: 120, y: 120 }, { content: idea, prompt: idea });
-    useWorkflowStore.getState().updateProject(projectId, { nodes: [node], selectedNodeIds: [node.id] });
+    seedProject(projectId, node, '从创意创建 Workflow Brief');
     setActiveProject(projectId);
-    openView('agent');
+    openView('workflow');
   };
   const openProject = (id: string) => {
     setActiveProject(id);
@@ -334,18 +357,17 @@ export default function FlovartHome() {
     }
     openView(target);
   };
-  const useSkill = (skill: BundledProductionSkill) => {
+  const useSkill = (skill: SelectableSkill) => {
+    const prompt = buildProductionSkillStarterPrompt(skill);
     const projectId = createProject(`${skill.displayName} 示例`);
+    const node = {
+      ...createWorkflowNode(nanoid(), 'text', { x: 120, y: 120 }, { content: prompt, prompt }),
+      title: 'Production Brief',
+    };
+    seedProject(projectId, node, '从 Production Skill 创建 Workflow Brief');
     setActiveProject(projectId);
-    queuePendingProductionSkill({
-      projectId,
-      skillId: skill.id,
-      skillVersion: skill.version,
-      skillName: skill.displayName,
-      prompt: buildProductionSkillStarterPrompt(skill),
-    });
-    try { localStorage.setItem('flovart.workflow.agent.mode', 'local'); } catch { /* keep the current mode */ }
-    openView('agent');
+    void navigator.clipboard?.writeText(prompt).catch(() => undefined);
+    openView('workflow');
   };
 
   return (
@@ -360,8 +382,8 @@ export default function FlovartHome() {
           <Hero onCreate={createEmpty} onOpen={openCapability} />
           <section className="home-agent" aria-labelledby="home-agent-title">
             <div className="home-section__heading">
-              <div><span>FLOVART AGENT</span><h2 id="home-agent-title">说出创意，或者选择一种制作方法</h2></div>
-              <button type="button" onClick={() => openView('agent')}>打开 Agent <ChevronRight size={14} /></button>
+              <div><span>PRODUCTION CREW</span><h2 id="home-agent-title">从一种制作方法开始</h2></div>
+              <button type="button" onClick={() => openView('agent')}>打开制作台 <ChevronRight size={14} /></button>
             </div>
             <div className="home-agent__panel">
               <IdeaComposer onSubmit={startFromIdea} onCreateEmpty={createEmpty} />

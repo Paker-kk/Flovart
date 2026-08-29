@@ -94,7 +94,7 @@ export const ConfigSelector: React.FC<ConfigSelectorProps> = ({
 
         {showConfigMenu && (
           <div className={menuClass}>
-            <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--isl-ink-ghost)' }}>API 配置</div>
+            <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--isl-ink-ghost)' }}>AI 服务</div>
             {configs.map(c => (
               <button
                 key={c.id}

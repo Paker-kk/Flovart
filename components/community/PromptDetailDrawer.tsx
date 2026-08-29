@@ -4,6 +4,7 @@ import { PromptPack } from '../../services/promptApi';
 import { useAuth } from '../../hooks/useAuth';
 import { AuthModal } from '../auth/AuthModal';
 import { useState } from 'react';
+import { promptAssetsFromPromptPack } from '../../services/promptAsset';
 
 interface Props {
   pack: PromptPack;
@@ -13,6 +14,7 @@ interface Props {
 export function PromptDetailDrawer({ pack, onClose }: Props) {
   const { isLoggedIn, authOpen, setAuthOpen } = useAuth();
   const [liked, setLiked] = useState(false);
+  const assets = promptAssetsFromPromptPack(pack);
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -60,22 +62,26 @@ export function PromptDetailDrawer({ pack, onClose }: Props) {
           </div>
 
           <div className="space-y-3">
-            {(pack.items || []).map((item, idx) => (
+            {assets.map((asset, idx) => (
               <div
-                key={item.id || idx}
+                key={asset.id || idx}
                 className="rounded-lg border border-white/10 bg-white/5 p-3"
               >
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="font-medium text-white">{item.name}</span>
+                  <span className="font-medium text-white">{asset.title}</span>
                   <button
                     className="text-white/50 hover:text-white"
-                    onClick={() => handleCopy(item.prompt)}
+                    onClick={() => handleCopy(asset.text)}
                   >
                     <Copy size={14} />
                   </button>
                 </div>
+                <div className="mb-2 flex flex-wrap gap-1 text-[10px] text-white/40">
+                  <span>{asset.modality}</span>
+                  {asset.tags.map(tag => <span key={tag}>#{tag}</span>)}
+                </div>
                 <pre className="whitespace-pre-wrap break-words text-xs text-white/60">
-                  {item.prompt}
+                  {asset.text}
                 </pre>
               </div>
             ))}

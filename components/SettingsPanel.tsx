@@ -53,7 +53,7 @@ const providerBaseUrl: Record<AIProvider, string> = {
     google: 'https://generativelanguage.googleapis.com/v1beta',
     xai: 'https://api.x.ai/v1',
     qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    deepseek: 'https://api.deepseek.com/v1',
+    deepseek: 'https://api.deepseek.com',
     siliconflow: 'https://api.siliconflow.cn/v1',
     keling: 'https://api.klingai.com/v1',
     flux: 'https://api.bfl.ml/v1',
@@ -99,9 +99,41 @@ const routeTargetKey = (target: RouteMappingTarget) => target.kind === 'product-
 const keyRouteOptions = (key: UserApiKey, capability: 'text' | 'image' | 'video'): string[] =>
     getKeyModelIds(key, capability);
 
-function RouteMappingEditor({ userApiKeys, onUpdateApiKey }: {
+const ROUTE_MODES = ['text-to-image', 'image-to-image', 'text-to-video', 'image-to-video', 'reference-to-video', 'first-last-frame', 'video-extension'] as const;
+
+function runtimeRouteMode(route: { productModel?: string; mode?: string }): ProductModelMode {
+    const mode = route.mode as ProductModelMode | undefined;
+    if (mode && (ROUTE_MODES as readonly string[]).includes(mode)) return mode;
+    return route.productModel?.includes('image') ? 'text-to-image' : 'text-to-video';
+}
+
+interface RuntimeRouteSuggestion {
+    provider: string;
+    target: RouteMappingTarget;
+    routeId: string;
+}
+
+/** 从 Desktop Runtime 的 provider.status 生成不含 Secret 的路线建议（runtime-only 场景）。 */
+function runtimeRouteSuggestions(runtimeProviders: RuntimeProviderStatus[]): RuntimeRouteSuggestion[] {
+    return (runtimeProviders || []).flatMap(provider =>
+        (provider.routes || [])
+            .filter(route => route.routeId && route.productModel)
+            .map(route => ({
+                provider: provider.provider,
+                target: {
+                    kind: 'product-mode' as const,
+                    productModelId: route.productModel as string,
+                    mode: runtimeRouteMode(route),
+                },
+                routeId: route.routeId,
+            })),
+    );
+}
+
+function RouteMappingEditor({ userApiKeys, onUpdateApiKey, runtimeProviders }: {
     userApiKeys: UserApiKey[];
     onUpdateApiKey: SettingsPanelProps['onUpdateApiKey'];
+    runtimeProviders?: RuntimeProviderStatus[] | null;
 }) {
     const [productModelId, setProductModelId] = React.useState('');
     const [productMode, setProductMode] = React.useState<ProductModelMode>('text-to-image');
@@ -120,6 +152,11 @@ function RouteMappingEditor({ userApiKeys, onUpdateApiKey }: {
             .filter(suggestion => !existing.some(mapping => routeTargetKey(mapping.target) === routeTargetKey(suggestion.target) && mapping.routeId === suggestion.routeId))
             .map(suggestion => ({ key, suggestion }));
     }), [userApiKeys]);
+
+    const runtimeSuggestions = React.useMemo(
+        () => runtimeRouteSuggestions(runtimeProviders || []),
+        [runtimeProviders],
+    );
 
     const rowsFor = (target: RouteMappingTarget) => userApiKeys.flatMap(key => (key.routeMappings || [])
         .map((mapping, index) => ({ key, mapping, index })))
@@ -298,6 +335,18 @@ function RouteMappingEditor({ userApiKeys, onUpdateApiKey }: {
                 })}
             </div>
         </div>}
+        {runtimeSuggestions.length > 0 && <div className="rounded-2xl border border-[var(--isl-mint)] bg-[var(--isl-mint-bg)] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div><div className="text-sm font-extrabold text-[var(--isl-mint-deep)]">Runtime 路线建议</div><div className="mt-1 text-xs text-[var(--isl-ink-soft)]">来自 Desktop Runtime 已配置的 Provider；只显示非敏感路线元数据。Runtime 会直接使用这些路线，网页直连需单独配置访问凭证。</div></div>
+            </div>
+            <div className="mt-2 grid gap-1 md:grid-cols-2">
+                {runtimeSuggestions.map(({ provider, target, routeId }) => {
+                    const productModelId = target.kind === 'product-mode' ? target.productModelId : '';
+                    const model = target.kind === 'product-mode' ? getProductModel(target.productModelId) : undefined;
+                    return <div key={`${provider}:${routeTargetKey(target)}:${routeId}`} className="truncate rounded-lg bg-[var(--isl-surface)] px-2.5 py-1.5 text-[11px] text-[var(--isl-ink)]">{model?.name || productModelId} · {target.kind === 'product-mode' ? PRODUCT_MODE_LABELS[target.mode] : ''} → {routeId}</div>;
+                })}
+            </div>
+        </div>}
         {renderProductSection('image', '图像模型', '优先配置文生图与图生图线路。')}
         {renderProductSection('video', '视频模型', '按生成方式绑定视频线路，PromptBar 参数将服从这里的最终线路。')}
         <div className="rounded-2xl border border-[var(--isl-border)] bg-[var(--isl-surface-2)] p-3">
@@ -310,7 +359,7 @@ function RouteMappingEditor({ userApiKeys, onUpdateApiKey }: {
             </div>
         </div>
         <div className="space-y-2"><div><div className="text-sm font-extrabold text-[var(--isl-ink)]">文本与 Agent</div><div className="mt-0.5 text-xs text-[var(--isl-ink-soft)]">提示词增强、脚本拆解与 Agent 文本能力放在媒体模型之后配置。</div></div>{RUNTIME_TARGETS.map(item => renderTarget({ kind: 'runtime-capability', capability: item.capability }, item.label, item.detail))}</div>
-        {userApiKeys.length === 0 && <div className="rounded-2xl border border-dashed border-[var(--isl-border)] p-5 text-center text-xs text-[var(--isl-ink-soft)]">请先在“API 配置”中添加 Provider，随后再建立模型映射。</div>}
+        {userApiKeys.length === 0 && runtimeSuggestions.length === 0 && <div className="rounded-2xl border border-dashed border-[var(--isl-border)] p-5 text-center text-xs text-[var(--isl-ink-soft)]">请先在“AI 服务”中添加网页直连访问凭证，随后再建立模型映射。</div>}
     </section>;
 }
 
@@ -369,8 +418,8 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
         baseUrl: providerBaseUrl.deepseek,
         capabilities: ['text'],
         requestFormat: 'openai',
-        defaultModel: 'deepseek-chat',
-        models: ['deepseek-chat', 'deepseek-reasoner'],
+        defaultModel: 'deepseek-v4-flash',
+        models: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'],
     },
     {
         id: 'openai-gpt-image',
@@ -517,8 +566,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     const [endpointFlavor, setEndpointFlavor] = React.useState<'google' | 'openai-compatible' | 'openrouter-compatible' | null>(null);
     const [detectedCapabilities, setDetectedCapabilities] = React.useState<AICapability[]>([]);
     const [activeTab, setActiveTab] = React.useState<'api' | 'models' | 'security'>('api');
+    const [showAdvancedApi, setShowAdvancedApi] = React.useState(false);
     const [runtimeProviders, setRuntimeProviders] = React.useState<RuntimeProviderStatus[] | null>(null);
-    const [selectedCredentialByProvider, setSelectedCredentialByProvider] = React.useState<Record<string, string>>({});
     const configuredRuntimeProviders = runtimeProviders?.filter(item => item.ready) || [];
 
     React.useEffect(() => {
@@ -546,40 +595,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     }, [isOpen]);
 
     const isDark = resolvedTheme === 'dark';
-
-    // 把 Desktop Runtime 的安全凭证一键导入为「Runtime 托管」网页 Key（不含明文，媒体生成经 Runtime 执行）。
-    // 支持多凭证 Provider 指定选择：未传 credentialId 时回退到当前选中或第一个可用凭证。
-    const importRuntimeCredential = (runtimeProvider: RuntimeProviderStatus, credentialId?: string) => {
-        const providerName = runtimeProvider.provider as AIProvider;
-        const credential = runtimeProvider.credentials?.find(item => item.available && item.credentialId === credentialId)
-            || runtimeProvider.credentials?.find(item => item.available && item.credentialId)
-            || runtimeProvider.credentials?.find(item => item.available);
-        const routeMappings = (runtimeProvider.routes || []).filter(route => route.routeId && route.productModel).map((route, index) => ({
-            target: {
-                kind: 'product-mode' as const,
-                productModelId: route.productModel as string,
-                mode: (route.mode && ['text-to-image', 'image-to-image', 'text-to-video', 'image-to-video', 'reference-to-video', 'first-last-frame', 'video-extension'].includes(route.mode)
-                    ? route.mode
-                    : route.productModel?.includes('image') ? 'text-to-image' : 'text-to-video') as ProductModelMode,
-            },
-            routeId: route.routeId,
-            order: index,
-        }));
-        const routeIds = (runtimeProvider.routes || []).map(route => route.routeId).filter(Boolean);
-        const capabilities = (runtimeProvider.capabilities || []).filter((cap): cap is AICapability => cap === 'image' || cap === 'video');
-        onAddApiKey({
-            provider: providerName,
-            capabilities,
-            key: `runtime:${credential?.credentialId || providerName}`,
-            name: `${providerName === 'runningHub' ? 'RunningHub' : providerName}（Runtime 托管）`,
-            status: 'ok',
-            isDefault: false,
-            runtimeManaged: { credentialId: credential?.credentialId },
-            models: routeIds.map(routeId => ({ id: routeId, name: routeId })),
-            customModels: routeIds,
-            routeMappings,
-        });
-    };
 
     const inputClass = 'isl-well w-full px-3 py-2.5 text-sm text-[var(--isl-ink)] outline-none placeholder:text-[var(--isl-ink-ghost)]';
     const chipClass = 'isl-chip px-3 py-2 text-sm';
@@ -679,7 +694,15 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         // 先验证 key 是否有效
         setIsValidating(true);
         setValidationResult(null);
-        const result = await validateApiKey(provider, apiKey.trim(), requestedBaseUrl, extraConfig);
+        let result: Awaited<ReturnType<typeof validateApiKey>>;
+        try {
+            result = await validateApiKey(provider, apiKey.trim(), requestedBaseUrl, extraConfig);
+        } catch (error) {
+            result = {
+                ok: false,
+                message: error instanceof Error ? error.message : '验证 API Key 时发生未知错误',
+            };
+        }
         setIsValidating(false);
         setValidationResult(result);
 
@@ -871,6 +894,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 // 自动拉取模型
                 const targetBaseUrl = detected !== provider ? providerBaseUrl[detected] : baseUrl;
                 handleFetchModels(detected, pasted, targetBaseUrl);
+            } else if (/^sk-/i.test(pasted.trim())) {
+                setAutoDetectedProvider(null);
+                setFetchError(null);
             }
         }
     };
@@ -1035,7 +1061,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 {/* Tab 导航 */}
                 <div className="mb-6 flex gap-1 border-b border-[var(--isl-border)]">
                     {([
-                        { key: 'api', label: 'API 配置' },
+                        { key: 'api', label: 'AI 服务' },
                         { key: 'models', label: '模型映射' },
                         { key: 'security', label: '安全' },
                     ] as const).map(tab => (
@@ -1074,7 +1100,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                             <div className="flex items-center justify-between gap-3">
                                 <div>
                                     <div className="text-sm font-extrabold text-[var(--isl-ink)]">桌面 Runtime 凭证</div>
-                                    <div className="mt-1 text-xs text-[var(--isl-ink-soft)]">这里显示 EXE 共享的安全凭证状态，不会把原始 API Key 读回网页。</div>
+                                    <div className="mt-1 text-xs text-[var(--isl-ink-soft)]">这里显示 EXE 共享的凭证和路线元数据，不会把原始 Key 读回网页，也不会把 Runtime 凭证伪装成网页配置。</div>
                                 </div>
                                 <span className="rounded-full bg-[var(--isl-card)] px-2.5 py-1 text-[11px] text-[var(--isl-ink-soft)]">Runtime</span>
                             </div>
@@ -1082,10 +1108,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                                     {configuredRuntimeProviders.map(item => {
                                         const availableCredentials = (item.credentials || []).filter(credential => credential.available);
-                                        const selectedCredentialId = selectedCredentialByProvider[item.provider]
-                                            || availableCredentials.find(credential => credential.credentialId)?.credentialId
-                                            || '';
-                                        const alreadyImported = userApiKeys.some(key => key.runtimeManaged?.credentialId && key.runtimeManaged.credentialId === selectedCredentialId);
                                         return (
                                             <div key={item.provider} className="rounded-xl border border-[var(--isl-border)] px-3 py-2.5">
                                                 <div className="flex items-center justify-between gap-2 text-sm font-semibold text-[var(--isl-ink)]">
@@ -1095,35 +1117,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                                 <div className="mt-1 text-[11px] text-[var(--isl-ink-soft)]">
                                                     {availableCredentials.length || 0} 个安全凭证可供 Production Runtime 使用
                                                 </div>
-                                                {availableCredentials.length > 1 && (
-                                                    <select
-                                                        aria-label={`${item.provider === 'runningHub' ? 'RunningHub' : item.provider} Runtime 凭证选择`}
-                                                        value={selectedCredentialId}
-                                                        onChange={event => setSelectedCredentialByProvider(prev => ({ ...prev, [item.provider]: event.target.value }))}
-                                                        className="isl-well mt-2 h-8 w-full px-2 text-xs text-[var(--isl-ink)] outline-none"
-                                                    >
-                                                        {availableCredentials.map(credential => (
-                                                            <option key={credential.credentialId || credential.label || item.provider} value={credential.credentialId || ''}>
-                                                                {credential.label || credential.credentialId || item.provider}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                )}
-                                                {availableCredentials.length === 1 && selectedCredentialId && (
-                                                    <div className="mt-2 truncate text-[11px] text-[var(--isl-ink-soft)]">
-                                                        {availableCredentials[0].label || '安全凭证'}
-                                                    </div>
-                                                )}
-                                                <button
-                                                    type="button"
-                                                    disabled={alreadyImported || availableCredentials.length === 0}
-                                                    onClick={() => importRuntimeCredential(item, selectedCredentialId || undefined)}
-                                                    className="mt-2 rounded-full border px-2.5 py-1 text-[11px] font-medium transition disabled:opacity-40"
-                                                    style={{ borderColor: 'var(--isl-border)', color: 'var(--isl-ink-soft)' }}
-                                                    title="把该 Runtime 凭证导入为「Runtime 托管」网页 Key，模型映射即可推荐其路线，媒体生成经 Runtime 执行"
-                                                >
-                                                    {alreadyImported ? '已导入 API 配置' : availableCredentials.length === 0 ? '暂无可用凭证' : '一键导入到 API 配置'}
-                                                </button>
+                                                <div className="mt-2 truncate text-[11px] text-[var(--isl-ink-soft)]">
+                                                    {availableCredentials.length ? `可用凭证：${availableCredentials.map(credential => credential.label || credential.credentialId || '安全凭证').join('、')}` : '暂无可用凭证'}
+                                                </div>
+                                                <div className="mt-2 text-[10px] text-[var(--isl-ink-soft)]">Runtime 生成直接使用此路线；网页直连请单独添加访问凭证。</div>
                                             </div>
                                         );
                                     })}
@@ -1143,9 +1140,20 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     <section className="space-y-3">
                         <div className="flex items-center justify-between">
                             <div className={`text-xs font-semibold uppercase tracking-[0.18em] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>
-                                🔑 API 配置
+                                🔑 AI 服务
                             </div>
                             <div className="flex items-center gap-2">
+                                {userApiKeys.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowAdvancedApi(current => !current)}
+                                        className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+                                            isDark ? 'border-[#2A3140] text-[#98A2B3] hover:bg-[#252C39]' : 'border-[#E4E7EC] text-[#667085] hover:bg-[#F2F4F7]'
+                                        }`}
+                                    >
+                                        {showAdvancedApi ? '收起详情' : '查看详情'}
+                                    </button>
+                                )}
                                 <button
                                     type="button"
                                     onClick={handleImportKeys}
@@ -1190,13 +1198,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                         </div>
 
                         <div className="space-y-2">
-                            {userApiKeys.length === 0 ? (
+                            {userApiKeys.length > 0 && !showAdvancedApi ? (
+                                <div className="rounded-2xl border border-[var(--isl-border)] bg-[var(--isl-surface-2)] px-4 py-4 text-sm text-[var(--isl-ink)]">
+                                    <div className="font-medium">已配置 {userApiKeys.length} 个 AI 服务</div>
+                                    <div className="mt-1 text-xs text-[var(--isl-ink-soft)]">默认服务：{userApiKeys.find(item => item.isDefault)?.name || '尚未指定'}。详细凭证、路线和预算设置已收起。</div>
+                                </div>
+                            ) : userApiKeys.length === 0 ? (
                                 <div className={`rounded-2xl border border-dashed px-4 py-6 text-center text-sm ${
                                     isDark ? 'border-[#3A4458] text-[#98A2B3]' : 'border-[#D0D5DD] text-[#667085]'
                                 }`}>
                                     <div className="mb-2 text-lg">🔑</div>
                                     <div className="font-medium">还没有配置供应商</div>
-                                    <div className="mt-1 text-xs">点击右上方「+ 添加供应商」按钮开始配置第三方 API Key</div>
+                                    <div className="mt-1 text-xs">点击右上方「+ 添加供应商」按钮添加网页直连访问凭证</div>
                                 </div>
                             ) : (
                                 <AnimatePresence initial={false}>
@@ -1312,7 +1325,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     </>
                 )}
 
-                {activeTab === 'models' && <RouteMappingEditor userApiKeys={userApiKeys} onUpdateApiKey={onUpdateApiKey} />}
+                {activeTab === 'models' && <RouteMappingEditor userApiKeys={userApiKeys} onUpdateApiKey={onUpdateApiKey} runtimeProviders={runtimeProviders} />}
 
                 {activeTab === 'security' && (
                     <section className="space-y-3">

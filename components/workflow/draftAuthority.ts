@@ -440,6 +440,7 @@ export function redoWorkflowDraftChangeSet(project: WorkflowProject): WorkflowDr
     });
   });
   const existingNodes = new Set(nodeMap.keys());
+  const nodeOrder = target.nodeOrderAfter || [...nodeMap.keys()];
   const resultDraftVersion = (project.draftVersion || 1) + 1;
   const now = new Date().toISOString();
   const draftChangeSets = (project.draftChangeSets || []).map(item => item.id === target.id
@@ -450,7 +451,7 @@ export function redoWorkflowDraftChangeSet(project: WorkflowProject): WorkflowDr
     ok: true,
     project: {
       ...project,
-      nodes: [...(target.nodeOrderAfter || [...nodeMap.keys()]).filter(id => nodeMap.has(id)).map(id => nodeMap.get(id)!), ...[...nodeMap.values()].filter(node => !(target.nodeOrderAfter || []).includes(node.id))],
+      nodes: [...nodeOrder.filter(id => nodeMap.has(id)).map(id => nodeMap.get(id)!), ...[...nodeMap.values()].filter(node => !nodeOrder.includes(node.id))],
       connections: [...connectionMap.values()].filter(connection => existingNodes.has(connection.fromNodeId) && existingNodes.has(connection.toNodeId)),
       selectedNodeIds: project.selectedNodeIds.filter(id => existingNodes.has(id)),
       draftVersion: resultDraftVersion,

@@ -111,7 +111,10 @@ export function PromptsPage() {
             >
               ← 返回首页
             </button>
-            <h1 className="text-xl font-bold">提示词社区</h1>
+            <div>
+              <h1 className="text-xl font-bold">SKILL 社区</h1>
+              <p className="text-xs text-white/45">提示词在线分享；完整制作 Skill 请在首页 Skill 台选择或安装</p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             {isLoggedIn ? (

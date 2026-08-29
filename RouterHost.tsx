@@ -13,13 +13,13 @@ import { useProductionProjectionAdapter } from './components/workflow/useProduct
 import { useWorkflowWorkspaceAdapter } from './components/workflow/useWorkflowWorkspaceAdapter';
 import { useUpdaterStore } from './stores/useUpdaterStore';
 import { useDeploymentStore } from './stores/useDeploymentStore';
+import { bootstrapLocalAgentConnection } from './services/agentConnectionBootstrap';
 
 const EnterpriseApp = React.lazy(() => import('./components/enterprise/EnterpriseApp'));
 const PlatformAdminApp = React.lazy(() => import('./components/enterprise/PlatformAdminApp'));
-const ToCLanding = React.lazy(() => import('./components/landing/ToCLanding'));
-const ToBLanding = React.lazy(() => import('./components/landing/ToBLanding'));
 const PromptsPage = React.lazy(() => import('./components/community/PromptsPage').then(module => ({ default: module.PromptsPage })));
 const FlovartHome = React.lazy(() => import('./components/home/FlovartHome'));
+const DockPage = React.lazy(() => import('./components/dock/DockPage').then(module => ({ default: module.DockPage })));
 
 function EnterpriseRoute({ children }: { children: React.ReactNode }) {
   const profile = useDeploymentStore(state => state.profile);
@@ -32,6 +32,13 @@ export function RouterHost() {
   const projects = useWorkflowStore(state => state.projects);
   const activeProjectId = useWorkflowStore(state => state.activeProjectId);
   const activeProject = projects.find(project => project.id === activeProjectId) || projects[0] || null;
+
+  useEffect(() => {
+    void bootstrapLocalAgentConnection().catch(error => {
+      console.warn('Flovart Agent auto-bootstrap unavailable.', error);
+    });
+  }, []);
+
   useWorkflowWorkspaceAdapter(activeProject);
   useProductionProjectionAdapter(activeProject?.id || null);
 
@@ -48,15 +55,7 @@ export function RouterHost() {
             path="/"
             element={
               <Suspense fallback={<div className="flex h-screen items-center justify-center text-sm" style={{ color: '#a8a49c' }}>加载中...</div>}>
-                <ToCLanding />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/business"
-            element={
-              <Suspense fallback={<div className="flex h-screen items-center justify-center text-sm" style={{ color: '#a8a49c' }}>加载中...</div>}>
-                <ToBLanding />
+                <FlovartHome />
               </Suspense>
             }
           />
@@ -65,6 +64,14 @@ export function RouterHost() {
             element={
               <Suspense fallback={<div className="flex h-screen items-center justify-center text-sm" style={{ color: '#a8a49c' }}>加载中...</div>}>
                 <FlovartHome />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/dock"
+            element={
+              <Suspense fallback={<div className="flex h-screen items-center justify-center text-sm" style={{ color: '#a8a49c' }}>加载 Dock...</div>}>
+                <DockPage embedded={window.parent !== window} />
               </Suspense>
             }
           />
