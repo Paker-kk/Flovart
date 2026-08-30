@@ -7,6 +7,7 @@ import { createBrowserWorkflowContract, type BrowserWorkflowContract } from './b
 import { redactWorkflowAgentValue, type WorkflowCommandEnvelope, type WorkflowCommandResult } from './workflowDispatcher';
 import { workflowCommandSummary } from '../components/workflow/agentOps';
 import { getWorkflowOperationCapabilityByNodeTool } from '../components/workflow/operationRegistry';
+import { buildGenerationGateSummary, getGenerationGateDetails } from './generationGate';
 
 const RUNTIME_COMMANDS = new Set([
   'runtime.status', 'command.list', 'command.schema', 'provider.status',
@@ -51,6 +52,17 @@ export function runtimeAgentConfirmationSummary(envelope: WorkflowCommandEnvelop
   if (envelope.command === 'production.run') return `开始 ProductionRun ${String(envelope.args.runId || '')}；已批准阶段将提交 Provider`;
   if (envelope.command === 'task.cancel') return `取消 Runtime Task ${String(envelope.args.taskId || '')}`;
   return envelope.command;
+}
+
+function workflowConfirmationSummary(envelope: WorkflowCommandEnvelope) {
+  if (envelope.command === 'workflow.node.run') {
+    const state = useWorkflowStore.getState();
+    const projectId = String(envelope.args.projectId || state.activeProjectId || '');
+    const nodeId = String(envelope.args.nodeId || envelope.args.id || '');
+    const node = state.projects.find(project => project.id === projectId)?.nodes.find(item => item.id === nodeId);
+    if (node) return buildGenerationGateSummary(getGenerationGateDetails(node, undefined, []));
+  }
+  return workflowCommandSummary(envelope.command, envelope.args);
 }
 
 export function prepareRuntimeAgentEnvelope(envelope: WorkflowCommandEnvelope): RuntimeCommandEnvelope {
@@ -234,7 +246,7 @@ export class WorkflowAgentBridge {
         }
         result = await this.workflowContract.dispatch(envelope);
         if (result.confirmation?.required) {
-          const approved = await this.confirm(result.confirmation.summary);
+          const approved = await this.confirm(workflowConfirmationSummary(envelope));
           result = approved
             ? await this.workflowContract.dispatch({ ...envelope, args: { ...envelope.args, confirmed: true } })
             : { ok: false, commandId: envelope.id, error: { code: 'DENIED', message: '用户拒绝了 Workflow 变更。' } } satisfies WorkflowCommandResult;

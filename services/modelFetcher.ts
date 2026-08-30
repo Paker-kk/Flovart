@@ -23,9 +23,22 @@ export interface FetchModelsResult {
     ok: boolean;
     models: FetchedModel[];
     error?: string;
+    modelDiscovery?: 'available' | 'unavailable';
     endpointFlavor?: 'google' | 'openai-compatible' | 'openrouter-compatible';
     capabilitySummary?: AICapability[];
     effectiveBaseUrl?: string;
+}
+
+export const MODEL_DISCOVERY_TIMEOUT_MS = 10_000;
+
+async function fetchWithModelDiscoveryTimeout(input: string, init: RequestInit = {}): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(new DOMException('模型列表请求超时', 'TimeoutError')), MODEL_DISCOVERY_TIMEOUT_MS);
+    try {
+        return await fetch(input, { ...init, signal: controller.signal });
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 // ── Capability 推断规则 ─────────────────────────────
@@ -183,7 +196,7 @@ async function fetchGoogleModels(apiKey: string, baseUrl?: string): Promise<Fetc
     try {
         const base = normalizeProviderBaseUrl('google', baseUrl || 'https://generativelanguage.googleapis.com/v1beta');
         const url = `${base}/models?key=${encodeURIComponent(apiKey)}`;
-        const res = await fetch(url);
+        const res = await fetchWithModelDiscoveryTimeout(url);
         if (!res.ok) {
             return { ok: false, models: [], error: await readErrorMessage(res, 'Google 模型列表拉取失败') };
         }
@@ -212,7 +225,7 @@ async function fetchGoogleModels(apiKey: string, baseUrl?: string): Promise<Fetc
                     description: m.description?.slice(0, 120),
                 };
             });
-        return { ok: true, models, endpointFlavor: 'google', capabilitySummary: summarizeCapabilities(models), effectiveBaseUrl: base };
+        return { ok: true, models, modelDiscovery: 'available', endpointFlavor: 'google', capabilitySummary: summarizeCapabilities(models), effectiveBaseUrl: base };
     } catch (err) {
         return { ok: false, models: [], error: err instanceof Error ? err.message : '网络错误' };
     }
@@ -250,20 +263,25 @@ async function fetchOpenAICompatibleModels(
 ): Promise<FetchModelsResult> {
     const candidates = getOpenAICompatibleBaseUrlCandidates(provider, baseUrl);
     let lastError = '网络错误';
+    let modelListUnavailable = false;
 
     for (const candidateBaseUrl of candidates) {
         try {
             const url = `${candidateBaseUrl}/models`;
-            const res = await fetch(url, {
+            const res = await fetchWithModelDiscoveryTimeout(url, {
                 headers: { Authorization: `Bearer ${apiKey}` },
             });
             const text = await res.text().catch(() => '');
 
             if (!res.ok) {
                 lastError = parseErrorText(res, text, '模型列表拉取失败');
+                if ((res.status === 404 || res.status === 405) && !looksLikeHtmlResponse(text)) {
+                    modelListUnavailable = true;
+                }
                 if (shouldRetryWithAnotherBaseUrl(res.status, text)) {
                     continue;
                 }
+                if (modelListUnavailable && (res.status === 404 || res.status === 405)) continue;
                 return { ok: false, models: [], error: lastError };
             }
 
@@ -295,13 +313,28 @@ async function fetchOpenAICompatibleModels(
             return {
                 ok: true,
                 models,
+                modelDiscovery: 'available',
                 endpointFlavor,
                 capabilitySummary: summarizeCapabilities(models),
                 effectiveBaseUrl: candidateBaseUrl,
             };
         } catch (err) {
+            if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+                return { ok: false, models: [], error: '连接超时，请检查服务地址后重试' };
+            }
             lastError = err instanceof Error ? err.message : '网络错误';
         }
+    }
+
+    if (modelListUnavailable) {
+        return {
+            ok: true,
+            models: [],
+            modelDiscovery: 'unavailable',
+            endpointFlavor: provider === 'openrouter' ? 'openrouter-compatible' : 'openai-compatible',
+            error: '未检测到模型列表，可手动填写模型 ID。',
+            effectiveBaseUrl: candidates[0],
+        };
     }
 
     return { ok: false, models: [], error: lastError };

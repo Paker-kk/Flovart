@@ -502,8 +502,10 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                 : isLoading
                     ? 'generating'
                     : 'ready';
+    const setupRequired = readyState === 'missing-key' && Boolean(onOpenSettings);
+    const setupLabel = userApiKeys.length ? '配置 AI 服务' : '添加 AI 服务';
     const readyCopy = readyState === 'missing-key'
-        ? (missingMediaModel ? '请先明确选择产品模型' : userApiKeys.length ? '请先配置当前能力的模型映射' : '先连接一个 AI 供应商')
+        ? (!userApiKeys.length ? '添加 AI 服务以开始生成' : missingMediaModel ? '请先明确选择产品模型' : '请先配置当前能力的模型映射')
         : readyState === 'error'
             ? (error || '生成失败')
             : readyState === 'empty'
@@ -548,8 +550,13 @@ export const PromptBar: React.FC<PromptBarProps> = ({
             // 等 editor 文档更新回流到 prompt 状态，再触发生成
             await new Promise<void>(resolve => setTimeout(resolve, 0));
         }
-        if ((runWithoutPrompt || latestPromptRef.current.trim()) && !isLoading && readyState !== 'missing-key' && !videoInputRequirement) onGenerate();
-    }, [isLoading, onGenerate, pasteReferenceItems, onResolvePastedMentions, readyState, runWithoutPrompt, videoInputRequirement]);
+        if (!(runWithoutPrompt || latestPromptRef.current.trim()) || isLoading || videoInputRequirement) return;
+        if (readyState === 'missing-key') {
+            onOpenSettings?.();
+            return;
+        }
+        onGenerate();
+    }, [isLoading, onGenerate, onOpenSettings, pasteReferenceItems, onResolvePastedMentions, readyState, runWithoutPrompt, videoInputRequirement]);
 
     const replacePrompt = useCallback((value: string) => {
         latestPromptRef.current = value;
@@ -1441,11 +1448,12 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                             type="button"
                             onClick={() => {
                                 if (isLoading && onStop) onStop();
+                                else if (setupRequired) onOpenSettings?.();
                                 else if (promptReady && readyState !== 'missing-key' && !videoInputRequirement) onGenerate();
                             }}
-                            disabled={(isLoading && !onStop) || (!isLoading && (!promptReady || readyState === 'missing-key' || Boolean(videoInputRequirement)))}
-                            aria-label={isLoading && onStop ? (isSeedanceVideoModel ? '停止并尝试取消任务' : '停止生成') : runLabel || t('promptBar.generate')}
-                            title={isLoading && onStop ? (isSeedanceVideoModel ? '停止本地等待并尝试取消上游任务；若已进入生成阶段，上游仍可能继续计费' : '停止生成') : videoInputRequirement || runLabel || t('promptBar.generate')}
+                            disabled={(isLoading && !onStop) || (!isLoading && (!promptReady || (!setupRequired && readyState === 'missing-key') || Boolean(videoInputRequirement)))}
+                            aria-label={isLoading && onStop ? (isSeedanceVideoModel ? '停止并尝试取消任务' : '停止生成') : setupRequired ? setupLabel : runLabel || t('promptBar.generate')}
+                            title={isLoading && onStop ? (isSeedanceVideoModel ? '停止本地等待并尝试取消上游任务；若已进入生成阶段，上游仍可能继续计费' : '停止生成') : setupRequired ? `${setupLabel}以开始生成` : videoInputRequirement || runLabel || t('promptBar.generate')}
                             className={`isl-go ${compactMode ? 'h-10 w-10 min-w-10 rounded-full p-0 text-xs' : 'h-10 min-w-[116px] px-5 text-sm'}`}
                         >
                             {compactMode ? (isLoading && !onStop ? (
@@ -1464,7 +1472,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                 </svg>
                             ) : isLoading ? <span className="text-xs font-semibold">{isSeedanceVideoModel ? '停止/取消' : '停止'}</span> : (
                                 <div className="flex flex-wrap gap-1.5">
-                                    <span className="text-xs font-semibold">{error ? '重试' : runLabel || (batchCount > 1 ? `生成 ${batchCount} 版` : '开始生成')}</span>
+                                    <span className="text-xs font-semibold">{setupRequired ? setupLabel : error ? '重试' : runLabel || (batchCount > 1 ? `生成 ${batchCount} 版` : '开始生成')}</span>
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                                         <path d="M5 12h14" />
                                         <path d="m12 5 7 7-7 7" />

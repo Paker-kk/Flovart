@@ -155,6 +155,10 @@ export interface UnifiedIgnitionInput {
     /** User Script Provider 只能消费这份 canonical manifest，不接收 Canvas/React 状态。 */
     canonicalInput?: CanonicalGenerationInput;
     materializedReferences?: readonly ProviderMaterializedReference[];
+    /** 仅供运行时/测试夹具缩短异步视频轮询上限；默认保持生产超时。 */
+    videoPollTimeoutMs?: number;
+    /** 浏览器刷新后仅恢复既有供应商任务，不重新提交生成请求。 */
+    resumeProviderTaskId?: string;
     signal?: AbortSignal;
     onProgress?: (progress: number, message: string) => void;
     onProviderTaskLifecycle?: (event: ProviderTaskLifecycleEvent) => void | Promise<void>;
@@ -261,6 +265,7 @@ export interface ApiKeyValidationResult {
     ok: boolean;
     message?: string;
     endpointFlavor?: FetchModelsResult['endpointFlavor'];
+    modelDiscovery?: FetchModelsResult['modelDiscovery'];
     capabilitySummary?: AICapability[];
     effectiveBaseUrl?: string;
     models?: FetchModelsResult['models'];
@@ -586,6 +591,7 @@ export async function validateApiKey(provider: AIProvider, apiKey: string, baseU
                 ? `已验证，可用能力：${result.capabilitySummary.join(' / ')}${result.effectiveBaseUrl && result.effectiveBaseUrl !== normalizedInputBaseUrl ? `，已自动识别 API 根：${result.effectiveBaseUrl}` : ''}`
                 : '已验证',
             endpointFlavor: result.endpointFlavor,
+            modelDiscovery: result.modelDiscovery,
             capabilitySummary: result.capabilitySummary,
             effectiveBaseUrl: result.effectiveBaseUrl,
             models: result.models,
@@ -602,6 +608,7 @@ export async function validateApiKey(provider: AIProvider, apiKey: string, baseU
                 ? `已验证，可用能力：${result.capabilitySummary.join(' / ')}${result.effectiveBaseUrl && result.effectiveBaseUrl !== normalizedInputBaseUrl ? `，已自动识别 API 根：${result.effectiveBaseUrl}` : ''}`
                 : '已验证，但端点未返回模型列表',
             endpointFlavor: result.endpointFlavor,
+            modelDiscovery: result.modelDiscovery,
             capabilitySummary: result.capabilitySummary,
             effectiveBaseUrl: result.effectiveBaseUrl,
             models: result.models,
@@ -1449,14 +1456,23 @@ function extractRunningHubMediaUrl(
 /**
  * 下载远程图片 URL 并转为 base64
  */
-async function fetchImageUrlToBase64(url: string): Promise<{ newImageBase64: string; newImageMimeType: string; textResponse: null }> {
+async function fetchImageUrlToBase64(url: string, externalSignal?: AbortSignal): Promise<{ newImageBase64: string; newImageMimeType: string; textResponse: null }> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
+    const abortFromCaller = () => controller.abort();
+    if (externalSignal?.aborted) controller.abort();
+    else externalSignal?.addEventListener('abort', abortFromCaller, { once: true });
     try {
         const res = await fetch(url, { signal: controller.signal });
         if (!res.ok) throw new Error(`下载图片失败 (${res.status}): ${url}`);
         const blob = await res.blob();
         const mimeType = blob.type || 'image/png';
+        if (typeof blob.arrayBuffer !== 'function') {
+            const dataUrl = await blobToBase64(blob);
+            const separator = dataUrl.indexOf(',');
+            if (separator < 0) throw new Error('下载图片后无法读取图片数据。');
+            return { newImageBase64: dataUrl.slice(separator + 1), newImageMimeType: mimeType, textResponse: null };
+        }
         const arrayBuffer = await blob.arrayBuffer();
         const bytes = new Uint8Array(arrayBuffer);
         // 分块转换避免 call stack 溢出（大图片 >3MB 时 spread 会爆栈）
@@ -1467,7 +1483,20 @@ async function fetchImageUrlToBase64(url: string): Promise<{ newImageBase64: str
         return { newImageBase64: btoa(chunks.join('')), newImageMimeType: mimeType, textResponse: null };
     } finally {
         clearTimeout(timeout);
+        externalSignal?.removeEventListener('abort', abortFromCaller);
     }
+}
+
+async function materializeOpenAIImageReferences(images: readonly VideoImage[], signal?: AbortSignal): Promise<VideoImage[]> {
+    return Promise.all(images.map(async image => {
+        if (/^data:/i.test(image.href)) return image;
+        const result = await fetchImageUrlToBase64(image.href, signal);
+        return {
+            ...image,
+            href: `data:${result.newImageMimeType};base64,${result.newImageBase64}`,
+            mimeType: result.newImageMimeType,
+        };
+    }));
 }
 
 /**
@@ -1774,6 +1803,10 @@ async function generateVideoWithUnifiedAsyncApi(
         aspectRatio?: VideoAspectRatio;
         onProgress?: (message: string) => void;
         references?: VideoImage[];
+        signal?: AbortSignal;
+        pollTimeoutMs?: number;
+        resumeProviderTaskId?: string;
+        onProviderTaskLifecycle?: (event: ProviderTaskLifecycleEvent) => void | Promise<void>;
     },
 ): Promise<{ videoBlob: Blob; mimeType: string }> {
     const apiKey = requireApiKey('custom', key);
@@ -1785,54 +1818,65 @@ async function generateVideoWithUnifiedAsyncApi(
 
     for (const apiBase of apiBaseCandidates) {
         try {
-            onProgress('Submitting video generation task...');
-            const createBody: Record<string, unknown> = {
-                model,
-                prompt,
-                aspect_ratio: aspectRatio,
-            };
-
-            const imageHrefs = (options?.references ?? [])
-                .map(r => r.href)
-                .filter(Boolean);
-            if (imageHrefs.length) {
-                createBody.images = imageHrefs;
-            }
-
-            const createRes = await fetch(`${apiBase}/v2/videos/generations`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${apiKey}`,
-                },
-                body: JSON.stringify(createBody),
-            });
-
-            if (!createRes.ok) {
-                const failure = await readErrorResponse(createRes, '统一视频接口提交失败');
-                if (createRes.status === 404 || createRes.status === 405) {
-                    lastError = new Error(failure);
-                    continue;
-                }
-                throw new Error(failure);
-            }
-
-            const createJson = await readJsonResponse<any>(createRes, '统一视频接口提交响应');
-            const taskId = extractTaskId(createJson);
+            let taskId = options?.resumeProviderTaskId;
             if (!taskId) {
-                throw new Error('统一视频接口未返回 task_id');
+                onProgress('Submitting video generation task...');
+                const createBody: Record<string, unknown> = {
+                    model,
+                    prompt,
+                    aspect_ratio: aspectRatio,
+                };
+
+                const imageHrefs = (options?.references ?? [])
+                    .map(r => r.href)
+                    .filter(Boolean);
+                if (imageHrefs.length) {
+                    createBody.images = imageHrefs;
+                }
+
+                const createRes = await fetch(`${apiBase}/v2/videos/generations`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${apiKey}`,
+                    },
+                    body: JSON.stringify(createBody),
+                    signal: options?.signal,
+                });
+
+                if (!createRes.ok) {
+                    const failure = await readErrorResponse(createRes, '统一视频接口提交失败');
+                    if (createRes.status === 404 || createRes.status === 405) {
+                        lastError = new Error(failure);
+                        continue;
+                    }
+                    throw new Error(failure);
+                }
+
+                const createJson = await readJsonResponse<any>(createRes, '统一视频接口提交响应');
+                taskId = extractTaskId(createJson);
+                if (!taskId) {
+                    throw new Error('统一视频接口未返回 task_id');
+                }
             }
+            await options?.onProviderTaskLifecycle?.({
+                phase: 'running',
+                providerTaskId: taskId,
+                ...(options?.resumeProviderTaskId ? { remoteStatus: '恢复任务轮询' } : {}),
+            });
 
             let delay = 2000;
             const pollStart = Date.now();
-            const MAX_POLL_MS = 600_000; // 10 分钟超时
+            const MAX_POLL_MS = options?.pollTimeoutMs ?? 600_000; // 10 分钟超时
             while (true) {
+                throwIfAborted(options?.signal);
                 if (Date.now() - pollStart > MAX_POLL_MS) {
-                    throw new Error('视频生成超时（已等待超过 10 分钟）');
+                    throw new Error(options?.pollTimeoutMs ? '视频生成超时，请稍后重试。' : '视频生成超时（已等待超过 10 分钟）');
                 }
                 onProgress(delay <= 2000 ? '任务已提交，正在排队...' : '正在生成视频，请稍候...');
                 const queryRes = await fetch(`${apiBase}/v2/videos/generations/${encodeURIComponent(taskId)}`, {
                     headers: { Authorization: `Bearer ${apiKey}` },
+                    signal: options?.signal,
                 });
 
                 if (!queryRes.ok) {
@@ -1853,7 +1897,7 @@ async function generateVideoWithUnifiedAsyncApi(
                     }
 
                     onProgress('Downloading generated video...');
-                    const videoRes = await fetch(outputUrl);
+                    const videoRes = await fetch(outputUrl, { signal: options?.signal });
                     if (!videoRes.ok) {
                         throw new Error(`视频下载失败: ${videoRes.statusText}`);
                     }
@@ -1862,10 +1906,11 @@ async function generateVideoWithUnifiedAsyncApi(
                     return { videoBlob, mimeType };
                 }
 
-                await sleep(delay);
+                await sleep(delay, options?.signal);
                 delay = Math.min(delay * 2, 8000);
             }
         } catch (error) {
+            if (options?.signal?.aborted) throw error;
             lastError = error instanceof Error ? error : new Error(String(error));
         }
     }
@@ -2513,6 +2558,7 @@ export async function generateImageWithProvider(
 
         // With reference images: use /images/edits (multipart) or chat/completions fallback
         if (refs.length > 0) {
+            const materializedRefs = await materializeOpenAIImageReferences(refs, options?.signal);
             const formData = new FormData();
             formData.append('model', mappedModel);
             formData.append('prompt', prompt);
@@ -2528,7 +2574,7 @@ export async function generateImageWithProvider(
                 output_compression: key?.extraConfig?.outputCompression ? Number(key.extraConfig.outputCompression) : undefined,
             }));
 
-            refs.forEach((image, index) => {
+            materializedRefs.forEach((image, index) => {
                 const parsed = parseDataUrl(image.href, image.mimeType);
                 formData.append(
                     'image',
@@ -2560,7 +2606,7 @@ export async function generateImageWithProvider(
             // Custom fallback: chat/completions with images
             if (provider === 'custom') {
                 const chatContent: any[] = [{ type: 'text', text: prompt }];
-                for (const image of refs) {
+                for (const image of materializedRefs) {
                     chatContent.push({ type: 'image_url', image_url: { url: image.href } });
                 }
                 const chatResponse = await fetch(`${baseUrl}/chat/completions`, {
@@ -3222,11 +3268,13 @@ export async function generateVideoWithProvider(
         cameraFixed?: boolean;
         watermark?: boolean;
         returnLastFrame?: boolean;
-        generateAudio?: boolean;
-        serviceTier?: string;
-        safetyIdentifier?: string;
-        generationSubmode?: ProductModelMode;
-        signal?: AbortSignal;
+       generateAudio?: boolean;
+       serviceTier?: string;
+       safetyIdentifier?: string;
+       generationSubmode?: ProductModelMode;
+        resumeProviderTaskId?: string;
+       pollTimeoutMs?: number;
+       signal?: AbortSignal;
         onProviderTaskLifecycle?: (event: ProviderTaskLifecycleEvent) => void | Promise<void>;
     },
 ): Promise<{ videoBlob: Blob; mimeType: string }> {
@@ -3774,10 +3822,12 @@ export async function executeUnifiedIgnition(input: UnifiedIgnitionInput): Promi
                 generationSubmode: params.mode,
                 references: videoRefs,
                 slots: videoSlots,
-                signal: input.signal,
-                onProgress: message => input.onProgress?.(35, message),
-                onProviderTaskLifecycle: input.onProviderTaskLifecycle,
-            });
+               signal: input.signal,
+               pollTimeoutMs: input.videoPollTimeoutMs,
+               onProgress: message => input.onProgress?.(35, message),
+               onProviderTaskLifecycle: input.onProviderTaskLifecycle,
+                resumeProviderTaskId: input.resumeProviderTaskId,
+           });
             const mediaUrl = URL.createObjectURL(result.videoBlob);
             return { ok: true, elementId: input.elementId, mediaUrl, mimeType: result.mimeType, capability };
         }

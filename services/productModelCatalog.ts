@@ -173,7 +173,7 @@ export function getRoutedImageModes(productModelId: string, provider?: AIProvide
   if (!product || product.capability !== 'image') return [];
   const supported = (() => {
     if (!provider) return IMAGE_MODE_ORDER;
-    if (provider === 'openai_compatible' || provider === 'openai') return ['text-to-image', 'image-to-image'];
+    if (provider === 'openai_compatible' || provider === 'openai' || provider === 'custom') return ['text-to-image', 'image-to-image'];
     if (provider === 'google') return ['text-to-image', 'image-to-image'];
     if (provider === 'runningHub') {
       const endpoint = routeId.toLowerCase();

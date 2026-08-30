@@ -2,7 +2,9 @@ import localforage from 'localforage';
 import { nanoid } from 'nanoid';
 import type { ApiPricingRule, UserApiKey } from '../types';
 
-const usageStore = localforage.createInstance({ name: 'flovart', storeName: 'api_usage_v2' });
+// Keep the billing ledger in its own IndexedDB database so opening it cannot
+// block the workflow/media stores while a fresh browser context upgrades them.
+const usageStore = localforage.createInstance({ name: 'flovart_usage_v2', storeName: 'records' });
 const RECORDS_KEY = 'records';
 
 export type UsageStatus = 'reserved' | 'submission_unknown' | 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'polling_unknown';
@@ -110,7 +112,9 @@ export async function reserveApiUsage(input: Parameters<typeof estimateApiCost>[
     model: input.routeId, timestamp: now, updatedAt: now, type: input.type, status: 'reserved',
     billableState: estimate ? 'estimated' : 'unknown', estimatedCost: estimate?.amount, currency: estimate?.currency,
   };
-  const records = await readRecords(); records.push(record); await writeRecords(records);
+  const records = await readRecords();
+  records.push(record);
+  await writeRecords(records);
   return record;
 }
 

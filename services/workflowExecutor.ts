@@ -2,7 +2,7 @@ import { nanoid } from 'nanoid';
 import type { CanonicalGenerationInput } from '../components/workflow/inputResolver';
 import type { PromptIntent } from '../components/workflow/promptIntent';
 
-export type WorkflowExecutionSurface = 'ui' | 'browser-agent' | 'dsh' | 'cli' | 'runtime';
+export type WorkflowExecutionSurface = 'ui' | 'browser-agent' | 'dsh' | 'cli' | 'runtime' | 'recovery';
 
 export type WorkflowRunErrorCode =
   | 'INPUT_RESOLUTION_FAILED'
@@ -24,6 +24,7 @@ export interface WorkflowExecutionContext {
   surface: WorkflowExecutionSurface;
   correlationId?: string;
   runId?: string;
+  resumeProviderTaskId?: string;
 }
 
 export interface WorkflowRunFailure {

@@ -15,13 +15,14 @@ export interface WorkflowCommandEnvelope {
   args: Record<string, unknown>;
   source: 'ui' | 'cli' | 'agent' | 'operator';
   idempotencyKey?: string;
+  caller?: { agentIdentity?: string; hostSessionId?: string };
 }
 
 export interface WorkflowCommandResult {
   ok: boolean;
   commandId: string;
   result?: unknown;
-  confirmation?: { required: boolean; summary: string };
+  confirmation?: { required: boolean; summary: string; code?: 'CONFIRMATION_REQUIRED' };
   error?: { code: string; message: string; expectedRevision?: number; actualRevision?: number };
 }
 
@@ -165,7 +166,9 @@ function validateEnvelope(envelope: WorkflowCommandEnvelope): WorkflowCommandRes
 }
 
 function requiresWorkflowConfirmation(envelope: WorkflowCommandEnvelope) {
-  if (!WORKFLOW_MUTATION_COMMANDS.has(envelope.command) || envelope.source !== 'agent') return false;
+  const isExternalAgent = envelope.source === 'agent'
+    || (envelope.source === 'cli' && Boolean(envelope.caller?.agentIdentity));
+  if (!WORKFLOW_MUTATION_COMMANDS.has(envelope.command) || !isExternalAgent) return false;
   if (envelope.command === 'workflow.project.delete' || envelope.command === 'workflow.node.delete' || envelope.command === 'workflow.node.run') return true;
   if (envelope.command !== 'workflow.node.tool') return false;
   const tool = String(envelope.args.tool || '');
@@ -190,7 +193,11 @@ export function createWorkflowDispatcher(dependencies: WorkflowDispatcherDepende
     if (cacheKey && idempotencyCache.has(cacheKey)) return idempotencyCache.get(cacheKey)!;
     const { command, args } = envelope;
     if (requiresWorkflowConfirmation(envelope) && args.confirmed !== true) {
-      return { ok: true, commandId: envelope.id, confirmation: { required: true, summary: workflowCommandSummary(command, args) } };
+      return {
+        ok: true,
+        commandId: envelope.id,
+        confirmation: { required: true, code: 'CONFIRMATION_REQUIRED', summary: workflowCommandSummary(command, args) },
+      };
     }
 
     try {

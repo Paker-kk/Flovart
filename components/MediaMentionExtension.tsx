@@ -9,115 +9,67 @@
  */
 
 import { Node, mergeAttributes } from '@tiptap/core';
-import { ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
-import React from 'react';
 import { isFetchableMediaHref } from './workflow/media';
 
 // ---- 可视化节点渲染 ----------------------------------------
 
-interface MentionNodeViewProps {
-    node: {
-        attrs: {
-            id: string;
-            label: string;
-            thumbnail: string;
-            elementType: string;
-            description?: string;
-            sourceType?: 'connected' | 'assetLibrary';
-            assetId?: string;
-        };
-    };
-    deleteNode: () => void;
-}
-
-const MentionNodeView: React.FC<MentionNodeViewProps> = ({ node, deleteNode }) => {
+function createMentionNodeView({ node, getPos, editor }: { node: any; getPos: any; editor: any }) {
+    const typeIcon: Record<string, string> = { image: '🖼', video: '🎬', shape: '⬜', text: '📝', path: '✏️', group: '📦', arrow: '➡️', line: '📏' };
     const { label, thumbnail, elementType } = node.attrs;
+    const root = document.createElement('span');
+    root.className = 'mention-node';
+    root.dataset.mediaMention = '';
+    root.contentEditable = 'false';
+    root.style.cssText = 'display:inline-flex;align-items:center;user-select:none;';
 
-    const typeIcon: Record<string, string> = {
-        image: '🖼',
-        video: '🎬',
-        shape: '⬜',
-        text: '📝',
-        path: '✏️',
-        group: '📦',
-        arrow: '➡️',
-        line: '📏',
+    const chip = document.createElement('span');
+    chip.title = label;
+    chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;background:rgba(99,102,241,.10);border:1px solid rgba(99,102,241,.24);border-radius:6px;padding:1px 6px 1px 3px;font-size:12px;line-height:1.5;color:#4F46E5;font-weight:500;cursor:default;max-width:140px;vertical-align:middle;';
+
+    if (thumbnail && isFetchableMediaHref(thumbnail)) {
+        const image = document.createElement('img');
+        image.src = thumbnail;
+        image.alt = label;
+        image.style.cssText = 'width:16px;height:16px;object-fit:cover;border-radius:3px;flex-shrink:0;';
+        chip.appendChild(image);
+    } else {
+        const icon = document.createElement('span');
+        icon.textContent = typeIcon[elementType] || '🔷';
+        icon.style.cssText = 'font-size:12px;line-height:1;';
+        chip.appendChild(icon);
+    }
+
+    const text = document.createElement('span');
+    text.textContent = label;
+    text.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:86px;';
+    chip.appendChild(text);
+
+    const remove = document.createElement('span');
+    remove.textContent = '×';
+    remove.title = '移除引用';
+    remove.style.cssText = 'margin-left:2px;opacity:.45;cursor:pointer;font-size:11px;line-height:1;flex-shrink:0;transition:opacity .15s;';
+    remove.addEventListener('mouseenter', () => { remove.style.opacity = '1'; });
+    remove.addEventListener('mouseleave', () => { remove.style.opacity = '.45'; });
+    const handleRemoveClick = (event: Event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof getPos !== 'function') return;
+        const position = getPos();
+        if (typeof position === 'number') editor.chain().focus().deleteRange({ from: position, to: position + node.nodeSize }).run();
     };
+    remove.addEventListener('click', handleRemoveClick);
+    chip.appendChild(remove);
+    root.appendChild(chip);
 
-    return (
-        <NodeViewWrapper
-            as="span"
-            className="mention-node"
-            style={{ display: 'inline-flex', alignItems: 'center', userSelect: 'none' }}
-            contentEditable={false}
-        >
-            <span
-                style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    backgroundColor: 'rgba(99, 102, 241, 0.10)',
-                    border: '1px solid rgba(99, 102, 241, 0.24)',
-                    borderRadius: '6px',
-                    padding: '1px 6px 1px 3px',
-                    fontSize: '12px',
-                    lineHeight: '1.5',
-                    color: '#4F46E5',
-                    fontWeight: 500,
-                    cursor: 'default',
-                    maxWidth: '140px',
-                    verticalAlign: 'middle',
-                }}
-                title={label}
-            >
-                {thumbnail && isFetchableMediaHref(thumbnail) ? (
-                    <img
-                        src={thumbnail}
-                        alt={label}
-                        style={{
-                            width: '16px',
-                            height: '16px',
-                            objectFit: 'cover',
-                            borderRadius: '3px',
-                            flexShrink: 0,
-                        }}
-                    />
-                ) : (
-                    <span style={{ fontSize: '12px', lineHeight: 1 }}>
-                        {typeIcon[elementType] || '🔷'}
-                    </span>
-                )}
-                <span
-                    style={{
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        maxWidth: '86px',
-                    }}
-                >
-                    {label}
-                </span>
-                <span
-                    onClick={deleteNode}
-                    style={{
-                        marginLeft: '2px',
-                        opacity: 0.45,
-                        cursor: 'pointer',
-                        fontSize: '11px',
-                        lineHeight: 1,
-                        flexShrink: 0,
-                        transition: 'opacity 0.15s',
-                    }}
-                    onMouseEnter={e => { (e.target as HTMLElement).style.opacity = '1'; }}
-                    onMouseLeave={e => { (e.target as HTMLElement).style.opacity = '0.45'; }}
-                    title="移除引用"
-                >
-                    ×
-                </span>
-            </span>
-        </NodeViewWrapper>
-    );
-};
+    return {
+        dom: root,
+        stopEvent: (event: Event) => root.contains(event.target as HTMLElement),
+        ignoreMutation: () => true,
+        destroy: () => {
+            remove.removeEventListener('click', handleRemoveClick);
+        },
+    };
+}
 
 // ---- Tiptap Node 定义 ----------------------------------------
 
@@ -154,7 +106,7 @@ export const MediaMentionNode = Node.create({
     },
 
     addNodeView() {
-        return ReactNodeViewRenderer(MentionNodeView as any);
+        return (props: any) => createMentionNodeView(props);
     },
 });
 

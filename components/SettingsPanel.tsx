@@ -321,7 +321,7 @@ function RouteMappingEditor({ userApiKeys, onUpdateApiKey, runtimeProviders }: {
         </div>;
     };
     return <section className="space-y-3" data-testid="model-mapping-sections">
-        <div><div className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--isl-ink-ghost)]">模型映射</div><p className="mb-0 mt-1 text-xs leading-5 text-[var(--isl-ink-soft)]">先选择 Flovart 的产品模型或文本能力，再绑定 Provider 线路。这里是唯一选路来源。</p></div>
+        <div><div className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--isl-ink-ghost)]">模型映射</div><p className="mb-0 mt-1 text-xs leading-5 text-[var(--isl-ink-soft)]">先选择 Flovart 的产品模型或文本能力，再绑定 AI 服务线路。这里是唯一选路来源。</p></div>
         {detectedSuggestions.length > 0 && <div className="rounded-2xl border border-[var(--isl-mint)] bg-[var(--isl-mint-bg)] p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div><div className="text-sm font-extrabold text-[var(--isl-mint-deep)]">检测到 {detectedSuggestions.length} 条媒体映射建议</div><div className="mt-1 text-xs text-[var(--isl-ink-soft)]">依据 API Key 实际返回的模型 ID 匹配；确认后才会写入，不会静默改动线路。</div></div>
@@ -337,7 +337,7 @@ function RouteMappingEditor({ userApiKeys, onUpdateApiKey, runtimeProviders }: {
         </div>}
         {runtimeSuggestions.length > 0 && <div className="rounded-2xl border border-[var(--isl-mint)] bg-[var(--isl-mint-bg)] p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-                <div><div className="text-sm font-extrabold text-[var(--isl-mint-deep)]">Runtime 路线建议</div><div className="mt-1 text-xs text-[var(--isl-ink-soft)]">来自 Desktop Runtime 已配置的 Provider；只显示非敏感路线元数据。Runtime 会直接使用这些路线，网页直连需单独配置访问凭证。</div></div>
+                <div><div className="text-sm font-extrabold text-[var(--isl-mint-deep)]">Runtime 路线建议</div><div className="mt-1 text-xs text-[var(--isl-ink-soft)]">来自 Desktop Runtime 已配置的 AI 服务；只显示非敏感路线元数据。Runtime 会直接使用这些路线，网页直连需单独配置访问凭证。</div></div>
             </div>
             <div className="mt-2 grid gap-1 md:grid-cols-2">
                 {runtimeSuggestions.map(({ provider, target, routeId }) => {
@@ -354,7 +354,7 @@ function RouteMappingEditor({ userApiKeys, onUpdateApiKey, runtimeProviders }: {
             <div className="grid gap-2 md:grid-cols-[1.2fr_1fr_1.6fr_auto]">
                 <select aria-label="产品模型" value={productModelId} onChange={event => { const next = getProductModel(event.target.value); setProductModelId(event.target.value); setProductMode(next?.capabilities.modes[0] || 'text-to-image'); setRouteChoice(''); }} className="isl-well h-9 px-2 text-xs text-[var(--isl-ink)] outline-none"><option value="">选择产品模型…</option>{allProducts.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}</select>
                 <select aria-label="生成模式" value={productMode} disabled={!product} onChange={event => { setProductMode(event.target.value as ProductModelMode); setRouteChoice(''); }} className="isl-well h-9 px-2 text-xs text-[var(--isl-ink)] outline-none disabled:opacity-40">{(product?.capabilities.modes || []).map(mode => <option key={mode} value={mode}>{PRODUCT_MODE_LABELS[mode]}</option>)}</select>
-                <select aria-label="Provider 线路" value={routeChoice} disabled={!product} onChange={event => setRouteChoice(event.target.value)} className="isl-well h-9 min-w-0 px-2 text-xs text-[var(--isl-ink)] outline-none disabled:opacity-40"><option value="">选择 Provider / Key / Route…</option>{product ? routeOptions({ kind: 'product-mode', productModelId, mode: productMode }).map(option => <option key={option.value} value={option.value}>{option.label}</option>) : null}</select>
+                <select aria-label="AI 服务线路" value={routeChoice} disabled={!product} onChange={event => setRouteChoice(event.target.value)} className="isl-well h-9 min-w-0 px-2 text-xs text-[var(--isl-ink)] outline-none disabled:opacity-40"><option value="">选择服务 / 模型 / 路线…</option>{product ? routeOptions({ kind: 'product-mode', productModelId, mode: productMode }).map(option => <option key={option.value} value={option.value}>{option.label}</option>) : null}</select>
                 <button type="button" disabled={!product || !routeChoice} onClick={() => { addRoute({ kind: 'product-mode', productModelId, mode: productMode }, routeChoice); setRouteChoice(''); }} className="isl-chip px-3 text-xs disabled:opacity-40">添加</button>
             </div>
         </div>
@@ -562,6 +562,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     const [fetchedModels, setFetchedModels] = React.useState<FetchedModel[]>([]);
     const [isFetchingModels, setIsFetchingModels] = React.useState(false);
     const [fetchError, setFetchError] = React.useState<string | null>(null);
+    const [modelDiscoveryUnavailable, setModelDiscoveryUnavailable] = React.useState(false);
     const [autoDetectedProvider, setAutoDetectedProvider] = React.useState<AIProvider | null>(null);
     const [endpointFlavor, setEndpointFlavor] = React.useState<'google' | 'openai-compatible' | 'openrouter-compatible' | null>(null);
     const [detectedCapabilities, setDetectedCapabilities] = React.useState<AICapability[]>([]);
@@ -648,6 +649,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         setDetectedCapabilities([...preset.capabilities]);
         setFetchedModels([]);
         setFetchError(null);
+        setModelDiscoveryUnavailable(false);
         setValidationResult(null);
         if (options.fillName) setDisplayName(preset.id === 'custom' ? '' : preset.name);
         if (options.resetKey) setApiKey('');
@@ -671,6 +673,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         setEndpointFlavor(null);
         setDetectedCapabilities([]);
         setFetchError(null);
+        setModelDiscoveryUnavailable(false);
         // 自动填充该 provider 的预设模型
         const pm = DEFAULT_PROVIDER_MODELS[next];
         if (pm) {
@@ -828,6 +831,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         setValidationResult(null);
         setFetchedModels([]);
         setFetchError(null);
+        setModelDiscoveryUnavailable(false);
         setAutoDetectedProvider(null);
         setEndpointFlavor(null);
         setDetectedCapabilities([]);
@@ -839,12 +843,14 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         if (!targetKey.trim()) return;
         setIsFetchingModels(true);
         setFetchError(null);
+        setModelDiscoveryUnavailable(false);
         const requestFormat = targetProvider === 'custom' ? extraConfig.requestFormat : undefined;
         if (requestFormat === 'anthropic' || (requestFormat === 'native' && targetProvider !== 'runningHub')) {
             setFetchedModels([]);
             setFetchError(requestFormat === 'native'
-                ? '供应商原生接口通常不提供公开模型列表，请手动添加模型 ID。'
+                ? '服务原生接口通常不提供公开模型列表，请手动添加模型 ID。'
                 : 'Anthropic Messages 格式通常不提供公开模型列表，请手动添加模型 ID。');
+            setModelDiscoveryUnavailable(true);
             setIsFetchingModels(false);
             return;
         }
@@ -872,6 +878,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             } else if (result.ok && targetProvider === 'runningHub') {
                 setFetchedModels([]);
                 setFetchError('未从 RunningHub 官方模型页解析到可用模型，请稍后重试或手动添加模型 ID。');
+                setModelDiscoveryUnavailable(true);
+            } else if (result.ok) {
+                setFetchedModels([]);
+                setFetchError(result.error || '未检测到模型列表，可手动添加模型 ID。');
+                setModelDiscoveryUnavailable(true);
             } else if (!result.ok) {
                 setFetchError(result.error || '拉取失败');
             }
@@ -897,6 +908,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             } else if (/^sk-/i.test(pasted.trim())) {
                 setAutoDetectedProvider(null);
                 setFetchError(null);
+                setModelDiscoveryUnavailable(false);
             }
         }
     };
@@ -1044,7 +1056,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     <div>
                         <h3 className="text-xl font-extrabold text-[var(--isl-ink)]">设置</h3>
                         <p className="mt-1 text-sm text-[var(--isl-ink-soft)]">
-                            管理 API 供应商、模型映射和本地安全策略。主题与语言请在顶栏切换。
+                            管理 AI 服务、模型映射和本地安全策略。主题与语言请在顶栏切换。
                         </p>
                     </div>
                     <button
@@ -1192,7 +1204,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                     }}
                                     className="isl-chip isl-chip--active px-3 py-1.5 text-xs"
                                 >
-                                    + 添加供应商
+                                    + 添加 AI 服务
                                 </button>
                             </div>
                         </div>
@@ -1208,8 +1220,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                     isDark ? 'border-[#3A4458] text-[#98A2B3]' : 'border-[#D0D5DD] text-[#667085]'
                                 }`}>
                                     <div className="mb-2 text-lg">🔑</div>
-                                    <div className="font-medium">还没有配置供应商</div>
-                                    <div className="mt-1 text-xs">点击右上方「+ 添加供应商」按钮添加网页直连访问凭证</div>
+                                    <div className="font-medium">还没有配置 AI 服务</div>
+                                    <div className="mt-1 text-xs">点击右上方「+ 添加 AI 服务」按钮添加网页直连访问凭证</div>
                                 </div>
                             ) : (
                                 <AnimatePresence initial={false}>
@@ -1245,7 +1257,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                                 )}
                                             </div>
                                             <div className={`mt-1 truncate text-xs ${isDark ? 'text-[#7CB4FF]' : 'text-[#175CD3]'}`}>
-                                                {item.extraConfig?.websiteUrl || item.baseUrl || '本地供应商配置'}
+                                                {item.extraConfig?.websiteUrl || item.baseUrl || '本地 AI 服务配置'}
                                             </div>
                                             <div className={`mt-1 text-[11px] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>
                                                 {maskKey(item.key)}
@@ -1394,7 +1406,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     >
                         <div className="mb-0 flex items-center justify-between px-6 pb-4 pt-6">
                             <h4 className="text-base font-extrabold text-[var(--isl-ink)]">
-                                {editingKeyId ? '编辑供应商' : '添加新供应商'}
+                                {editingKeyId ? '编辑 AI 服务' : '添加新的 AI 服务'}
                             </h4>
                             <button type="button" title="关闭 API Key 表单" aria-label="关闭 API Key 表单" onClick={handleCancelEdit} className="rounded-full p-1.5 text-[var(--isl-ink-soft)] transition hover:bg-black/5">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -1402,12 +1414,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                         </div>
 
                         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 pb-4">
-                            {/* 预设供应商 */}
+                            {/* 常用 AI 服务 */}
                             {!editingKeyId && (
                                 <div className={sectionPanelClass}>
                                     <div className="mb-3 flex items-center justify-between gap-3">
                                         <div>
-                                            <div className="text-sm font-bold text-[var(--isl-ink)]">预设供应商</div>
+                                            <div className="text-sm font-bold text-[var(--isl-ink)]">常用 AI 服务</div>
                                             <div className="mt-0.5 text-[11px] text-[var(--isl-ink-soft)]">选择后会自动填充请求地址、API 格式、认证字段和常用模型</div>
                                         </div>
                                         <div className="shrink-0 rounded-full bg-[var(--isl-card)] px-2.5 py-1 text-[11px] text-[var(--isl-ink-soft)]">
@@ -1459,7 +1471,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
                             <div className="grid gap-3 md:grid-cols-2">
                                 <label>
-                                    <span className="mb-1.5 block text-sm font-bold text-[var(--isl-ink)]">供应商名称</span>
+                                    <span className="mb-1.5 block text-sm font-bold text-[var(--isl-ink)]">服务名称</span>
                                     <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="例如：Claude 官方" className={inputClass} />
                                 </label>
                                 <label>
@@ -1584,7 +1596,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                 </div>
                                 {fetchError && (
                                     <div className={`mb-2 rounded-xl px-3 py-1.5 text-xs ${isDark ? 'bg-[#3A1616] text-[#FDA29B]' : 'bg-[#FEF3F2] text-[#B42318]'}`}>
-                                        拉取模型失败：{fetchError}（可手动添加模型）
+                                        {modelDiscoveryUnavailable ? fetchError : `拉取模型失败：${fetchError}`}（可手动添加模型）
                                     </div>
                                 )}
                                 {editModels.length > 0 && (
@@ -1646,7 +1658,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                             </div>
 
                             <div className={sectionPanelClass}>
-                                <div className="mb-3 flex items-center justify-between"><div><div className="text-sm font-bold text-[var(--isl-ink)]">预算策略</div><div className="mt-0.5 text-[11px] text-[var(--isl-ink-soft)]">硬上限只阻止新任务，不会终止供应商已经接受的任务。</div></div><button type="button" onClick={() => setEditBudgetPolicy(policy => ({ ...policy, enabled: !policy.enabled }))} className={`isl-chip px-3 py-1.5 text-xs ${editBudgetPolicy.enabled ? 'isl-chip--active' : ''}`}>{editBudgetPolicy.enabled ? '已开启' : '未开启'}</button></div>
+                                <div className="mb-3 flex items-center justify-between"><div><div className="text-sm font-bold text-[var(--isl-ink)]">预算策略</div><div className="mt-0.5 text-[11px] text-[var(--isl-ink-soft)]">硬上限只阻止新任务，不会终止 AI 服务已经接受的任务。</div></div><button type="button" onClick={() => setEditBudgetPolicy(policy => ({ ...policy, enabled: !policy.enabled }))} className={`isl-chip px-3 py-1.5 text-xs ${editBudgetPolicy.enabled ? 'isl-chip--active' : ''}`}>{editBudgetPolicy.enabled ? '已开启' : '未开启'}</button></div>
                                 {editBudgetPolicy.enabled && editingKeyId && usageSummary?.get(editingKeyId) && (() => {
                                     const usage = usageSummary.get(editingKeyId)!;
                                     const sameCurrency = usage.currency === editBudgetPolicy.currency;
@@ -1655,7 +1667,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                     return <div className="mb-3 rounded-2xl bg-[var(--isl-card)] p-3">
                                         <div className="mb-2 flex items-center justify-between text-[11px] text-[var(--isl-ink-soft)]"><span>本月已记录 {sameCurrency ? formatCost(usage.currentMonthCostCents, usage.currency) : '币种不一致'}</span><span>{Math.round(percent)}%</span></div>
                                         <div className="h-2 overflow-hidden rounded-full bg-[var(--isl-surface-2)]"><motion.div initial={false} animate={{ width: `${percent}%` }} transition={{ type: 'spring', stiffness: 360, damping: 32 }} className={`h-full rounded-full ${percent >= editBudgetPolicy.warningPercent ? 'bg-amber-500' : 'bg-emerald-500'}`} /></div>
-                                        {usage.pendingCostCalls > 0 && <div className="mt-2 text-[10px] text-amber-600">另有 {usage.pendingCostCalls} 笔费用待供应商账单确认，预算占用按当前预估计算。</div>}
+                                        {usage.pendingCostCalls > 0 && <div className="mt-2 text-[10px] text-amber-600">另有 {usage.pendingCostCalls} 笔费用待 AI 服务账单确认，预算占用按当前预估计算。</div>}
                                     </div>;
                                 })()}
                                 {editBudgetPolicy.enabled && <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} transition={{ type: 'spring', stiffness: 380, damping: 32 }} className="grid gap-2 md:grid-cols-4">
@@ -1682,7 +1694,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                         aria-label="API 格式"
                                     >
                                         <option value="">自动识别 API 格式</option>
-                                        <option value="native">供应商原生 / 专用接口</option>
+                                        <option value="native">服务原生 / 专用接口</option>
                                         <option value="openai">OpenAI Compatible</option>
                                         <option value="anthropic">Anthropic</option>
                                         <option value="google">Google Gemini</option>
@@ -1729,7 +1741,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                 <textarea
                                     value={extraConfig.configJson || ''}
                                     onChange={(e) => updateExtraConfig('configJson', e.target.value)}
-                                    placeholder='配置 JSON（可选），用于保存供应商额外参数'
+                                    placeholder='配置 JSON（可选），用于保存 AI 服务额外参数'
                                     className={`${inputClass} mt-2 min-h-24 resize-y font-mono text-xs`}
                                 />
                             </div>

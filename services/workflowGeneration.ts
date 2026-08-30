@@ -35,9 +35,11 @@ export interface WorkflowGenerationRuntime {
   executeText?: typeof generateTextWithProvider;
   runId?: string;
   onCanonicalInput?: (input: CanonicalGenerationInput) => void;
-  /** 可由 PromptBar/Agent 传入；未提供时从当前 Draft 节点生成同一稳定意图投影。 */
-  promptIntent?: PromptIntent;
-  getProject?: () => WorkflowProject | null;
+ /** 可由 PromptBar/Agent 传入；未提供时从当前 Draft 节点生成同一稳定意图投影。 */
+ promptIntent?: PromptIntent;
+  /** 刷新后恢复已提交的视频任务；只传给支持 resume 的 Provider adapter。 */
+  resumeProviderTaskId?: string;
+ getProject?: () => WorkflowProject | null;
   onProjectChange?: (project: WorkflowProject) => void | Promise<void>;
   saveHistory?: (payload: WorkflowHistoryPayload) => void | Promise<void>;
   createId?: () => string;
@@ -97,7 +99,8 @@ function patchInitiator(project: WorkflowProject, nodeId: string, metadata: Reco
 }
 
 async function publish(runtime: WorkflowGenerationRuntime, project: WorkflowProject) {
-  await runtime.onProjectChange?.(project);
+  const result = runtime.onProjectChange?.(project);
+  await result;
   return project;
 }
 
@@ -388,10 +391,11 @@ export async function runWorkflowGeneration(project: WorkflowProject, nodeId: st
           aspectRatio: providerRequest.aspectRatio as UnifiedIgnitionInput['aspectRatio'], durationSec: providerRequest.durationSec,
           resolution: providerRequest.resolution, quality: providerRequest.quality, generateAudio: providerRequest.generateAudio, watermark: providerRequest.watermark,
           webSearch: config.webSearch, realPersonCheck: config.realPersonCheck, references,
-          canonicalInput,
-          materializedReferences,
-          signal: controller.signal,
-           onProgress: (progress, message) => {
+         canonicalInput,
+         materializedReferences,
+         signal: controller.signal,
+          resumeProviderTaskId: runtime.resumeProviderTaskId,
+          onProgress: (progress, message) => {
             if (!stillActive()) return;
             current = patchInitiator(canonical(runtime, current), nodeId, { status: 'loading', progress: Math.max(0, Math.min(99, progress)), generationRequestId: requestId, generationMessage: message, generationStartedAt: current.nodes.find(node => node.id === nodeId)?.metadata.generationStartedAt || Date.now() });
              void publish(runtime, current);

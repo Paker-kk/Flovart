@@ -22,6 +22,7 @@ import {
     syncRuntimeCredentials,
 } from '../services/runtimeCredentials';
 import { syncRuntimeAgentTextRoutes } from '../services/runtimeAgentTextRoutes';
+import { mergeSuggestedProductRouteMappings } from '../services/aiServiceSetup';
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -213,8 +214,6 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
         const hasSkipped = localStorage.getItem('onboarding.skipped') === 'true';
         if (userApiKeys.length === 0 && !hasSkipped) {
             setShowOnboarding(true);
-        } else if (userApiKeys.length > 0) {
-            setShowOnboarding(false);
         }
     }, [apiKeysLoaded, userApiKeys.length]);
 
@@ -338,7 +337,7 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
                 const fetched = results.get(k.id);
                 if (!fetched || fetched.length === 0) return k;
                 const modelItems = fetched.map(m => ({ id: m.id, name: m.name || m.id, capability: m.capability }));
-                return mergeFetchedModelsIntoKey(k, modelItems);
+                return mergeSuggestedProductRouteMappings(mergeFetchedModelsIntoKey(k, modelItems));
             }));
         }).catch(() => { /* silent background refresh failure */ });
     }, [apiKeysLoaded, userApiKeys.length]);
@@ -353,7 +352,7 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
             createdAt: now,
             updatedAt: now,
         };
-        const nextKey = initialKey;
+        const nextKey = mergeSuggestedProductRouteMappings(initialKey);
         setUserApiKeys(prev => {
             const isFirstOfCapabilities = !prev.some(k =>
                 hasCapabilityOverlap(
@@ -379,7 +378,7 @@ export function useApiKeys(isSettingsPanelOpen: boolean) {
                 if (fetched && fetched.length > 0) {
                     const modelItems = fetched.map(m => ({ id: m.id, name: m.name || m.id, capability: m.capability }));
                     setUserApiKeys(prev => prev.map(k =>
-                        k.id === nextKey.id ? mergeFetchedModelsIntoKey(k, modelItems) : k
+                        k.id === nextKey.id ? mergeSuggestedProductRouteMappings(mergeFetchedModelsIntoKey(k, modelItems)) : k
                     ));
                 }
             })
