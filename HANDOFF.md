@@ -283,3 +283,91 @@ The existing contracts are reusable. Proceed with a small bootstrap/readiness se
 ## Next action
 
 P1: implement the Codex projection alias and run a safe real Codex CLI tracer bullet against the local CLI; then wire the external path to the browser bootstrap coordinator before claiming the Golden Path.
+# First Run → First Safe Generation — latest status
+
+## Current phase
+
+U1 — Local Fake Provider Harness（首个可测试纵切已开始）
+
+## U0 audit findings
+
+- Fresh Browser Workspace 可以进入 `/app` 的 Workflow 空态，但首次运行的 Onboarding 状态此前只由 `useApiKeys` 设置，`App` 没有真正挂载 `OnboardingWizard`；本轮已接入挂载与“稍后再说”的跳过标记。
+- 旧向导默认 Google 且把兼容服务地址藏在高级设置中；本轮已把首次配置默认改为 OpenAI-compatible，普通步骤只要求“服务地址 + API Key”，模型与能力仍放在高级设置。
+- `validateApiKey` 已经通过真实 `/models` 返回模型与能力，但保存入口此前不会自动建立 Product Model → Provider Route 映射，首个生成会被迫进入模型映射；本轮新增 `mergeSuggestedProductRouteMappings` 并接入新增 Key 与后台模型刷新，保留已有显式映射。
+- PromptBar 在没有 AI 服务时已有设置入口，但生成按钮同时被 disabled 且没有 setup CTA；这一项仍待下一条 vertical slice 修复并用浏览器验收。
+- 自定义视频适配器当前走 `${baseUrl}/v2/videos/generations` 的异步统一接口；Fake Provider 必须同时覆盖 `/v1` 模型/图片端点与 `/v2` 视频提交、轮询和下载，以验证真实现有执行链，不擅自改成第二套 Provider authority。
+
+## Product decisions
+
+- 默认产品词使用“AI 服务”，普通首启不要求用户理解 Provider、Route Mapping、Adapter 或 CredentialRef。
+- OpenAI-compatible Base URL + API Key 是首启最小配置；成功 `/models` 后自动发现模型，并只追加缺失的产品路由建议，不覆盖用户已有映射。
+- 本轮 Fake Provider 使用真实 localhost HTTP transport，记录脱敏的 endpoint、请求类型、模型、提示词与引用摘要；不保存 raw API Key 或原始 multipart/base64。
+- 真实付费 Provider、Codex 登录和 DSH 登录不作为本 Goal blocker。
+
+## Changed files
+
+- `App.tsx`：实际挂载首启向导并持久化跳过状态。
+- `components/OnboardingWizard.tsx`：默认 OpenAI-compatible，服务地址进入主步骤，错误文案收敛为用户可理解的连接错误，复用验证返回的模型列表避免重复 `/models` 请求。
+- `services/aiServiceSetup.ts`：新增只追加缺失产品路由的深模块接口。
+- `hooks/useApiKeys.ts`：新增服务和后台模型刷新时自动合并产品路由建议。
+- `tests/aiServiceSetup.test.ts`、`tests/onboardingWizard.test.tsx`：首启最小字段与自动路由回归。
+
+## Verification
+
+- `npx vitest run tests/aiServiceSetup.test.ts --no-file-parallelism --maxWorkers=1`：通过。
+- `npx vitest run tests/onboardingWizard.test.tsx --no-file-parallelism --maxWorkers=1`：通过。
+- 已按 Playwright skill 先执行 dev-server detection；检测器未识别现有 Vite 进程，但 `flovart status --json` 确认 WebUI `http://127.0.0.1:37522` 与 Agent `http://127.0.0.1:17373` ready，根页和 Hash `/app` 已完成 U0 可见性采样。尚未把采样误记为首生成通过。
+
+## Unresolved risks / exact next step
+
+1. 添加真实 Fake Provider server 与 recorder，先通过 `/models`、图片生成和错误模式的 HTTP integration test。
+2. 修复 PromptBar 无服务时的明确 setup CTA，并补 Cost/Execution Gate 的公共接口测试，确保 gate 发生在 Provider HTTP 之前。
+3. 再用隔离 Browser Context 跑 clean-state：添加 AI 服务 → 自动发现模型 → 创建图片节点 → PromptBar 生成 → fake artifact 回画布；随后补 I2I/I2V、失败/刷新恢复和 secret 静态/运行时审计。
+
+# Master Launch Goal — latest status
+
+## Current launch phase
+
+`R0 — RELEASE TRUTH AUDIT` 已形成第一版证据矩阵；当前 `LAUNCH VERDICT: NO-GO`。R0 只建立事实与门禁，没有把未验证能力标记为完成。
+
+## Architecture decisions
+
+- `LAUNCH_GOAL.md` 叠加在既有 `GOAL.md` 之上：旧 Goal 继续记录 Canvas/Agent 收敛历史，新文件成为 Release Candidate → Production Launch 的稳定终点。
+- Published `main`、本地已提交架构与当前 dirty working tree 必须分开审计；本地修好但尚未发布，仍不能算陌生用户拿到的产品已修好。
+- 五个 model-facing tools 保持不扩张；`command.list/schema` 只做兼容发现/诊断。
+- 保留当前 First Run/Fake Provider 未提交改动，并将 fake HTTP recorder 作为费用授权、幂等、wire payload、失败与 secret 测试的共同 harness。
+- Tauri 私钥文件只检查了 Git 跟踪/忽略边界，没有读取内容；生产密钥所有权、保管与签名仍属于 External Certification。
+
+## Modified files
+
+- `LAUNCH_GOAL.md`：持久化 R0–R31、Autonomous DoD、External Certification 与 GO/NO-GO 规则。
+- `RELEASE_TRUTH_MATRIX.md`：区分公开分支、本地源码和 working tree，记录 claim、证据、状态与 blocker。
+- `HANDOFF.md`：追加当前 Master Launch Phase、R0 结论与下一动作。
+
+## Evidence produced
+
+- 公开 README/Quick Start 仍展示 `init --host`、正常路径 `command.list/schema`、`canvas.inspect` 与 command-queue/file-state 描述；本地实现已转向 `--target`、五工具表面、Browser authority 和自动 binding。
+- `node tools/flovart/cli.js help` 正常，但标准 `--help` 返回 `CLI_FATAL`，命令被解析为 `..help`。
+- `.agents/skills/flovart/SKILL.md`、`tools/flovart/skill/SKILL.md`、`skills/flovart/SKILL.md` 内容不一致，且打包安装选择 tools copy。
+- `tools/flovart/shadow-runtime.js` 及其测试仍保留完整 file-state Workflow 实现；当前 public Workflow command 虽走 Browser Workspace，但必须继续证明该实现是否只有安全兼容 caller。
+- 本地产品版本文件统一为 `0.3.2`；公开最新 Release 仍是旧 test artifact。
+- Desktop publish workflow 没有把 unit/type/Rust/extension/DSH/E2E/migration/security/checksum/SBOM/attestation 组成不可绕过的 release law。
+- `workflowDispatcher` 接受 `args.confirmed === true`；Browser bridge 会真实询问用户，但还需证明外部 Agent/CLI 是否可直接伪造该字段并触发 Provider 请求。
+
+## Current blockers
+
+- **P1:** 公开文档仍描述已退出主路径的架构。
+- **P1:** 三份 Flovart Skill 没有同一事实源。
+- **P1:** `--help` 不可用，发布流水线缺少完整门禁。
+- **P1 claim drift:** Table、Plugin lifecycle、Codex/DSH/Pi 正式支持与当前安装器的公开成熟度超过已验证证据。
+- **P0 candidate:** caller-controlled `confirmed:true` 可能绕过真人费用授权。
+- **P0/P1 candidate:** 生成幂等 cache 仅在内存，刷新/重启 exactly-once 尚未证明。
+
+## Tests / browser / failure injection
+
+- R0 文档阶段只执行了 CLI help、registry/version、静态 caller/claim 搜索与公开页面核验；没有把既有 972-test 历史结果当作当前 working tree 回归。
+- Browser First Generation、Provider wire recorder、重复提交与刷新/重启故障注入仍属于下一纵切，状态为 `NOT_VERIFIED`。
+
+## Next action
+
+先用现有 fake Provider recorder 写一个失败测试：外部 `workflow.node.run` 携带 `confirmed:true` 时必须仍然是 `CONFIRMATION_REQUIRED` 且 Provider submit count 为 0。若复现绕过，改为执行边界签发、作用域绑定、单次消费的 approval receipt；随后对 timeout/retry/double-click/refresh/restart 跑同一 recorder 幂等矩阵。完成后再收敛 Skill/CLI/docs truth source。

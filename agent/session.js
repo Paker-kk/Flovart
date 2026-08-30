@@ -274,7 +274,14 @@ export class WorkflowAgentSession {
     }
     if (signal?.aborted) throw new Error('Workflow 操作已取消');
     const requestId = crypto.randomUUID();
-    const envelope = { id: requestId, command, args, source, idempotencyKey: idempotencyKey || args.idempotencyKey };
+    const envelope = {
+      id: requestId,
+      command,
+      args,
+      source,
+      idempotencyKey: idempotencyKey || args.idempotencyKey,
+      ...(caller ? { caller } : {}),
+    };
     sendEvent(client, 'tool_call', { requestId, envelope });
     return new Promise((resolve, reject) => {
       const cleanup = () => signal?.removeEventListener('abort', onAbort);

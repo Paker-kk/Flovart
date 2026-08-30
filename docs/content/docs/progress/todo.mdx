@@ -4,6 +4,15 @@ title: 后续待办
 
 本页只保留尚未完成的工作。已经实现但仍需用户确认的变更统一记录在 [待测试确认](pending-test.mdx)，正式能力在用户确认后再进入 [功能特性](../overview/features.mdx)。
 
+## Production Launch 总门禁
+
+- **总目标**：⬜ 按根目录 `LAUNCH_GOAL.md` 从 R0 Release Truth Audit 持续执行到 R31 独立 Red Team；只有 Autonomous DoD、External Certification、`P0 = 0`、`P1 = 0` 同时满足才允许 `LAUNCH VERDICT: GO`。
+- **R0 Release Truth**：🟨 已建立 `RELEASE_TRUTH_MATRIX.md`，当前结论为 `NO-GO`。公开 README/Quick Start 与本地 Browser authority、`--target` 和五工具表面存在版本漂移；三份 Flovart Skill 也没有统一事实源。
+- **最高优先级风险**：⬜ 用 fake Provider recorder 证明外部 Agent/CLI 不能伪造 `confirmed:true` 绕过费用授权，并验证 timeout/retry/double-click/refresh/restart 只有一次业务提交。
+- **Release Engineering**：⬜ 修复标准 CLI help、建立 docs-contract guard、完整 CI release law、当前 NSIS clean install/upgrade、Windows code signing、updater signing、checksums、SBOM 与 provenance/attestation。
+- **产品可靠性**：⬜ 继续完成 migration/recovery、500-node/undo-redo、四种生成 wire E2E、Provider/BYOK 失败、Plugin trust、offline、diagnostics、performance、accessibility、Golden Paths 和 soak。
+- **公开声明**：⬜ Table、Plugin lifecycle、Codex/DSH/Pi、Provider 与安装器只能按真实 certification 标记 Supported；未通过项降级为 Experimental、Developer Preview、Blocked 或 Planned。
+
 ## Table：Agent 故事版与媒体预处理工作台
 
 Table 是 Workflow 之外的第二个正式创作工作区，不是电子表格，也不是旧 Canvas / Art 的改名。当前入口已经接入，但主体仍为占位界面。
