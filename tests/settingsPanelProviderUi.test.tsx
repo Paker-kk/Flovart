@@ -36,9 +36,9 @@ describe('SettingsPanel provider configuration UI', () => {
   it('opens a CC Switch style provider setup flow with advanced model config fields', () => {
     renderSettings();
 
-    fireEvent.click(screen.getByRole('button', { name: /添加 API Key|添加供应商/i }));
+    fireEvent.click(screen.getByRole('button', { name: /添加 API Key|添加供应商|添加 AI 服务/i }));
 
-    expect(screen.getByText('预设供应商')).toBeTruthy();
+    expect(screen.getByText('常用 AI 服务')).toBeTruthy();
     expect(screen.getByText('自定义配置')).toBeTruthy();
     expect(screen.getByText('Claude Official')).toBeTruthy();
     expect(screen.queryByText('固定模型路由绑定')).toBeNull();
@@ -51,7 +51,7 @@ describe('SettingsPanel provider configuration UI', () => {
   it('does not expose a hardcoded image tool provider preset', () => {
     renderSettings();
 
-    fireEvent.click(screen.getByRole('button', { name: /添加 API Key|添加供应商/i }));
+    fireEvent.click(screen.getByRole('button', { name: /添加 API Key|添加供应商|添加 AI 服务/i }));
 
     expect(screen.queryByText('Banana Vision')).toBeNull();
   });
@@ -61,7 +61,7 @@ describe('SettingsPanel provider configuration UI', () => {
     window.addEventListener('keydown', escapedDelete);
     renderSettings();
 
-    fireEvent.click(screen.getByRole('button', { name: /添加 API Key|添加供应商/i }));
+    fireEvent.click(screen.getByRole('button', { name: /添加 API Key|添加供应商|添加 AI 服务/i }));
     const input = screen.getByPlaceholderText('https://your-api-endpoint.com') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'https://api.example.com/v1' } });
     input.focus();
@@ -72,7 +72,7 @@ describe('SettingsPanel provider configuration UI', () => {
     expect(escapedDelete).not.toHaveBeenCalled();
     expect(input).toBeInTheDocument();
     expect(input.value).toBe('');
-    expect(screen.getByText('预设供应商')).toBeInTheDocument();
+    expect(screen.getByText('常用 AI 服务')).toBeInTheDocument();
     window.removeEventListener('keydown', escapedDelete);
   });
 
@@ -106,7 +106,7 @@ describe('SettingsPanel provider configuration UI', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '模型映射' }));
     fireEvent.change(await screen.findByLabelText('产品模型'), { target: { value: 'flovart:gpt-image-2' } });
-    const imageRoutes = screen.getByLabelText('Provider 线路') as HTMLSelectElement;
+    const imageRoutes = screen.getByLabelText('AI 服务线路') as HTMLSelectElement;
     expect(Array.from(imageRoutes.options).map(option => option.textContent)).toContain('Agnes · agnes-canvas-v2');
     expect(Array.from(imageRoutes.options).map(option => option.textContent)).not.toContain('Agnes · gpt-5.4');
     expect(Array.from(imageRoutes.options).map(option => option.textContent)).not.toContain('Agnes · agnes-motion-v2');
@@ -183,7 +183,7 @@ describe('SettingsPanel provider configuration UI', () => {
   it('shows RunningHub packaged provider entry', async () => {
     renderSettings();
 
-    fireEvent.click(screen.getByRole('button', { name: /添加 API Key|添加供应商/i }));
+    fireEvent.click(screen.getByRole('button', { name: /添加 API Key|添加供应商|添加 AI 服务/i }));
 
     expect(screen.getByText('RunningHub 标准模型')).toBeTruthy();
     expect(screen.getByText('RunningHub 海外站')).toBeTruthy();

@@ -275,6 +275,53 @@ describe('workflow dispatcher', () => {
     expect((await dispatch({ id: 'stop', command: 'workflow.node.stop', args: { nodeId: 'image-1', confirmed: true }, source: 'agent' })).error?.code).toBe('RUNNER_UNAVAILABLE');
   });
 
+  it('returns a stable confirmation state before an Agent can submit generation', async () => {
+    const runNode = vi.fn();
+    const { dispatch } = setup(createWorkflowExecutor({ runNode }));
+    const result = await dispatch({ id: 'confirm-run', command: 'workflow.node.run', args: { nodeId: 'image-1' }, source: 'agent' });
+
+    expect(result).toMatchObject({
+      ok: true,
+      confirmation: { required: true, code: 'CONFIRMATION_REQUIRED' },
+    });
+    expect(runNode).not.toHaveBeenCalled();
+  });
+
+  it('does not accept a caller-controlled confirmed flag as human approval', async () => {
+    const runNode = vi.fn();
+    const { dispatch } = setup(createWorkflowExecutor({ runNode }));
+    const result = await dispatch({
+      id: 'forged-confirmation',
+      command: 'workflow.node.run',
+      args: { nodeId: 'image-1', confirmed: true },
+      source: 'agent',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      confirmation: { required: true, code: 'CONFIRMATION_REQUIRED' },
+    });
+    expect(runNode).not.toHaveBeenCalled();
+  });
+
+  it('gates a CLI command carrying an Agent identity before submitting generation', async () => {
+    const runNode = vi.fn();
+    const { dispatch } = setup(createWorkflowExecutor({ runNode }));
+    const result = await dispatch({
+      id: 'cli-confirm-run',
+      command: 'workflow.node.run',
+      args: { nodeId: 'image-1' },
+      source: 'cli',
+      caller: { agentIdentity: 'codex' },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      confirmation: { required: true, code: 'CONFIRMATION_REQUIRED' },
+    });
+    expect(runNode).not.toHaveBeenCalled();
+  });
+
   it('routes UI, Browser Agent, CLI, and Runtime through one executor without changing canonical input', async () => {
     const firstFrame = createWorkflowNode('A', 'image', { x: 0, y: 0 }, { href: 'https://cdn.example.com/a.png' });
     const character = createWorkflowNode('C', 'image', { x: 0, y: 120 }, { href: 'https://cdn.example.com/c.png' });

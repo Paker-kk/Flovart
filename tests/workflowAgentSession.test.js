@@ -62,6 +62,27 @@ describe('workflow agent session', () => {
     expect(session.health()).toMatchObject({ hasWorkflow: true, activeProjectId: 'project-1', clientId: 'browser-1' });
   });
 
+  it('forwards the external Agent caller identity to the Browser Workflow envelope', async () => {
+    const session = new WorkflowAgentSession({ timeoutMs: 1000 });
+    let event = '';
+    const response = { writeHead() {}, write(value) { event += value; }, on() {} };
+    session.openEvents(new URL('http://127.0.0.1/events?clientId=browser-1'), response);
+    session.updateSnapshot({ id: 'project-1' }, 'browser-1');
+
+    const call = session.callCommand(
+      'workflow.node.run',
+      { projectId: 'project-1', nodeId: 'node-1' },
+      'cli',
+      'run-node-1',
+      undefined,
+      { agentIdentity: 'codex' },
+    );
+    const payload = JSON.parse(event.match(/event: tool_call\ndata: (.+)\n\n/)?.[1] || '{}');
+    expect(payload.envelope.caller).toEqual({ agentIdentity: 'codex' });
+    session.resolveResult({ requestId: payload.requestId, clientId: 'browser-1', result: { ok: true } });
+    await expect(call).resolves.toEqual({ ok: true });
+  });
+
   it('keeps the active writer snapshot current as the browser project changes', () => {
     const session = new WorkflowAgentSession({ timeoutMs: 10 });
     const response = { writeHead() {}, write() {}, on() {} };
