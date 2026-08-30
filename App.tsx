@@ -28,6 +28,7 @@ import type { TableProcessResult } from './services/tableMediaProcessor';
 import { resolveRouteMappingForSubmit, type RouteFallbackResolution } from './services/routeMapping';
 import { ensureWorkflowImageGenerateOperation } from './components/workflow/operations';
 import { getWorkflowOperationCapability } from './components/workflow/operationRegistry';
+import { buildGenerationGateSummary, getGenerationGateDetails, requiresExternalGenerationGate } from './services/generationGate';
 
 const SettingsPanel = React.lazy(() => import('./components/SettingsPanel').then(m => ({ default: m.SettingsPanel })));
 const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard').then(m => ({ default: m.OnboardingWizard })));
@@ -92,6 +93,7 @@ const App: React.FC = () => {
     const workflowSetActiveProject = useWorkflowStore(s => s.setActiveProject);
 
     const activeWorkflowIndex = useMemo(() => Math.max(0, workflowProjects.findIndex(p => p.id === activeWorkflowProjectId)), [workflowProjects, activeWorkflowProjectId]);
+    const recoveryTasks = React.useRef(new Set<string>());
 
     const resolvedTheme: 'light' | 'dark' = themeMode === 'system' ? systemTheme : themeMode;
     const themePalette = THEME_PALETTES[resolvedTheme];
@@ -161,6 +163,11 @@ const App: React.FC = () => {
         if (typeof value === 'function') return value(...args);
         return value ?? key;
     }, [language]);
+
+    const closeOnboarding = useCallback(() => {
+        try { localStorage.setItem('onboarding.skipped', 'true'); } catch { /* non-critical */ }
+        setShowOnboarding(false);
+    }, [setShowOnboarding]);
 
     const confirmRouteFallback = useCallback((resolution: RouteFallbackResolution) => window.confirm(
         `主线路 ${resolution.unavailablePrimary.key.name || resolution.unavailablePrimary.key.provider} · ${resolution.unavailablePrimary.routeId || '未配置'} 当前不可用。\n\n是否改用 ${resolution.key.name || resolution.key.provider} · ${resolution.routeId}？`,
@@ -273,11 +280,12 @@ const App: React.FC = () => {
             userApiKeys,
             confirmRouteFallback,
             runId: context.runId,
+            resumeProviderTaskId: context.resumeProviderTaskId,
             promptIntent: command.promptIntent?.targetNodeId === executableNodeId ? command.promptIntent : undefined,
             onCanonicalInput: input => { canonicalInput = input; },
             assets: assetLibrary.items.map(({ id, name, mimeType }) => ({ id, name, mimeType })),
             getProject: () => useWorkflowStore.getState().projects.find(item => item.id === projectId) || null,
-            onProjectChange: (next) => useWorkflowStore.getState().updateProject(projectId, next),
+            onProjectChange: (next) => { useWorkflowStore.getState().updateProject(projectId, next); },
             saveHistory: saveGenerationToHistory,
         });
         const generatedNode = generated.nodes.find(item => item.id === executableNodeId);
@@ -293,9 +301,54 @@ const App: React.FC = () => {
         runNode: (command, context) => handleRunWorkflowNode(command, context),
         stopNode: ({ projectId, nodeId }) => { cancelWorkflowGeneration(projectId, nodeId); },
     }), [handleRunWorkflowNode]);
+    useEffect(() => {
+        if (!apiKeysLoaded || !activeWorkflowProjectId || userApiKeys.length === 0) return;
+        const project = workflowProjects.find(item => item.id === activeWorkflowProjectId);
+        if (!project) return;
+        project.nodes
+            .filter(node => node.metadata.status === 'loading' && node.metadata.generationProviderTaskId && node.metadata.config?.mode === 'video')
+            .forEach(node => {
+                const providerTaskId = node.metadata.generationProviderTaskId;
+                if (!providerTaskId) return;
+                const recoveryKey = [project.id, node.id, providerTaskId].join(':');
+                if (recoveryTasks.current.has(recoveryKey)) return;
+                recoveryTasks.current.add(recoveryKey);
+                void (async () => {
+                    try {
+                        const modelId = node.metadata.config?.modelId || '';
+                        const submode = node.metadata.config?.submode || 'text-to-video';
+                        const route = await resolveRouteMappingForSubmit({ kind: 'product-mode', productModelId: modelId, mode: submode as any }, userApiKeys);
+                        if (route.key.provider !== 'custom') throw new Error('当前 AI 服务暂不支持刷新后恢复视频任务。');
+                        await workflowExecutor.runNode(
+                            { projectId: project.id, nodeId: node.id },
+                            { surface: 'recovery', runId: 'recovery_' + providerTaskId, resumeProviderTaskId: providerTaskId },
+                        );
+                    } catch (error) {
+                        const message = error instanceof Error ? error.message : '视频任务恢复失败，请稍后重试。';
+                        const latest = useWorkflowStore.getState().projects.find(item => item.id === project.id);
+                        if (latest) {
+                            useWorkflowStore.getState().updateProject(project.id, {
+                                nodes: latest.nodes.map(item => item.id === node.id ? { ...item, metadata: { ...item.metadata, status: 'error', error: message, generationMessage: undefined, progress: undefined } } : item),
+                            });
+                        }
+                    }
+                })();
+            });
+    }, [activeWorkflowProjectId, apiKeysLoaded, userApiKeys, workflowExecutor, workflowProjects]);
     const runWorkflowNodeFromUi = useCallback((projectId: string, nodeId: string, promptIntent?: PromptIntent) => {
+        const node = useWorkflowStore.getState().projects.find(item => item.id === projectId)?.nodes.find(item => item.id === nodeId);
+        if (!node) return;
+        const capabilityId = node.metadata.operation?.capabilityId;
+        const capability = capabilityId ? getWorkflowOperationCapability(capabilityId) : undefined;
+        if (requiresExternalGenerationGate(node, capability)) {
+            const details = getGenerationGateDetails(node, capability, userApiKeys);
+            if (!window.confirm(buildGenerationGateSummary(details))) {
+                toast.show('已取消生成。', 'info');
+                return;
+            }
+        }
         void workflowExecutor.runNode({ projectId, nodeId, ...(promptIntent ? { promptIntent } : {}) }, { surface: 'ui' });
-    }, [workflowExecutor]);
+    }, [toast, userApiKeys, workflowExecutor]);
 
     const handleSaveWorkflowMedia = useCallback(async (projectId: string, nodeId: string) => {
         const node = useWorkflowStore.getState().projects.find(item => item.id === projectId)?.nodes.find(item => item.id === nodeId);
@@ -487,6 +540,12 @@ const App: React.FC = () => {
                     setClearKeysOnExit={setClearKeysOnExit}
                     usageSummary={usageSummaryMap}
                 />
+                {apiKeysLoaded && showOnboarding && <OnboardingWizard
+                    isOpen
+                    onClose={closeOnboarding}
+                    onAddApiKey={handleAddApiKey}
+                    resolvedTheme={resolvedTheme}
+                />}
                 {addAssetModal?.open && <AssetAddModal
                     isOpen
                     previewDataUrl={addAssetModal.dataUrl}

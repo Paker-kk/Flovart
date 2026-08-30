@@ -13,7 +13,7 @@
  * Step 3: 完成 — 确认配置成功，可以开始创作
  *
  * 【设计原则】
- * - 小白友好：默认 Google Gemini，只需粘贴一个 Key
+ * - 小白友好：默认 OpenAI 兼容服务，只需填写地址和 Key
  * - 自动推断 capabilities
  * - 验证通过才允许继续
  * - 可随时跳过（点击"稍后再说"）
@@ -37,8 +37,8 @@ interface OnboardingWizardProps {
 
 /** 各步骤标题 */
 const STEPS = [
-    { title: '欢迎使用 Flovart', subtitle: '让我们花 30 秒完成配置' },
-    { title: '粘贴你的 API Key', subtitle: '只需一步，即可开始 AI 创作' },
+    { title: '欢迎使用 Flovart', subtitle: '连接 AI 服务，马上开始创作' },
+    { title: '连接 AI 服务', subtitle: '填写服务地址和 Key，模型会自动发现' },
     { title: '配置完成 🎉', subtitle: '一切就绪，开始创作吧' },
 ] as const;
 
@@ -74,7 +74,7 @@ const PROVIDER_LABELS: Record<string, string> = {
     keling: 'Keling 可灵',
     flux: 'Flux',
     midjourney: 'Midjourney',
-    custom: '自定义 / 第三方',
+    custom: 'OpenAI 兼容',
 };
 
 const CAPABILITY_LABELS: Record<AICapability, string> = {
@@ -97,7 +97,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     resolvedTheme,
 }) => {
     const [step, setStep] = useState(0);
-    const [provider, setProvider] = useState<AIProvider>('google');
+    const [provider, setProvider] = useState<AIProvider>('custom');
     const [apiKey, setApiKey] = useState('');
     const [showKey, setShowKey] = useState(false);
     const [isValidating, setIsValidating] = useState(false);
@@ -110,7 +110,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     const [detectedCapabilities, setDetectedCapabilities] = useState<AICapability[]>([]);
     const [detectedModels, setDetectedModels] = useState<ModelItem[]>([]);
     const [endpointFlavor, setEndpointFlavor] = useState<'google' | 'openai-compatible' | 'openrouter-compatible' | null>(null);
+    const [modelDiscoveryNotice, setModelDiscoveryNotice] = useState<string | null>(null);
     const [showAdvancedCustom, setShowAdvancedCustom] = useState(false);
+
+    const friendlyConnectionError = (message?: string) => {
+        if (/401|403|invalid|unauthorized|forbidden|access denied|无效|权限/i.test(message || '')) return 'API Key 无效或没有访问权限';
+        if (/timeout|timed out|abort|超时/i.test(message || '')) return '连接超时，请检查服务地址后重试';
+        return '无法连接到该 AI 服务，请检查服务地址后重试';
+    };
 
     if (!isOpen) return null;
 
@@ -144,6 +151,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         setDetectedCapabilities([]);
         setDetectedModels([]);
         setEndpointFlavor(null);
+        setModelDiscoveryNotice(null);
     };
 
     const applyDetectedResult = (result: FetchModelsResult) => {
@@ -151,6 +159,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         setDetectedModels(models);
         setDetectedCapabilities(result.capabilitySummary || Array.from(new Set(result.models.map(model => model.capability))));
         setEndpointFlavor(result.endpointFlavor || null);
+        setModelDiscoveryNotice(models.length > 0 ? null : result.error || '未检测到模型列表，可在设置中手动添加模型。');
     };
 
     const detectCustomEndpoint = async (silent = false): Promise<FetchModelsResult | null> => {
@@ -170,12 +179,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             if (result.ok) {
                 applyDetectedResult(result);
             } else if (!silent) {
-                setError(result.error || '自动识别失败，请手动勾选能力');
+                setError(friendlyConnectionError(result.error));
             }
             return result;
         } catch (err) {
             if (!silent) {
-                setError(err instanceof Error ? err.message : '自动识别失败，请手动勾选能力');
+                setError(friendlyConnectionError(err instanceof Error ? err.message : undefined));
             }
             return null;
         } finally {
@@ -200,6 +209,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             const baseUrlForValidation = provider === 'custom' ? customBaseUrl.trim() || undefined : undefined;
             const result = await validateApiKey(provider, apiKey.trim(), baseUrlForValidation);
             if (result.ok) {
+                if (provider === 'custom') {
+                    applyDetectedResult({ ...result, models: result.models || [] });
+                }
                 // 验证通过，保存 Key 并进入完成页
                 const manualModels = provider === 'custom' ? parseModelItems(customModelInput) : [];
                 let caps = provider === 'custom'
@@ -211,22 +223,21 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 let extraConfig: Record<string, string> | undefined;
 
                 if (provider === 'custom') {
-                    const detectionResult = await detectCustomEndpoint(true);
-                    const fetchedModels = detectionResult?.ok
-                        ? detectionResult.models.map(model => ({ id: model.id, name: model.name || model.id, capability: model.capability }))
-                        : detectedModels;
+                    const fetchedModels = result.models?.map(model => ({ id: model.id, name: model.name || model.id, capability: model.capability })) || [];
+                    const detectionResult = result.models ? result : await detectCustomEndpoint(true);
+                    const detectedModelItems = fetchedModels.length > 0 ? fetchedModels : detectedModels;
                     const resolvedEndpointFlavor = detectionResult?.endpointFlavor
                         || endpointFlavor
                         || (/openrouter/i.test(customBaseUrl) ? 'openrouter-compatible' : 'openai-compatible');
 
-                    if (fetchedModels.length > 0) {
-                        modelsToSave = mergeModelItems(fetchedModels, manualModels);
+                    if (detectedModelItems.length > 0) {
+                        modelsToSave = mergeModelItems(detectedModelItems, manualModels);
                         caps = detectionResult?.capabilitySummary && detectionResult.capabilitySummary.length > 0
                             ? detectionResult.capabilitySummary
                             : detectionResult?.ok
                                 ? Array.from(new Set(detectionResult.models.map(model => model.capability)))
                                 : caps;
-                        defaultModel = fetchedModels[0]?.id;
+                        defaultModel = detectedModelItems[0]?.id;
                     } else {
                         modelsToSave = manualModels;
                         defaultModel = modelsToSave[0]?.id;
@@ -246,7 +257,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                     status: 'ok',
                     isDefault: true,
                     ...(provider === 'custom' && {
-                        baseUrl: customBaseUrl.trim(),
+                        baseUrl: result.effectiveBaseUrl || customBaseUrl.trim(),
                         models: modelsToSave,
                         customModels,
                         defaultModel,
@@ -255,10 +266,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 });
                 setStep(2);
             } else {
-                setError(result.message || 'API Key 无效，请检查后重试');
+                setError(friendlyConnectionError(result.message));
             }
         } catch (err) {
-            setError(err instanceof Error ? err.message : '验证时发生错误');
+            setError(friendlyConnectionError(err instanceof Error ? err.message : undefined));
         } finally {
             setIsValidating(false);
         }
@@ -266,7 +277,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
     /** 回车提交 */
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && apiKey.trim() && !isValidating) {
+        if (e.key === 'Enter' && apiKey.trim() && (provider !== 'custom' || customBaseUrl.trim()) && !isValidating) {
             handleValidateAndSave();
         }
     };
@@ -312,7 +323,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                         </p>
                         <p className={`mb-8 text-sm leading-relaxed ${textSecondary}`}>
                                     Flovart 使用 AI 帮你在工作流中生成图片和视频。<br />
-                            你可以直接接入 <strong className={textPrimary}>Google Gemini</strong>，也可以填入你自己的兼容端点，向导会尽量自动识别模型和能力。
+                            默认支持 <strong className={textPrimary}>OpenAI 兼容服务</strong>，填入地址和 Key 后会自动发现可用模型。
                         </p>
 
                         <div className="space-y-3">
@@ -347,10 +358,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                         {/* Provider 选择（默认 Google，可切换） */}
                         <div className="mb-4">
                             <label className={`mb-2 block text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>
-                                AI 服务商
+                                连接方式
                             </label>
                             <div className="flex flex-wrap gap-2">
-                                {(['google', 'openai', 'anthropic', 'deepseek', 'siliconflow', 'runningHub', 'qwen', 'keling', 'flux', 'midjourney', 'custom'] as AIProvider[]).map(p => (
+                                {(['custom', 'google'] as AIProvider[]).map(p => (
                                     <button
                                         key={p}
                                         type="button"
@@ -378,11 +389,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
                         {/* API Key 输入框 */}
                         <div className="mb-4">
-                            <label className={`mb-2 block text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>
+                            <label htmlFor="onboarding-api-key" className={`mb-2 block text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>
                                 API Key
                             </label>
                             <div className="relative">
                                 <input
+                                    id="onboarding-api-key"
                                     value={apiKey}
                                     onChange={(e) => {
                                         setApiKey(e.target.value);
@@ -407,6 +419,27 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
                         {provider === 'custom' && (
                             <div className="mb-4">
+                                <label htmlFor="onboarding-base-url" className={`mb-2 block text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>
+                                    服务地址 <span aria-hidden="true" className="normal-case text-red-400">*</span>
+                                </label>
+                                <input
+                                    id="onboarding-base-url"
+                                    value={customBaseUrl}
+                                    onChange={(e) => {
+                                        setCustomBaseUrl(e.target.value);
+                                        resetCustomDetection();
+                                    }}
+                                    onKeyDown={event => event.stopPropagation()}
+                                    onKeyUp={event => event.stopPropagation()}
+                                    placeholder="https://api.example.com/v1"
+                                    className={inputClass}
+                                />
+                                <p className={`mt-1.5 text-xs ${textSecondary}`}>兼容 OpenAI 接口的服务都可以使用。</p>
+                            </div>
+                        )}
+
+                        {provider === 'custom' && (
+                            <div className="mb-4">
                                 <button
                                     type="button"
                                     onClick={() => setShowAdvancedCustom(prev => !prev)}
@@ -414,7 +447,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                         isDark ? 'border-[#2A3140] bg-[#161A22] text-[#D0D5DD] hover:bg-[#1B2029]' : 'border-[#E4E7EC] bg-[#F8FAFC] text-[#344054] hover:bg-white'
                                     }`}
                                 >
-                                    <span>高级第三方 API 设置</span>
+                                    <span>高级设置</span>
                                     <span className="text-xs opacity-70">{showAdvancedCustom ? '收起' : '展开'}</span>
                                 </button>
                             </div>
@@ -422,22 +455,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
                         {provider === 'custom' && showAdvancedCustom && (
                             <div className={`mb-4 rounded-3xl border p-4 ${isDark ? 'border-[#2A3140] bg-[#10141B]' : 'border-[#E4E7EC] bg-[#FBFCFE]'}`}>
-                                <div className="mb-4">
-                                    <label className={`mb-2 block text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>
-                                        Base URL <span className="normal-case text-red-400">*</span>
-                                    </label>
-                                    <input
-                                        value={customBaseUrl}
-                                        onChange={(e) => {
-                                            setCustomBaseUrl(e.target.value);
-                                            resetCustomDetection();
-                                        }}
-                                        onKeyDown={event => event.stopPropagation()}
-                                        onKeyUp={event => event.stopPropagation()}
-                                        placeholder="https://api.example.com/v1"
-                                        className={inputClass}
-                                    />
-                                </div>
                                 <div className="mb-4">
                                     <label className={`mb-2 block text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>
                                         支持的能力
@@ -540,8 +557,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                             {provider === 'qwen' && '💡 支持通义千问模型的提示词润色功能。'}
                             {provider === 'custom' && (
                                 <>
-                                    💡 优先支持 <strong className={textPrimary}>OpenAI 兼容 / OpenRouter 风格</strong> 的第三方 API。<br />
-                                    填入 Base URL（如 <code className="text-blue-500">https://api.xxx.com/v1</code>）和 API Key 后，可先点一次“自动识别模型与能力”。
+                                    💡 优先支持 <strong className={textPrimary}>OpenAI 兼容 / OpenRouter 风格</strong> 的 AI 服务。<br />
+                                    填入服务地址和 API Key 后，会在连接时自动识别模型与能力。
                                     <br />
                                     <span className="mt-1 inline-block">适用于 Ollama / vLLM / LiteLLM / OneAPI / New API / 各类中转站等，但不同中转站对图片编辑和视频能力支持并不完全一致。</span>
                                 </>
@@ -591,11 +608,19 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                 <span className={`text-sm font-medium ${textPrimary}`}>{PROVIDER_LABELS[provider] || provider}</span>
                             </div>
                             <div className={`mt-2 text-xs ${textSecondary}`}>
-                                可用功能：{(provider === 'custom' ? customCaps : PROVIDER_CAPABILITIES[provider]).map(c =>
+                                可用功能：{(provider === 'custom'
+                                    ? (detectedCapabilities.length > 0 ? detectedCapabilities : customCaps)
+                                    : PROVIDER_CAPABILITIES[provider]).map(c =>
                                     c === 'text' ? 'LLM润色' : c === 'image' ? '图片生成' : c === 'video' ? '视频生成' : 'Agent'
                                 ).join('、')}
                             </div>
                         </div>
+
+                        {provider === 'custom' && modelDiscoveryNotice && (
+                            <div className={`mb-6 rounded-2xl border px-4 py-3 text-left text-xs leading-relaxed ${isDark ? 'border-[#2A3140] bg-[#161A22] text-[#98A2B3]' : 'border-[#E4E7EC] bg-[#F8FAFC] text-[#667085]'}`}>
+                                {modelDiscoveryNotice}
+                            </div>
+                        )}
 
                         <div className={`mb-6 rounded-2xl p-4 text-left text-xs leading-relaxed ${isDark ? 'bg-[#161A22] text-[#98A2B3]' : 'bg-[#F8FAFC] text-[#667085]'}`}>
                             <div className="mb-2 font-semibold">💡 快速上手</div>
@@ -624,7 +649,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                             <button
                                 type="button"
                                 onClick={handleValidateAndSave}
-                                disabled={!apiKey.trim() || isValidating}
+                                disabled={!apiKey.trim() || (provider === 'custom' && !customBaseUrl.trim()) || isValidating}
                                 className={`${primaryBtn} flex-1 disabled:cursor-not-allowed disabled:opacity-50`}
                             >
                                 {isValidating ? (
@@ -635,7 +660,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                         </svg>
                                         验证中...
                                     </span>
-                                ) : '验证并保存 →'}
+                                ) : '连接'}
                             </button>
                         </div>
                     </div>
