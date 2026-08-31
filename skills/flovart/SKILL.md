@@ -79,7 +79,9 @@ If setup is incomplete:
 npx flovart-cli provider.begin-setup --purpose both --json
 ```
 
-Ask the user to enter credentials in the local Runtime/WebUI. Never request a key in chat.
+`provider.begin-setup` is a legacy-compatible bridge; prefer the local Settings
+page for normal setup. Ask the user to enter credentials there. Never request a
+key in chat.
 
 ## Install
 

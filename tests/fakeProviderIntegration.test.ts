@@ -175,9 +175,9 @@ describe('fake provider real HTTP integration', () => {
   });
 
   it.each([
-    ['rate_limit', 'rate limit'],
-    ['provider_error', 'provider error'],
-    ['malformed_response', '非 JSON'],
+    ['rate_limit', 'AI 服务当前限流，请稍后重试。'],
+    ['provider_error', 'AI 服务暂时不可用，任务已失败，可稍后重试。'],
+    ['malformed_response', 'AI 服务返回了无法识别的结果，任务已失败，可重试或检查服务配置。'],
   ] as const)('surfaces %s without a successful artifact', async (mode, expected) => {
     const { server, origin } = await startFakeProvider({ mode });
     const result = await executeUnifiedIgnition({
@@ -191,7 +191,7 @@ describe('fake provider real HTTP integration', () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(JSON.stringify(result)).toContain(expected);
+    expect(result).toMatchObject({ ok: false, errorMessage: expected });
     expect(server.getState().requests.some(request => request.path === '/v1/images/generations')).toBe(true);
   });
 
@@ -224,7 +224,7 @@ describe('fake provider real HTTP integration', () => {
       apiKeyPayload: fakeKey(origin),
     });
 
-    expect(result).toMatchObject({ ok: false });
+    expect(result).toMatchObject({ ok: false, errorMessage: 'API Key 无效或没有访问权限，请在 AI 服务设置中检查。' });
     expect(JSON.stringify(result)).not.toContain('fake-secret');
     expect(JSON.stringify(server.getState())).not.toContain('fake-secret');
   });

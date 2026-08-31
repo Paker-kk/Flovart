@@ -17,7 +17,7 @@ The Vite dev server uses port `37522`. Provider-backed commands require the brow
 Flovart exposes no MCP server to coding agents; the CLI is the only agent-facing interface. Use `init` to install the Flovart SKILL as a coding-agent attachment (`.agents/skills/flovart/SKILL.md`):
 
 ```bash
-npm run flovart:cli -- init --json
+npm run flovart:cli -- init --target project-skill --json
 ```
 
 The current init contract is reported by:
@@ -26,15 +26,18 @@ The current init contract is reported by:
 npm run flovart:cli -- command.schema --command init --json
 ```
 
-## Doctor
+## Doctor（兼容诊断）
 
-Run doctor before debugging a setup problem.
+`doctor` is a legacy-compatible diagnostic command. Prefer `status`, `host.list`,
+and the visible Flovart Settings page for a normal setup; use doctor only when
+investigating an older installation.
 
 ```bash
 npm run flovart:cli -- doctor --json
 ```
 
-Doctor must not expose secrets. If provider keys are missing, use browser setup:
+Doctor must not expose secrets. If provider keys are missing, use the browser
+Settings page. The following command remains a compatibility bridge:
 
 ```bash
 npm run flovart:cli -- provider.begin-setup --purpose both --json

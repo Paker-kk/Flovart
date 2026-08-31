@@ -105,7 +105,7 @@ Flovart will define the minimum integration contract for Production Skills and p
 
 [VOX Skill](https://github.com/avabbbb/vox-director) is the first stylized Production Skill reference; its upstream repository and technical invocation handle remain `vox-director`. The goal is to combine an external director harness, Flovart's Production Crew, Production Skills, and the user's providers into a reusable end-to-end film workflow.
 
-> Codex, DeepSeek Harness, Claude Code (CC), OpenCode, and Pi are all in the official external-director support scope. Their model tools share the same Operation Skill + local CLI baseline, and Flovart exposes no MCP server. Codex and DeepSeek Harness receive deep session/event work first; DeepSeek additionally targets a dedicated Profile with a Host/Client Plugin that contributes a fixed Flovart Dock, central production workspace, lightweight overlays, single-director Agent Bridge, and standalone-window fallback inside the Harness shell. Architecture migration, plugin integration, and real five-host acceptance remain in progress.
+> The currently verified external-director paths are Codex CLI/Browser plus Claude Code and OpenCode CLI tracers; they share the same Operation Skill + local CLI baseline, and Flovart exposes no MCP server. DeepSeek Harness remains an explicit Plugin/Profile projection, while CodeBuddy Code and Pi are compatible targets through the stable Skill + CLI contract. WorkBuddy is a mainstream office AI workspace, not CodeBuddy Code, and is outside the current Director Binding. Logged-in, plugin-lifecycle, and release-state acceptance remain in progress.
 
 ## Current capabilities and boundaries
 
@@ -117,7 +117,7 @@ Flovart will define the minimum integration contract for Production Skills and p
 | Agent spatial task workspace | Older built-in-main-agent UI integrated; migration to the crew control surface is in progress |
 | Multi-provider BYOK, text-to-image, image-to-image, and text-to-video | Foundation available |
 | Workflow CLI, command schemas, and JSON status | Converging |
-| Codex / DeepSeek Harness / Claude Code / OpenCode / Pi | All five are in scope; Operation Skill + CLI is the common model-tool baseline, Codex/DeepSeek deep integration comes first, and the DeepSeek Flovart Dock plugin still requires real-host acceptance |
+| Codex / DeepSeek Harness / Claude Code / OpenCode / Pi | Codex CLI/Browser and Claude Code/OpenCode CLI tracers are verified; DSH is an explicit Plugin projection; CodeBuddy Code/Pi remain compatibility targets pending logged-in and release-state acceptance |
 | Production Skill contract and UGC ecosystem | In design and implementation |
 | TUI `/xxxx` shortcuts, job subscriptions, and resumable runs | Planned |
 

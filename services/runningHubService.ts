@@ -479,30 +479,8 @@ function runningHubDebugContext(baseUrl: string, modelEndpoint?: string, payload
   };
 }
 
-function formatRunningHubDebug(context: RHDebugContext) {
-  return `\n[RunningHub Debug] ${JSON.stringify({
-    baseUrl: context.baseUrl,
-    modelEndpoint: context.modelEndpoint,
-    submitUrl: context.submitUrl,
-    taskId: context.taskId,
-    payload: summarizePayload(context.payload),
-    response: summarizeResponse(context.response),
-  }, null, 2)}`;
-}
-
-function withRunningHubDebug(message: string, context: RHDebugContext) {
-  const debug = formatRunningHubDebug(context);
-  if (typeof console !== 'undefined') {
-    console.error('[RunningHub Debug]', {
-      baseUrl: context.baseUrl,
-      modelEndpoint: context.modelEndpoint,
-      submitUrl: context.submitUrl,
-      taskId: context.taskId,
-      payload: summarizePayload(context.payload),
-      response: summarizeResponse(context.response),
-    });
-  }
-  return `${message}${debug}`;
+function withRunningHubDebug(message: string, _context: RHDebugContext) {
+  return message;
 }
 
 export function normalizeRunningHubModelEndpoint(modelEndpoint?: string) {
@@ -608,30 +586,20 @@ export async function rhSubmitTask(
   assertNotAborted(options.signal);
   const debugContext = runningHubDebugContext(options.baseUrl || RH_BASE, modelEndpoint, payload);
   const url = rhTaskUrl(options.baseUrl || RH_BASE, modelEndpoint);
-  const startedAt = Date.now();
-
-  console.log('[RH Debug] rhSubmitTask fetch start', { url, payloadKeys: Object.keys(payload || {}), payloadSize: JSON.stringify(payload).length });
   const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: rhHeaders(apiKey),
     body: JSON.stringify(payload),
   }, 60_000, options.signal);
-  const durationMs = Date.now() - startedAt;
-  console.log('[RH Debug] rhSubmitTask response raw', { status: res.status, ok: res.ok, durationMs, contentType: res.headers.get('content-length'), ct: res.headers.get('content-type') });
-
   if (!res.ok) {
     const text = await res.text();
-    console.error('[RH Debug] rhSubmitTask !res.ok', { status: res.status, durationMs, body: truncateDebugText(text, 200) });
     throw new Error(withRunningHubDebug(`RunningHub submit failed (${res.status}): ${text}`, debugContext));
   }
   const json = await res.json();
-  console.log('[RH Debug] rhSubmitTask json', truncateDebugText(JSON.stringify(json), 200));
   const error = rhResponseError(json, 'RunningHub submit');
   if (error) {
-    console.error('[RH Debug] rhSubmitTask flagged error', { rhErr: error, response: truncateDebugText(JSON.stringify(json), 200) });
     throw new Error(withRunningHubDebug(error, { ...debugContext, response: json }));
   }
-  console.log('[RH Debug] rhSubmitTask OK', { taskId: json?.taskId, status: json?.status, durationMs });
   return json;
 }
 
@@ -642,24 +610,19 @@ export async function rhQueryTask(
   options: Pick<RHRunOptions, 'baseUrl' | 'signal'> = {},
 ): Promise<RHTaskResponse> {
   assertNotAborted(options.signal);
-  const startedAt = Date.now();
   const res = await fetchWithTimeout(`${rhBase(options.baseUrl)}/query`, {
     method: 'POST',
     headers: rhHeaders(apiKey),
     body: JSON.stringify({ taskId }),
   }, RH_FETCH_TIMEOUT_MS, options.signal);
-  const durationMs = Date.now() - startedAt;
-
   if (!res.ok) {
     const text = await res.text();
-    console.error('[RH Debug] rhQueryTask !res.ok', { status: res.status, taskId, durationMs, body: truncateDebugText(text, 200) });
     throw new Error(withRunningHubDebug(`RunningHub query failed (${res.status}): ${text}`, {
       baseUrl: rhBase(options.baseUrl),
       taskId,
     }));
   }
   const json = await res.json();
-  console.log('[RH Debug] rhQueryTask result', { taskId, status: json?.status, durationMs, hasResults: !!json?.results, resultsCount: json?.results?.length });
   const error = rhResponseError(json, 'RunningHub query');
   if (error) throw new Error(withRunningHubDebug(error, {
     baseUrl: rhBase(options.baseUrl),
@@ -692,8 +655,7 @@ export async function rhCancelTask(
       body: JSON.stringify({ apiKey, taskId }),
     }, 15_000);
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      console.warn('[RunningHub] cancel request failed', { status: res.status, taskId, body: text });
+      console.warn('[RunningHub] cancel request failed', { status: res.status, taskId });
       return;
     }
     const json = await res.json();
@@ -701,8 +663,8 @@ export async function rhCancelTask(
     if (code && code !== '0') {
       console.warn('[RunningHub] cancel returned non-success', { code, msg: json?.msg, taskId });
     }
-  } catch (err) {
-    console.warn('[RunningHub] cancel request threw', { taskId, error: err });
+  } catch {
+    console.warn('[RunningHub] cancel request failed', { taskId });
   }
 }
 
@@ -717,18 +679,12 @@ export async function rhUploadFile(
   const formData = new FormData();
   formData.append('file', file, fileName || 'upload.png');
   const uploadUrl = `${rhBase(options.baseUrl)}/media/upload/binary`;
-  const startedAt = Date.now();
-  console.log('[RH Debug] rhUploadFile fetch start', { url: uploadUrl, hasKey: !!apiKey, blobSize: file.size, blobType: file.type, fileName: fileName || 'upload.png' });
-
   const res = await fetch(uploadUrl, {
     signal: options.signal,
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}` },
     body: formData,
   });
-  const durationMs = Date.now() - startedAt;
-  console.log('[RH Debug] rhUploadFile response', { status: res.status, ok: res.ok, durationMs, contentType: res.headers.get('content-length'), ct: res.headers.get('content-type') });
-
   if (!res.ok) {
     const text = await res.text();
     throw new Error(withRunningHubDebug(`RunningHub upload failed (${res.status}): ${text}`, {
@@ -738,7 +694,6 @@ export async function rhUploadFile(
   }
 
   const json = await res.json();
-  console.log('[RH Debug] rhUploadFile json', truncateDebugText(JSON.stringify(json), 200));
   const error = rhResponseError(json, 'RunningHub upload');
   if (error) throw new Error(withRunningHubDebug(error, {
     baseUrl: rhBase(options.baseUrl),
@@ -832,7 +787,7 @@ export async function rhRunTask(
       }
       // Query timeout: log and continue polling (server task may still be running fine).
       if (err instanceof DOMException && err.name === 'TimeoutError') {
-        console.warn('[RH Debug] rhQueryTask timeout, retrying next poll', { taskId, attempt: i + 1 });
+        console.warn('[RunningHub] task status query timed out; retrying', { attempt: i + 1 });
         options.onProgress?.('RUNNING', i + 1);
         continue;
       }

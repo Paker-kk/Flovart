@@ -1233,12 +1233,8 @@ async function prepareRunningHubReferences(
     references: VideoImage[] = [],
     options?: { baseUrl?: string; signal?: AbortSignal },
 ): Promise<VideoImage[]> {
-    if (references.length === 0) {
-        console.log('[RH Debug] prepareRunningHubReferences: 0 refs, skip');
-        return [];
-    }
+    if (references.length === 0) return [];
     const needsUpload = references.some(ref => ref.href.startsWith('data:') || ref.href.startsWith('blob:'));
-    console.log('[RH Debug] prepareRunningHubReferences', { count: references.length, needsUpload, hrefs: references.map(r => r.href.slice(0, 40)) });
     const uploadModule = needsUpload ? await import('./runningHubService') : null;
     return Promise.all(references.map(async ref => {
         if (/^https?:\/\//i.test(ref.href)) return ref;
@@ -2500,7 +2496,6 @@ export async function generateImageWithProvider(
             baseUrl,
             signal: options?.signal,
         });
-        console.log('[RH Debug] rhRunTask image done', { status: result.status, resultsCount: result.results?.length, results: result.results?.map(r => ({ url: r.url?.slice(0, 60), outputType: r.outputType })) });
         const imageUrl = extractRunningHubMediaUrl(result, 'image');
         if (!imageUrl) {
             return {
@@ -3041,15 +3036,12 @@ export async function pollSeedanceVideoTask(
 
 export async function downloadSeedanceVideoResult(videoUrl: string, options?: { signal?: AbortSignal }): Promise<{ videoBlob: Blob; mimeType: string }> {
     throwIfAborted(options?.signal);
-    console.log('[RH Debug] downloadSeedanceVideoResult start', { url: videoUrl.slice(0, 80) });
     const response = await fetch(videoUrl, { signal: options?.signal });
     if (!response.ok) {
-        console.error('[RH Debug] downloadSeedanceVideoResult !ok', { status: response.status, statusText: response.statusText });
         throw new Error(`视频下载失败: ${response.statusText}`);
     }
     const blob = await response.blob();
     const mimeType = response.headers.get('Content-Type') || 'video/mp4';
-    console.log('[RH Debug] downloadSeedanceVideoResult done', { size: blob.size, mimeType });
     return { videoBlob: blob, mimeType };
 }
 
@@ -3343,7 +3335,6 @@ export async function generateVideoWithProvider(
             signal: options?.signal,
             onProgress: (status, attempt) => onProgress(`RunningHub ${status} (${attempt})`),
         });
-        console.log('[RH Debug] rhRunTask video done', { status: result.status, resultsCount: result.results?.length, results: result.results?.map(r => ({ url: r.url?.slice(0, 60), outputType: r.outputType })) });
         const videoUrl = extractRunningHubMediaUrl(result, 'video');
         if (!videoUrl) {
             throw new Error(result.results?.map(item => item.text).filter(Boolean).join('\n') || 'RunningHub 视频任务完成但未返回视频 URL。');
@@ -3736,7 +3727,7 @@ export async function executeUnifiedIgnition(input: UnifiedIgnitionInput): Promi
         }, { provider: input.apiKeyPayload?.provider, routeId: input.modelId });
         if (input.generationCapability) {
             if (input.generationSubmode && params.mode !== input.generationSubmode) {
-                throw new UnsupportedGenerationInputError(`Provider 线路未实现「${input.generationSubmode}」，不能自动改成「${params.mode || '未知模式'}」。`);
+                throw new UnsupportedGenerationInputError(`当前 AI 服务未实现「${input.generationSubmode}」，不能自动改成「${params.mode || '未知模式'}」。`);
             }
             const providerContext = {
                 provider: resolveGenerationProvider(input.modelId, input.apiKeyPayload),
@@ -3753,7 +3744,7 @@ export async function executeUnifiedIgnition(input: UnifiedIgnitionInput): Promi
                         .map(reference => ({ type: reference.type, slotRole: reference.slotRole })),
                 }, providerContext);
             if (!providerValidation.ok) {
-                throw new UnsupportedGenerationInputError(providerValidation.errors[0]?.message || '当前 Provider 线路不支持该生成输入。');
+                throw new UnsupportedGenerationInputError(providerValidation.errors[0]?.message || '当前 AI 服务不支持该生成输入。');
             }
         }
         if (capability === 'video') {
@@ -3766,7 +3757,7 @@ export async function executeUnifiedIgnition(input: UnifiedIgnitionInput): Promi
         const effectivePrompt = buildPromptWithReferenceBindings(prompt, input.references);
         if (userScriptProvider) {
             if (!input.canonicalInput || !input.materializedReferences) {
-                throw new UnsupportedGenerationInputError('User Provider 必须通过 CanonicalGenerationInput 进入 Workflow 生成链。');
+                throw new UnsupportedGenerationInputError('自定义 AI 服务必须通过 Flovart 的统一生成输入进入 Workflow。');
             }
             const scriptResult = await executeUserScriptProvider(
                 userScriptProvider,
@@ -3786,7 +3777,7 @@ export async function executeUnifiedIgnition(input: UnifiedIgnitionInput): Promi
             );
             if (capability === 'video') {
                 const mediaUrl = scriptResult.result.mediaUrl;
-                if (!mediaUrl) throw new Error(scriptResult.result.text || 'User Provider 未返回视频结果。');
+                if (!mediaUrl) throw new Error(scriptResult.result.text || '自定义 AI 服务未返回视频结果。');
                 let videoBlob: Blob;
                 let mimeType = scriptResult.result.mimeType || 'video/mp4';
                 if (mediaUrl.startsWith('data:')) {
@@ -3795,7 +3786,7 @@ export async function executeUnifiedIgnition(input: UnifiedIgnitionInput): Promi
                     mimeType = parsed.mimeType;
                 } else {
                     const response = await fetch(mediaUrl, { signal: input.signal });
-                    if (!response.ok) throw new Error(`User Provider 视频结果下载失败 (${response.status})`);
+                    if (!response.ok) throw new Error(`自定义 AI 服务的视频结果下载失败 (${response.status})`);
                     videoBlob = await response.blob();
                     mimeType = videoBlob.type || mimeType;
                 }
@@ -3803,7 +3794,7 @@ export async function executeUnifiedIgnition(input: UnifiedIgnitionInput): Promi
             }
             const imageResult = scriptResult.result.mediaUrl;
             if (!imageResult) {
-                return { ok: false, elementId: input.elementId, capability, errorMessage: scriptResult.result.text || 'User Provider 未返回图片结果。' };
+                return { ok: false, elementId: input.elementId, capability, errorMessage: scriptResult.result.text || '自定义 AI 服务未返回图片结果。' };
             }
             const image = imageResult.startsWith('data:')
                 ? decodeDataUrlImage(imageResult)
@@ -3861,15 +3852,42 @@ export async function executeUnifiedIgnition(input: UnifiedIgnitionInput): Promi
     } catch (error) {
         const reason = input.signal?.aborted ? input.signal.reason : error;
         const aborted = input.signal?.aborted || (error instanceof Error && error.name === 'AbortError');
+        const message = error instanceof Error ? error.message : '多模态点火失败。';
         return {
             ok: false,
             elementId: input.elementId,
             capability,
             errorMessage: aborted
                 ? (reason instanceof Error && reason.name === 'TimeoutError' ? reason.message : '生成已停止，可重新发起。')
-                : error instanceof Error ? error.message : '多模态点火失败。',
+                : productGenerationErrorMessage(message),
         };
     }
+}
+
+export function productGenerationErrorMessage(message: string): string {
+    if (/视频生成超时|连接超时|AI 服务响应超时/.test(message)) return message;
+    if (/\b401\b|unauthori[sz]ed|invalid api key|invalid key|authentication failed/i.test(message)) {
+        return 'API Key 无效或没有访问权限，请在 AI 服务设置中检查。';
+    }
+    if (/\b403\b|forbidden|permission denied/i.test(message)) {
+        return '当前 API Key 没有执行此任务的权限，请检查 AI 服务设置。';
+    }
+    if (/\b429\b|rate[ _-]?limit|too many requests|quota exceeded/i.test(message)) {
+        return 'AI 服务当前限流，请稍后重试。';
+    }
+    if (/\b(?:500|502|503|504)\b|provider error|service unavailable|bad gateway|internal server error/i.test(message)) {
+        return 'AI 服务暂时不可用，任务已失败，可稍后重试。';
+    }
+    if (/非 JSON|malformed response|invalid json/i.test(message)) {
+        return 'AI 服务返回了无法识别的结果，任务已失败，可重试或检查服务配置。';
+    }
+    if (/\b400\b|bad request|invalid request/i.test(message)) {
+        return '当前 AI 服务不接受这组生成参数，请检查模型和参考素材。';
+    }
+    if (/failed to fetch|networkerror|fetch failed|network request failed/i.test(message)) {
+        return '无法连接到该 AI 服务，请检查服务地址后重试。';
+    }
+    return message.replace(/Provider 线路/g, '当前 AI 服务');
 }
 
 export interface ImageToolInput {

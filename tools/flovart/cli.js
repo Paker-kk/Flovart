@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { COMMAND_REGISTRY, executeFlovartCommand, formatValue, normalizeCommandName, parseCliArgs, SETUP_TEXT } from './core.js';
+import { COMMAND_REGISTRY, executeFlovartCommand, formatValue, HELP_TEXT, normalizeCommandName, parseCliArgs, SETUP_TEXT } from './core.js';
 import { getCanonicalRegistry } from './registry.js';
 import { resolveDirectorBinding } from './host-registry.js';
 import { createShadowRuntimeFacade } from './shadow-runtime.js';
@@ -95,6 +95,11 @@ function directorAgentIdentity(parsed, { optional = false } = {}) {
 }
 
 const rawCommand = argv[0];
+
+if (rawCommand === '--help' || rawCommand === '-h') {
+  console.log(HELP_TEXT);
+  process.exit(0);
+}
 
 if (rawCommand === 'tui' || rawCommand === 'ui' || rawCommand === 'interactive' || (!rawCommand && process.stdin.isTTY)) {
   const mod = await import('./tui.js');

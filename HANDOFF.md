@@ -371,3 +371,126 @@ U1 — Local Fake Provider Harness（首个可测试纵切已开始）
 ## Next action
 
 先用现有 fake Provider recorder 写一个失败测试：外部 `workflow.node.run` 携带 `confirmed:true` 时必须仍然是 `CONFIRMATION_REQUIRED` 且 Provider submit count 为 0。若复现绕过，改为执行边界签发、作用域绑定、单次消费的 approval receipt；随后对 timeout/retry/double-click/refresh/restart 跑同一 recorder 幂等矩阵。完成后再收敛 Skill/CLI/docs truth source。
+
+# First Run → First Safe Generation — U9 latest status
+
+## Current phase
+
+U9 — Final Autonomous Acceptance（本机自动验收完成；真实 Provider/Codex/DSH 登录仍为外部确认项）
+
+## Product decisions
+
+- 没有 AI 服务时仍进入可编辑 Canvas；生成时才要求添加 AI 服务。
+- OpenAI-compatible 首次配置默认只要求服务地址与 API Key，成功后自动发现模型；列表不可用时允许手动模型。
+- Graph、PromptBar、`@` 和素材库共用 Canonical Generation Input；I2I/I2V 不再静默退化为无引用模式。
+- 外部生成必须通过人工 Execution Gate。调用方 JSON 中的 `confirmed: true` 不是授权，只有真实确认后由内部执行边界附加 capability。
+- 视频 Provider task ID 在轮询前先写入 Workflow 持久状态；刷新只恢复原 task，重试沿用同一幂等身份。
+
+## Changed files
+
+- 首启与配置：`App.tsx`、`components/OnboardingWizard.tsx`、`components/home/ProductionSkillShelf.tsx`、`hooks/useApiKeys.ts`、`services/aiGateway.ts`、`services/productModelCatalog.ts`。
+- 生成与恢复：`services/workflowGeneration.ts`、`services/providerGenerationAdapter.ts`、`services/workflowDispatcher.ts`、`services/browserAgentKernel.ts`、`services/workflowAgentBridge.ts`、`components/workflow/store.ts`。
+- 安全与 CLI：`services/runningHubService.ts`、`skills/flovart/scripts/import-from-libtv.js`、`skills/flovart/scripts/import-from-runninghub.js`、`tools/flovart/cli.js`。
+- 回归与文档：First Safe Generation / Fake Provider、Store、Dispatcher、Provider、Skill/UI 测试；`docs/adr/0068-first-safe-generation-boundaries.md`、pending-test、todo、README、CHANGELOG。
+
+## Verification
+
+- `npx vitest run --no-file-parallelism --maxWorkers=1 --reporter=dot`：143 个测试文件通过，998 passed，1 skipped（999 tests），退出码 0。
+- CLI help 修复后的定向回归：`tests/flovartAgentKit.test.js` 7/7 通过；`node tools/flovart/cli.js --help` 返回正常 Commands 文本，不再产生 `CLI_FATAL`。
+- `npx tsc --noEmit`：通过。
+- `npm run build`：通过（Vite 4303 modules；仅保留已有动态导入和大 chunk warning）。
+- `npm run ext:build`：通过，生成 `dist-extension`。
+- `npm --prefix dsh-plugin run build`：通过，loader contract verified。
+- `Set-Location src-tauri; cargo test --all-targets`：通过，Rust 测试共 36 个通过。
+- `git diff --check`：通过；仅报告脚本文件的 CRLF/LF 转换提示。
+- 可见 Chromium + 真实 localhost Fake Provider：首启 Canvas/AI 服务配置通过；首次安全图片生成的拒绝 Gate 为 0 次提交，429 显示可重试中文错误，确认后成功；重复相同幂等请求 `replayedRequests=0`。
+- 可见 Chromium 引用闭环：I2I 使用 `/v1/images/edits` 且 2 个引用到达 multipart；I2V 使用 `/v2/videos/generations` 且 1 个 `first_frame` 引用到达请求；Graph + `@` 重复引用去重；结果出现在画布。
+- 可见 Chromium 刷新恢复：视频只提交 1 次、轮询 3 次、内容下载 1 次；刷新后继续原 `fake-video-1`，结果成功回画布。
+- 可见 Chromium BYOK 失败：401、缺少 `/models`、错误地址、连接超时均显示可行动产品文案，无技术词泄露。
+- 可见 Chromium 手动路径：新建 Workflow、添加文本节点、编辑、Undo/Redo、切换 Table、进入 Agent 工作区均通过；页面/控制台错误为空。旧 smoke 中的重复按钮和已删除 `.workflow-agent__status` 选择器已仅在临时测试脚本中修正，没有改产品语义。
+- 浏览器证据：`C:\tmp\flovart-first-run-connected-20260830.png`、`C:\tmp\flovart-first-safe-generation-20260830.png`、`C:\tmp\flovart-prompt-reference-e2e-20260830.png`、`C:\tmp\flovart-video-refresh-recovery-20260830.png`、`C:\tmp\flovart-byok-unauthorized-20260830.png`、`C:\tmp\flovart-qa-core-agent.png`。
+
+## Security review
+
+- Fake Provider recorder 对 Authorization 只保存 `[redacted]`；运行日志不再输出 RunningHub 原始 URL/响应/错误对象。
+- API Key 只在现有本地加密 Vault / 运行时最终 header 边界读取；不进入 PromptBar、Agent tool result、Workflow 节点、User Script mapping、诊断导出或 recorder。
+- 普通产品界面已将本轮触达的 Provider/Adapter/Credential/Canonical 等实现词收敛到 AI 服务、模型、参考素材和生成；`Bridge` 仅保留 `#/dock` 开发者诊断面。
+- 未发现 Browser → Native 的静默 fallback；无 Browser binding 的 Browser/Agent 操作仍显式失败，Native 仅在显式 workspace mode 使用。
+
+## Remaining risks / exact next step
+
+1. 真实 Provider credential、实际价格/账单、远端取消和视觉质量尚未验证；本轮只使用 fake HTTP，不应写成真实供应商通过。
+2. Codex CLI 登录态新对话、DSH 登录态页面恢复/升级回滚/Authority transfer 仍需外部环境确认；不阻塞本轮 fake-provider DoD。
+3. 发布总门禁仍需完成 docs-contract、发行包签名、NSIS clean install/upgrade、SBOM/attestation 及更广泛性能/可访问性/soak 验收。
+
+# Release Candidate Hardening — latest status
+
+## Current phase
+
+`RC4 — Persistence Soak`（RC0–RC3 已完成本地证据，继续执行可靠性与发布门禁）
+
+## Architecture decisions
+
+- RC0 只清理了可确认属于自动化验收的 Vite、Playwright、临时 Edge 和 orphan Agent 进程；Codex/Playwright MCP 浏览器没有停止。
+- 标准发布测试命令以 `npm test` 为准；单 worker 模式曾出现一次 `workflowImageTools` 15 秒超时，但该用例单文件及 20 次重复通过，不能把诊断模式异常写成业务通过。
+- 文档中的 `command.list` / `command.schema` 只作为 bootstrap、兼容诊断和 debug 注册表；正常 Agent 面保持五个稳定命令。
+- Workflow persistence 现在有版本 `1`、迁移前 backup key、旧项目字段归一化、未知插件节点保留和坏连线隔离；迁移异常发生在源数据替换前。
+- 本地 NSIS 构建使用 `tauri.local.conf.json` 关闭 updater artifact 生成，不读取或使用生产 updater 私钥；生产签名仍是 RC13/外部门禁。
+
+## Changed files
+
+- `RC_BASELINE.md`：环境、进程/端口清理和质量门基线。
+- `RC_INSTALLER_EVIDENCE.md`：当前工作树 NSIS 构建、哈希、隔离安装/启动/卸载证据。
+- `scripts/check-docs-contract.mjs`、`tests/docsContract.test.js`、`package.json`：发布文档/CLI contract 自动检查。
+- `.agents/skills/flovart/SKILL.md`、`tools/flovart/skill/SKILL.md` 与公开快速开始/架构/兼容命令文档：投影和发布词汇同步。
+- `components/workflow/migrations.ts`、`components/workflow/store.ts`、`tests/workflowMigration.test.ts`、`tests/workflowStore.test.ts`：持久化版本迁移、备份和测试 fixture。
+- `dsh-plugin/cordis.patch.yml`、`dsh-plugin/src/tools.ts`：明确 DSH 只派生五个稳定模型工具，不把 registry discovery 当模型 surface。
+
+## Verification
+
+- `npm test -- --reporter=dot`：143 个测试文件通过，998 passed、1 skipped（999 total），66.03s。
+- `npm run docs:check` 与 `tests/docsContract.test.js`：通过，18 份文档/Skill 文件检查。
+- `npx tsc --noEmit`：通过。
+- `npm run build`：通过，4303 modules transformed；保留既有动态导入/大 chunk warning。
+- `npm run ext:build`：通过。
+- `npm --prefix dsh-plugin run build`：通过。
+- `cargo test --all-targets`：36 tests passed。
+- NSIS：重新构建、隔离静默安装、桌面进程启动、关闭、卸载均 exit 0，临时目录已清理。
+- Migration：旧 schema A/B、未知插件节点、坏连线、迁移异常前 backup、backup 写失败与真实 store rehydrate 均通过。
+
+## Unresolved risks / exact next step
+
+1. 还没有 RC4 30/30 restart/refresh persistence soak 的正式报告，也没有 100/300/500 节点 Canvas 真实 Chromium 证据。
+2. Tauri release updater 尚未使用隔离 test key 完成 N→N+1、坏签名和中断更新验证；生产私钥/发布仍不得伪造通过。
+3. 下一步建立确定性 persistence hash soak，再进入 Canvas stress、资源泄漏与性能基线；所有循环保留失败轮次和最终 hash。
+
+# Release Candidate Hardening — RC5/RC7 update
+
+## Current phase
+
+`RC6/RC8 — Resource and accessibility audit`（RC5 Canvas stress 与 RC7 性能基线已完成，继续审计资源回收、键盘入口和安全边界）
+
+## Architecture decisions
+
+- Canvas 压测使用隔离 Chromium IndexedDB fixture 直接装载确定性 100/300/500 节点图；测量从真实页面 reload 到所有节点渲染完成，不把人工创建 500 节点的准备时间混入结果。
+- 真实 UI 交互仍通过 Canvas 的可见 DOM/指针/键盘处理器完成；图片节点作为无编辑控件夹具验证选择、拖动、连线、删除、Undo/Redo、平移和缩放。
+- 文本节点正文 textarea 拦截指针是编辑语义，不把它误判成 Canvas 渲染失败；该交互入口保留到 RC8/RC18 产品复核。
+- 100 次 undo/redo 的语义 hash 排除单调递增的 objectVersion，保留 revision/版本递增不回退的并发安全约束。
+
+## Changed files
+
+- `RC_CANVAS_STRESS_EVIDENCE.md`：真实 Chromium 100/300/500 节点和 20 次 reload 证据。
+- `tests/releaseCandidateCanvasStress.test.ts`：500 节点/499 边图结构、100 mutation → undo → redo 回环测试。
+
+## Verification
+
+- 可见 Chromium：100/300/500 节点全部按预期渲染；500 节点 load 2,365 ms，20 次 reload median 2,091 ms、p95/worst 3,059 ms，console/page errors 0。
+- 可见 Chromium 交互：selection、drag、connection、delete、undo、redo、restore、pan、zoom 均完成；持久化位置与边数量符合夹具预期。
+- Companion Vitest：500 节点/499 边结构通过；100 次确定性 mutation、100 次 undo、100 次 redo 后 graph hash 与最终值一致。
+- `npx tsc --noEmit`：通过。
+
+## Unresolved risks / exact next step
+
+1. 文本节点需继续从用户角度确认“编辑正文”与“移动节点”的入口是否足够清晰；不应通过破坏 textarea 编辑语义解决。
+2. 仍未完成 RC6 资源泄漏循环、RC8 键盘/焦点验收、RC9–RC12 安全/插件/Provider/Host chaos 和 RC13+ 发布链。
+3. 下一步读取现有资源/弹窗/键盘测试，完成可访问性与资源回收的真实浏览器/定向回归，再进入威胁模型审计。

@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { persist, type PersistStorage, type StorageValue } from 'zustand/middleware';
 import { INITIAL_WORKFLOW_VIEWPORT } from './constants';
 import { pruneWorkflowMedia, setWorkflowMediaCanonicalProjects } from './media';
+import { migrateWorkflowPersistedState, migrateWorkflowProject, WORKFLOW_PERSISTENCE_VERSION } from './migrations';
 import { workflowStorage } from './storage';
 import type { WorkflowProject } from './types';
 
@@ -57,6 +58,7 @@ type PendingPersistWrite = {
 };
 let writeTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingWrite: PendingPersistWrite | null = null;
+let activeWrite: Promise<void> | null = null;
 let persistenceError: WorkflowPersistenceError | null = null;
 const persistenceErrorListeners = new Set<WorkflowPersistenceErrorListener>();
 
@@ -87,20 +89,33 @@ function cancelPendingWrite() {
   write?.waiters.forEach(resolve => resolve());
 }
 
+function persistWrite(write: PendingPersistWrite): Promise<void> {
+  const task = (activeWrite || Promise.resolve()).then(async () => {
+    try {
+      await workflowStorage.set(write.name, write.value);
+      setWorkflowPersistenceError(null);
+    } catch (error) {
+      setWorkflowPersistenceError({ operation: 'write', error });
+    }
+    write.waiters.forEach(resolve => resolve());
+  });
+  activeWrite = task;
+  void task.then(() => {
+    if (activeWrite === task) activeWrite = null;
+  });
+  return task;
+}
+
+export function flushWorkflowPersistence(): Promise<void> {
+  if (writeTimer) clearTimeout(writeTimer);
+  writeTimer = null;
+  const write = pendingWrite;
+  pendingWrite = null;
+  return write ? persistWrite(write) : activeWrite || Promise.resolve();
+}
+
 export function normalizeWorkflowProject(project: WorkflowProject): WorkflowProject {
-  const nodes = project.nodes.map(node => ({ ...node, objectVersion: node.objectVersion || 1, isVisible: node.isVisible !== false, isLocked: node.isLocked === true }));
-  const connections = project.connections.map(connection => ({ ...connection, objectVersion: connection.objectVersion || 1 }));
-  const nodeIds = new Set(nodes.map(node => node.id));
-  return {
-    ...project,
-    draftVersion: project.draftVersion || 1,
-    draftChangeSets: project.draftChangeSets || [],
-    draftRedoStack: project.draftRedoStack || [],
-    workflowMutationReceipts: project.workflowMutationReceipts || [],
-    nodes,
-    connections,
-    selectedNodeIds: project.selectedNodeIds.filter(id => nodeIds.has(id)),
-  };
+  return migrateWorkflowProject(project);
 }
 
 export const workflowPersistStorage: PersistStorage<PersistedWorkflowState, Promise<void>> = {
@@ -125,23 +140,12 @@ export const workflowPersistStorage: PersistStorage<PersistedWorkflowState, Prom
         pendingWrite = { name, value, waiters: [resolve] };
       }
       if (writeTimer) clearTimeout(writeTimer);
-      writeTimer = setTimeout(async () => {
-        const write = pendingWrite;
-        pendingWrite = null;
-        writeTimer = null;
-        if (!write) return;
-        try {
-          await workflowStorage.set(write.name, write.value);
-          setWorkflowPersistenceError(null);
-        } catch (error) {
-          setWorkflowPersistenceError({ operation: 'write', error });
-        }
-        write.waiters.forEach(resolveWrite => resolveWrite());
-      }, 400);
+      writeTimer = setTimeout(() => { void flushWorkflowPersistence(); }, 400);
     });
   },
   async removeItem(name) {
     cancelPendingWrite();
+    if (activeWrite) await activeWrite;
     try {
       await workflowStorage.remove(name);
       setWorkflowPersistenceError(null);
@@ -198,8 +202,10 @@ export const useWorkflowStore = create<WorkflowStore>()(
     }),
     {
       name: WORKFLOW_STORE_KEY,
+      version: WORKFLOW_PERSISTENCE_VERSION,
       storage: workflowPersistStorage,
       partialize: state => ({ projects: state.projects, activeProjectId: state.activeProjectId }),
+      migrate: (persisted, version) => migrateWorkflowPersistedState(persisted, version),
       merge: (persisted, current) => {
         const state = persisted as Partial<PersistedWorkflowState> | undefined;
         const projects = Array.isArray(state?.projects) ? state.projects.map(normalizeWorkflowProject) : current.projects;

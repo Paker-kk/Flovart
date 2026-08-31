@@ -1,5 +1,7 @@
 # Asset and Export Commands
 
+> Compatibility surface: these granular commands remain for existing scripts and diagnostics. New Agent work uses the stable five-command surface.
+
 ## asset.list
 
 List local generated media assets/history.

@@ -4,7 +4,7 @@ import { useWorkflowStore } from '../components/workflow/store';
 import type { WorkflowProject } from '../components/workflow/types';
 import { getFlovartRuntimeApi, type RuntimeCommandEnvelope } from './flovartRuntime';
 import { createBrowserWorkflowContract, type BrowserWorkflowContract } from './browserWorkflowContract';
-import { redactWorkflowAgentValue, type WorkflowCommandEnvelope, type WorkflowCommandResult } from './workflowDispatcher';
+import { redactWorkflowAgentValue, withWorkflowHumanApproval, type WorkflowCommandEnvelope, type WorkflowCommandResult } from './workflowDispatcher';
 import { workflowCommandSummary } from '../components/workflow/agentOps';
 import { getWorkflowOperationCapabilityByNodeTool } from '../components/workflow/operationRegistry';
 import { buildGenerationGateSummary, getGenerationGateDetails } from './generationGate';
@@ -248,7 +248,7 @@ export class WorkflowAgentBridge {
         if (result.confirmation?.required) {
           const approved = await this.confirm(workflowConfirmationSummary(envelope));
           result = approved
-            ? await this.workflowContract.dispatch({ ...envelope, args: { ...envelope.args, confirmed: true } })
+            ? await this.workflowContract.dispatch(withWorkflowHumanApproval(envelope))
             : { ok: false, commandId: envelope.id, error: { code: 'DENIED', message: '用户拒绝了 Workflow 变更。' } } satisfies WorkflowCommandResult;
         }
       } else {

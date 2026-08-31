@@ -7,10 +7,10 @@ title: 后续待办
 ## Production Launch 总门禁
 
 - **总目标**：⬜ 按根目录 `LAUNCH_GOAL.md` 从 R0 Release Truth Audit 持续执行到 R31 独立 Red Team；只有 Autonomous DoD、External Certification、`P0 = 0`、`P1 = 0` 同时满足才允许 `LAUNCH VERDICT: GO`。
-- **R0 Release Truth**：🟨 已建立 `RELEASE_TRUTH_MATRIX.md`，当前结论为 `NO-GO`。公开 README/Quick Start 与本地 Browser authority、`--target` 和五工具表面存在版本漂移；三份 Flovart Skill 也没有统一事实源。
-- **最高优先级风险**：⬜ 用 fake Provider recorder 证明外部 Agent/CLI 不能伪造 `confirmed:true` 绕过费用授权，并验证 timeout/retry/double-click/refresh/restart 只有一次业务提交。
-- **Release Engineering**：⬜ 修复标准 CLI help、建立 docs-contract guard、完整 CI release law、当前 NSIS clean install/upgrade、Windows code signing、updater signing、checksums、SBOM 与 provenance/attestation。
-- **产品可靠性**：⬜ 继续完成 migration/recovery、500-node/undo-redo、四种生成 wire E2E、Provider/BYOK 失败、Plugin trust、offline、diagnostics、performance、accessibility、Golden Paths 和 soak。
+- **R0 Release Truth**：🟨 已建立 `RELEASE_TRUTH_MATRIX.md`，当前结论为 `NO-GO`。README/Quick Start 的宿主声明已按真实证据降级；三份 Flovart Skill、发布门禁和更广泛的发行态认证仍需统一。
+- **最高优先级风险**：🟨 First Run → First Safe Generation 已用 Fake Provider recorder 证明伪造 `confirmed:true` 仍返回 `CONFIRMATION_REQUIRED`、Gate 前无 Provider 请求，并覆盖限流、重试、幂等重放和视频刷新不重复提交；完整的双击/重启 exactly-once 矩阵仍待发布门禁阶段补齐。
+- **Release Engineering**：⬜ 建立 docs-contract guard、完整 CI release law、当前 NSIS clean install/upgrade、Windows code signing、updater signing、checksums、SBOM 与 provenance/attestation；标准 CLI `--help` 已恢复并有回归测试。
+- **产品可靠性**：🟨 First Run、BYOK 失败提示、T2I/I2I/T2V/I2V Fake HTTP wire、费用 Gate、限流/超时/刷新恢复已进入[待测试确认](pending-test.mdx)；仍需 migration/recovery、500-node/undo-redo、Plugin trust、offline、diagnostics、performance、accessibility、Golden Paths 和 soak。
 - **公开声明**：⬜ Table、Plugin lifecycle、Codex/DSH/Pi、Provider 与安装器只能按真实 certification 标记 Supported；未通过项降级为 Experimental、Developer Preview、Blocked 或 Planned。
 
 ## Table：Agent 故事版与媒体预处理工作台

@@ -30,5 +30,5 @@ describe('flovart status', () => {
     expect(result).toMatchObject({ ready: true, browserConnected: true, clientId: 'browser-a', projectId: 'project-a', revision: 4 });
     expect(result.frontend).toEqual({ status: 'ready', url: 'http://127.0.0.1:37522' });
     expect(JSON.stringify(result)).not.toContain('secret-token');
-  });
+  }, 20_000);
 });

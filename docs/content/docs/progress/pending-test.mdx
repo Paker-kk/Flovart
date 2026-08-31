@@ -4,6 +4,23 @@ title: 待测试确认
 
 本页只记录当前版本已经进入代码或文档、但仍需用户确认的变更。旧版本的 Canvas、Art、Excalidraw、MCP、Managed/Connected Agent 与阶段施工流水不再保留在这里；需要追溯时使用 Git 历史。完成用户验收后，再把稳定能力更新到[功能特性](../overview/features.mdx)。
 
+## First Run → First Safe Generation：首启到首次安全生成
+
+- 首次打开没有 AI 服务时仍可进入并编辑正常 Canvas；只有执行生成时才显示“添加 AI 服务”入口，不再以 Provider 错误或禁用按钮阻塞首屏。
+- OpenAI-compatible 首次配置默认只要求服务地址与 API Key；连接成功后自动读取 `/models` 并补齐缺失的产品模型路由。模型列表缺失时支持手动填写模型，连接失败统一显示可行动的中文提示。
+- PromptBar、Workflow Graph、`@` Mention 与素材库引用经过同一 Canonical Input；图生图、图生视频会把引用真实送入 `/v1/images/edits` 或 `/v2/videos/generations`，不支持的 capability 在请求前明确失败。
+- 外部生成进入明确的费用确认 Gate。未经真人确认，Agent 的 `workflow.node.run` 即使携带伪造的 `confirmed: true` 也不会提交 Provider 请求；确认后的重试使用同一幂等身份，避免重复提交。
+- 本机已用真实 localhost HTTP Fake Provider 与可见 Chromium 完成首次图片生成、图生图、图生视频、401/429/错误地址/超时、视频刷新恢复和错误重试；录制器只保存脱敏 header 与请求摘要，不保存原始密钥或 multipart 内容。
+- 生成中的视频任务先持久化 Provider task ID，再进入轮询；刷新后继续查询原任务，不创建第二个提交。生成结果能够回到当前 Workflow 节点并在画布显示。
+
+本轮本机证据：`C:\tmp\flovart-first-safe-generation-20260830.png`、`C:\tmp\flovart-prompt-reference-e2e-20260830.png`、`C:\tmp\flovart-video-refresh-recovery-20260830.png`、`C:\tmp\flovart-byok-unauthorized-20260830.png` 及同名 Playwright 输出；Fake Provider 使用真实 HTTP transport，未调用真实付费服务。
+
+待用户/外部环境确认：
+
+1. 在接近 clean state 的真实桌面环境按“打开 Flovart → 添加 AI 服务 → 配置可信服务 → 生成”走一次，确认首屏文案、费用提示和最终成品符合预期。
+2. 使用真实 Provider 凭据分别确认账单、取消、实际价格和生产级 I2I/I2V 视觉质量；本机 Fake Provider 证据不替代第三方费用验收。
+3. 登录 Codex 或 DeepSeek Harness 后，再补真实登录态对话/插件生命周期；这不影响本轮 fake-provider 与浏览器 DoD。
+
 ## Agent Surface Simplification：Host Projection 与精简工具面
 
 - 新增版本化 Host Registry，把 Agent Identity、IDE Host、Distribution Target、Runtime Surface 和 Director Runtime Binding 分开；`init --target` 负责安装投影，`director.*` 只接受能映射到已实现 Runtime Binding 的 Agent Identity。

@@ -4,8 +4,8 @@
 # profile (see $DSH_HOME/profiles/flovart/package.json → dsh.profile.bundles).
 # One row provides both halves of the plugin:
 #   - the Node/Cordis half (`@flovart/dsh-plugin` main entry) registers the
-#     `flovart` service (CLI discovery + runtime status) and derives model
-#     tools from `flovart command.list` / `command.schema`, executing every
+#     `flovart` service (CLI discovery + runtime status) and derives only the
+#     five stable model tools from the CLI registry, executing every
 #     call through the public CLI facade (`Flovart CLI 门面`);
 #   - the browser half (`exports["./client"]`, discovered through the
 #     `dsh.client` manifest declaration) registers the additive

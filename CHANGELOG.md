@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **First Run → First Safe Generation**：首启可先进入 Canvas；AI 服务采用“服务地址 + API Key”渐进配置并自动发现模型，PromptBar/Graph/`@` 引用贯通真实 Fake Provider HTTP，外部生成经过费用确认与不可伪造的人工授权，补齐限流、超时、重试、幂等和刷新恢复验收。
 - **Agent Surface Simplification**：新增 Host Registry 与 PATH-only Host discovery，拆分 Agent Identity、IDE Host、Distribution Target、Runtime Surface 和 Director Runtime Binding；`init --target` 安装 Skill projection，内置 Agent 工具收敛为 `status`、`workflow.inspect`、`workflow.selection.get`、`workflow.apply`、`workflow.node.run`，WorkBuddy 暂不进入 Director Binding。
 - **External Agent Golden Path**：补齐动态端口启动、Windows 安全 URL 启动、Browser Workflow bootstrap/recovery、Active Writer、Launcher 一次性 Writer 激活与 stale-page 等待、Host Picker 显式 Skill Projection prepare 与 Codex/Generic CLI Skill projection；真实 DSH RC8 profile/bundle 已完成本地 install/boot/隔离 Workspace tracer，Claude Code/OpenCode 外部 CLI tracer 已通过，打包 Managed Agent 已验证调用方项目根与 Host discovery，DSH CLI 结构化参数已改为 JSON，并移除 Dock 中伪造 Director Session 的自动绑定路径；另以本地无 Provider 的 `image.crop@1` fixture 验证真实 Browser `workflow.node.run` 成功闭环，并修复 granular `workflow.node.tool` CLI 的 typed flag 归一化；Codex 登录态与用户确认仍保留为 pending-test。
 - **Workflow 输入解析**：新增统一的资源引用与 Graph 输入解析路径，已连接媒体不再依赖 PromptBar `@` 才能进入生成请求，并保留 Artifact 身份与现有显式引用筛选。

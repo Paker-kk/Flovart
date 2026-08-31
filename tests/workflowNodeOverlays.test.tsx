@@ -216,9 +216,9 @@ describe('workflow node overlays', () => {
     render(<WorkflowNodePromptBar node={videoNode} nodes={[videoNode, audioNode]} connections={[{ id: 'audio-link', fromNodeId: 'audio-ref', toNodeId: 'veo-reference' }]} t={t} theme="light" language="zho" userApiKeys={[googleVeoKey]} dynamicModelOptions={{ text: [], image: [], video: ['flovart:veo-3.1'] }} onChange={vi.fn()} onRun={vi.fn()} />);
     const generate = screen.getByRole('button', { name: 'promptBar.generate' });
     expect(generate).toBeDisabled();
-    expect(generate).toHaveAttribute('title', '当前 Provider 线路不接收 @音频 参考');
+    expect(generate).toHaveAttribute('title', '当前 AI 服务不接收 @音频 参考');
     fireEvent.click(screen.getByTitle('视频生成方式'));
-    expect(screen.getByText('当前 Provider 线路不接收 @音频 参考')).toBeInTheDocument();
+    expect(screen.getByText('当前 AI 服务不接收 @音频 参考')).toBeInTheDocument();
   });
 
   it('disables modes unavailable on the mapped video Provider route', () => {

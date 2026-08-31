@@ -17,7 +17,7 @@ npm run dev
 
 ## 方式二：用外部 Agent / CLI 指挥制作组
 
-Codex、DeepSeek Harness、Claude Code（CC）、OpenCode、Pi 都在 Flovart 的正式支持范围。五者的模型工具都通过 Operation Skill 学会使用同一套本机 CLI；Codex 与 DeepSeek Harness 优先做深度会话/事件连接。Flovart 不向 Coding Agent 暴露 MCP Server，也不要求 Chrome DevTools Protocol、浏览器抓取或文件队列。
+当前已验证的外部导演路径以 Codex CLI/Browser、Claude Code 和 OpenCode CLI tracer 为主；它们的模型工具都通过 Operation Skill 使用同一套本机 CLI。DeepSeek Harness 是显式 Plugin/Profile projection，CodeBuddy Code 与 Pi 通过稳定 contract 兼容；WorkBuddy（普通办公 AI 工作台）与 CodeBuddy Code（Coding Agent CLI）是不同产品，WorkBuddy 不在当前 Director Binding。Flovart 不向 Coding Agent 暴露 MCP Server，也不要求 Chrome DevTools Protocol、浏览器抓取或文件队列。
 
 > 角色反转仍在迁移中：当前 Desktop 仍保留旧内置主 Agent 入口及其内部 MCP transport。不要把该旧 transport 配成新的外部接入；下述命令只按 `command.list` 中的 `available` 状态使用，也不要把旧界面当作目标架构已经交付。
 
@@ -33,7 +33,7 @@ npm run flovart:cli -- workflow.inspect --json
 - **外部 Harness 是导演台**：保留主对话、总体计划和跨任务调度；关闭 Flovart 不应终止 Harness。
 - **Workspace Operator 是唯一内置执行 Agent**：只在单次有界 Intent 内调用类型化、可逆工具；Production Crew 是 Operator、Runtime 与 Worker 的执行面集合名，不是额外 Agent。
 - **统一命令注册表**：正常操作使用稳定 Agent surface；仅在 bootstrap、兼容诊断或调试时读取 `command.list` / `command.schema`，并只调用标记为 `available` 的命令。
-- **可见 Workflow 单一权威**：节点操作前要求 `workspace.status` 为 `ready`，操作后用 `workflow.inspect` 回读；不得回退到旧 Canvas、shadow state、CDP、私有 HTTP 或 `.flovart/command-queue.json`。
+- **可见 Workflow 单一权威**：节点操作前要求 `workspace.status` 为 `ready`，操作后用 `workflow.inspect` 回读；不得回退到旧 Canvas、shadow state、CDP、私有 HTTP 或文件队列。
 - **密钥安全**：Provider Secret 只由 Flovart 的受控边界使用，CLI 与外部 Agent 均不得读取、输出或保存原始密钥。
 
 ### 示例命令

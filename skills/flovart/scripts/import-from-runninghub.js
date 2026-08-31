@@ -6,7 +6,7 @@
  *   node import-from-runninghub.js --task <taskId> [--layout grid|row]
  *
  * Requires:
- *   - RUNNINGHUB_API_KEY env var (or --key flag)
+ *   - RUNNINGHUB_API_KEY env var
  *   - Chrome with --remote-debugging-port=9222
  *   - Flovart open in a tab
  */
@@ -17,11 +17,11 @@ const args = process.argv.slice(2);
 const getArg = (name) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : null; };
 
 const taskId = getArg('task');
-const apiKey = getArg('key') || process.env.RUNNINGHUB_API_KEY;
+const apiKey = process.env.RUNNINGHUB_API_KEY;
 const layout = getArg('layout') || 'grid';
 
 if (!taskId || !apiKey) {
-  console.error('Usage: node import-from-runninghub.js --task <taskId> [--key <apiKey>] [--layout grid|row]');
+  console.error('Usage: set RUNNINGHUB_API_KEY first, then run node import-from-runninghub.js --task <taskId> [--layout grid|row]');
   process.exit(1);
 }
 

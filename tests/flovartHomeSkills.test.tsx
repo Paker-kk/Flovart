@@ -41,7 +41,7 @@ describe('Flovart Home Skill 台', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('不读取 API Key');
     expect(screen.getByRole('dialog')).toHaveTextContent('查看上游源码');
     expect(screen.getByRole('dialog')).toHaveTextContent('$vox-director');
-    expect(screen.getByRole('dialog')).toHaveTextContent('创建一张可编辑的 Production Brief');
+    expect(screen.getByRole('dialog')).toHaveTextContent('创建一张可编辑的制作简报');
     expect(screen.getByRole('dialog')).not.toHaveTextContent('Managed Agent');
   }, 20_000);
 

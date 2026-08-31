@@ -1,5 +1,7 @@
 # Provider Commands
 
+> Compatibility surface: these browser bridge commands remain for existing scripts and diagnostics. Normal users configure an AI service in the Flovart Settings page.
+
 Provider keys and model preferences stay in the Flovart browser UI, which is the single source of truth. Provider commands use the browser bridge and must never expose keys. Keep the Flovart browser tab open while running them.
 
 ## provider.status

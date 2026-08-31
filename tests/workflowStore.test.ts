@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createWorkflowProject,
+  flushWorkflowPersistence,
   getWorkflowPersistenceError,
   subscribeWorkflowPersistenceError,
   useWorkflowStore,
@@ -215,6 +216,27 @@ describe('workflow project persistence', () => {
     expect(set).toHaveBeenCalledWith(WORKFLOW_STORE_KEY, lastValue);
   });
 
+  it('flushes a durable task checkpoint before the debounce window expires', async () => {
+    const set = vi.spyOn(workflowStorage, 'set').mockResolvedValue();
+    const initialProject = createWorkflowProject('initial');
+    const checkpointProject = createWorkflowProject('checkpoint');
+    const initial = workflowPersistStorage.setItem(WORKFLOW_STORE_KEY, {
+      state: { projects: [initialProject], activeProjectId: initialProject.id },
+    });
+    const checkpointValue: { state: PersistedWorkflowState } = {
+      state: { projects: [checkpointProject], activeProjectId: checkpointProject.id },
+    };
+    const checkpoint = workflowPersistStorage.setItem(WORKFLOW_STORE_KEY, checkpointValue);
+
+    await flushWorkflowPersistence();
+
+    await expect(Promise.all([initial, checkpoint])).resolves.toEqual([undefined, undefined]);
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set).toHaveBeenCalledWith(WORKFLOW_STORE_KEY, checkpointValue);
+    await vi.advanceTimersByTimeAsync(400);
+    expect(set).toHaveBeenCalledTimes(1);
+  });
+
   it('exposes persistence failures without an unhandled rejection', async () => {
     const failure = new Error('storage unavailable');
     vi.spyOn(workflowStorage, 'set').mockRejectedValue(failure);
@@ -267,7 +289,7 @@ describe('workflow project persistence', () => {
 
     await workflowStorage.set(WORKFLOW_STORE_KEY, {
       state: { projects: [project], activeProjectId: project.id },
-      version: 0,
+      version: 1,
     });
     await useWorkflowStore.persist.rehydrate();
 

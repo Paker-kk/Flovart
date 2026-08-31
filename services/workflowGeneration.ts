@@ -313,7 +313,7 @@ export async function runWorkflowGeneration(project: WorkflowProject, nodeId: st
     };
     if (mode !== 'text') {
       const providerValidation = providerExtension.generation.validate(canonicalInput, providerContext);
-      if (!providerValidation.ok) throw new Error(providerValidation.errors[0]?.message || '当前 Provider 线路不支持该生成输入。');
+      if (!providerValidation.ok) throw new Error(providerValidation.errors[0]?.message || '当前 AI 服务不支持该生成输入。');
     }
     const materializedReferences = await materializeCanonicalReferences(canonicalInput, runtime, temporaryUrls, Boolean(resolved.key.runtimeManaged));
     const providerRequest = providerExtension.generation.serialize(canonicalInput, materializedReferences, providerContext);

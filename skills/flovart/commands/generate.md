@@ -1,5 +1,7 @@
 # Generation commands
 
+> Compatibility surface: these direct generation helpers remain for existing scripts and diagnostics. New Agent work uses the stable five-command surface and `workflow.node.run`.
+
 Generation is browser-backed. Keep the Flovart UI open and check readiness first:
 
 ```bash

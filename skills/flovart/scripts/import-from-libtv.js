@@ -8,7 +8,7 @@
  *   node import-from-libtv.js --session <sessionId> [--layout grid|row|stack]
  *
  * Requires:
- *   - LIBTV_ACCESS_KEY env var (or --key flag)
+ *   - LIBTV_ACCESS_KEY env var
  *   - Chrome with --remote-debugging-port=9222
  *   - Flovart open in a tab
  */
@@ -20,12 +20,12 @@ const args = process.argv.slice(2);
 const getArg = (name) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : null; };
 
 const sessionId = getArg('session');
-const accessKey = getArg('key') || process.env.LIBTV_ACCESS_KEY;
+const accessKey = process.env.LIBTV_ACCESS_KEY;
 const layout = getArg('layout') || 'grid';
 const imBase = process.env.OPENAPI_IM_BASE || process.env.IM_BASE_URL || 'https://im.liblib.tv';
 
 if (!sessionId || !accessKey) {
-  console.error('Usage: node import-from-libtv.js --session <id> [--key <accessKey>] [--layout grid|row|stack]');
+  console.error('Usage: set LIBTV_ACCESS_KEY first, then run node import-from-libtv.js --session <id> [--layout grid|row|stack]');
   console.error('Or set LIBTV_ACCESS_KEY env var.');
   process.exit(1);
 }

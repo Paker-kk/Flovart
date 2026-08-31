@@ -172,7 +172,7 @@ export function validateReferenceSet(
     errors.push({
       code: 'UNSUPPORTED_CAPABILITY',
       capability,
-      message: `当前 Provider 线路不支持「${capability}」，不能降级为其它生成方式。`,
+      message: `当前 AI 服务不支持「${capability}」，不能降级为其它生成方式。`,
     });
   }
 
@@ -185,8 +185,8 @@ export function validateReferenceSet(
         kind,
         max,
         message: max === 0
-          ? `当前 Provider 线路不接收 @${kind === 'image' ? '图片' : kind === 'video' ? '视频' : '音频'} 参考`
-          : `当前 Provider 线路最多接收 ${max} 个 @${kind === 'image' ? '图片' : kind === 'video' ? '视频' : '音频'} 参考`,
+          ? `当前 AI 服务不接收 @${kind === 'image' ? '图片' : kind === 'video' ? '视频' : '音频'} 参考`
+          : `当前 AI 服务最多接收 ${max} 个 @${kind === 'image' ? '图片' : kind === 'video' ? '视频' : '音频'} 参考`,
       });
     }
   }
@@ -196,7 +196,7 @@ export function validateReferenceSet(
       errors.push({
         code: 'UNSUPPORTED_REFERENCE_ROLE',
         role: reference.role,
-        message: `当前 Provider 线路不支持「${reference.role}」参考角色。`,
+        message: `当前 AI 服务不支持「${reference.role}」参考角色。`,
       });
     }
   }

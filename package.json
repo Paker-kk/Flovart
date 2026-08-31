@@ -11,6 +11,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "docs:check": "node scripts/check-docs-contract.mjs",
     "test:watch": "vitest",
     "flovart:cli": "node tools/flovart/cli.js",
     "flovart:agent": "node agent/index.js",

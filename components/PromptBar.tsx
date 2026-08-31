@@ -815,7 +815,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                                             zIndex: index + 1,
                                             transform: referencesExpanded || imageReferenceChips.length === 1 ? 'rotate(0deg)' : `rotate(${index % 2 ? 5 : -5}deg)`,
                                         }}
-                                        title={routeRejectsChip ? `${chip.label} · 当前 Provider 线路不接收此类参考` : chip.mentioned ? `${chip.label} · 已加入 Provider 参考` : `${chip.label} · 已连线，输入 @${chip.label} 可加入生成参考`}
+                                        title={routeRejectsChip ? `${chip.label} · 当前 AI 服务不接收此类参考` : chip.mentioned ? `${chip.label} · 已加入生成参考` : `${chip.label} · 已连线，输入 @${chip.label} 可加入生成参考`}
                                         whileDrag={{ scale: 1.06, boxShadow: '0 6px 18px rgba(99,102,241,0.18)' }}
                                     >
                                         <div className="h-full w-full overflow-hidden rounded-[9px]">

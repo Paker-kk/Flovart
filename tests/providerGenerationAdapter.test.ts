@@ -152,7 +152,7 @@ describe('provider generation adapter', () => {
       ],
     });
 
-    expect(result).toMatchObject({ ok: false, errorMessage: '当前 Provider 线路最多接收 1 个 @图片 参考' });
+    expect(result).toMatchObject({ ok: false, errorMessage: '当前 AI 服务最多接收 1 个 @图片 参考' });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

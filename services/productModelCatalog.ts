@@ -293,7 +293,7 @@ export function explainReferenceCompatibility(
     const max = limits[kind];
     if (count === 0 || count <= max) continue;
     const label = kind === 'image' ? '图片' : kind === 'video' ? '视频' : '音频';
-    return max === 0 ? `当前 Provider 线路不接收 @${label} 参考` : `当前 Provider 线路最多接收 ${max} 个 @${label} 参考`;
+    return max === 0 ? `当前 AI 服务不接收 @${label} 参考` : `当前 AI 服务最多接收 ${max} 个 @${label} 参考`;
   }
   return null;
 }

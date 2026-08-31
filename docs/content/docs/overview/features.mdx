@@ -48,7 +48,7 @@ Agent 不是 Workflow 右侧聊天抽屉、外部 Harness 的聊天镜像，也�
 - External Coding Agent Harness 是导演台。Coding Agent Projections 的模型工具通过 Operation Skill 学会使用 Flovart，并统一经公开 CLI 调用类型化能力；目标公开边界不提供 Coding Agent MCP Server。当前旧 Managed/Codex 适配器中的内部 MCP transport 是待删除迁移实现，不属于正式接入方式。
 - Codex 是当前 professional golden path；DeepSeek Harness 保留显式 native Plugin projection；CodeBuddy Code、Claude Code、OpenCode、Pi 通过 stable Skill + CLI contract 兼容。WorkBuddy 属于未来 mainstream、skill-mediated projection，不在当前 Director Binding 范围内。
 - DeepSeek Harness 的目标深度体验是专用 Flovart Profile + Host/Client Plugin：Harness 保持主壳、主会话和默认导演权，左侧固定 Flovart Dock 打开中央完整 Workflow/Table/Agent Production Control，快速弹层处理审批/状态/Artifact，右侧 Agent Bridge 管理连接与单导演 Handoff，并保留独立窗口降级。Host 仍经 CLI 执行模型工具，Client 只为 UI、事件与恢复使用受限本地通道；该能力尚未通过真实安装与恢复验收，不能写成当前已交付。
-- Flovart CLI 是确定性执行器；命令和参数以 `command.list` 与 `command.schema` 为唯一事实源。
+- Flovart CLI 是确定性执行器；`command.list` 与 `command.schema` 是 bootstrap、兼容诊断和调试使用的机器注册表。正常外部 Agent 循环只使用 `status`、`workflow.inspect`、`workflow.selection.get`、`workflow.apply` 与 `workflow.node.run`。
 - CLI 内部可以使用版本化本地协议连接 Runtime；外部模型不直接依赖该协议。只有受信 DeepSeek Client Plugin 能在短期配对和限权范围内消费 UI/事件子集。
 - 当前自动化能力以 Workflow 为主。Harness 不得伪造 Canvas、Element 或 Table 命令，也不得绕过 CLI 拼接私有 HTTP 请求。
 - Provider 凭据由用户配置，CLI 和 Agent 输出不得读取或泄露 API Key。

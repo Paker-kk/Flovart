@@ -1,5 +1,7 @@
 # Model, prompt, and preference commands
 
+> Compatibility surface: these helpers remain for existing scripts and diagnostics. New Agent work uses the stable five-command surface and the Flovart UI for service setup.
+
 Use these registered helpers without exposing provider keys:
 
 ```bash

@@ -1,6 +1,7 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -13,6 +14,16 @@ import {
 } from '../tools/flovart/agent-kit.js';
 
 describe('flovart agent kit', () => {
+  it('keeps the standard CLI help entrypoint usable', () => {
+    const output = execFileSync(process.execPath, ['tools/flovart/cli.js', '--help'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    });
+
+    expect(output).toContain('Commands:');
+    expect(output).toContain('workflow.inspect');
+  });
+
   it('installs the CLI-first SKILL attachment without writing any MCP config', () => {
     const projectDir = process.cwd();
 

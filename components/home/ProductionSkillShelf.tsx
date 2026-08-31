@@ -425,7 +425,7 @@ export function ProductionSkillShelf({
               <div className="text-xs leading-5">
                 {selected.origin === 'hub'
                   ? <><strong>安装/下载前请自行核对来源：</strong>Skill 来自外部 Hub 站点，本机只校验包结构、id 与版本；不要安装要求 API Key 或私密路由的包。下载到 Claude Code/Codex 请从 Hub 站页面操作。</>
-                  : <><strong>点击后只会准备草稿：</strong>新建项目、打开 Workflow，并创建一张可编辑的 Production Brief；不会自动发送、调用 Provider 或产生费用。确认内容后，请回到当前 Director Host 交给 Director 推进。</>}
+                  : <><strong>点击后只会准备草稿：</strong>新建项目、打开 Workflow，并创建一张可编辑的制作简报；不会自动发送、调用 AI 服务或产生费用。确认内容后，可交给当前 AI Agent 继续推进。</>}
               </div>
             </div>
 
@@ -442,7 +442,7 @@ export function ProductionSkillShelf({
                     {selected.runtimeMinVersion && <Tag>Runtime ≥ {selected.runtimeMinVersion}</Tag>}
                   </div>
                   <p className="m-0 text-xs leading-5" style={{ color: 'var(--isl-ink-soft)' }}>
-                    不读取 API Key、不直连 Provider、不运行私有轮询；只声明 Runtime Capability。
+                    不读取 API Key、不直连 AI 服务、不运行私有轮询；只声明所需能力。
                   </p>
                   {selected.capabilities && selected.capabilities.length > 0 && (
                     <div>

@@ -18,6 +18,19 @@ export interface WorkflowCommandEnvelope {
   caller?: { agentIdentity?: string; hostSessionId?: string };
 }
 
+const WORKFLOW_HUMAN_APPROVAL = Symbol('flovart.workflow-human-approval');
+
+export function withWorkflowHumanApproval(envelope: WorkflowCommandEnvelope): WorkflowCommandEnvelope {
+  const approved = { ...envelope, args: { ...envelope.args } };
+  delete approved.args.confirmed;
+  Object.defineProperty(approved, WORKFLOW_HUMAN_APPROVAL, { value: true });
+  return approved;
+}
+
+function hasWorkflowHumanApproval(envelope: WorkflowCommandEnvelope): boolean {
+  return (envelope as WorkflowCommandEnvelope & { [WORKFLOW_HUMAN_APPROVAL]?: true })[WORKFLOW_HUMAN_APPROVAL] === true;
+}
+
 export interface WorkflowCommandResult {
   ok: boolean;
   commandId: string;
@@ -192,7 +205,7 @@ export function createWorkflowDispatcher(dependencies: WorkflowDispatcherDepende
       && envelope.idempotencyKey && `${envelope.source}:${envelope.idempotencyKey}`;
     if (cacheKey && idempotencyCache.has(cacheKey)) return idempotencyCache.get(cacheKey)!;
     const { command, args } = envelope;
-    if (requiresWorkflowConfirmation(envelope) && args.confirmed !== true) {
+    if (requiresWorkflowConfirmation(envelope) && !hasWorkflowHumanApproval(envelope)) {
       return {
         ok: true,
         commandId: envelope.id,

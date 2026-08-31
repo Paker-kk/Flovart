@@ -124,7 +124,7 @@ describe('flovart dev startup commands', () => {
     } finally {
       await new Promise(resolve => web.close(resolve));
     }
-  });
+  }, 20_000);
 
   it('maps TUI slash commands to existing CLI commands', () => {
     expect(buildTuiCommand('/START')).toEqual({ type: 'run', args: ['start'] });

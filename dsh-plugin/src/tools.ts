@@ -3,9 +3,10 @@
  *
  * The native tool face exposes inspection plus bounded graph mutations. Paid
  * generation, Production approval/run, media tools, and Crew submission stay
- * behind their existing explicit Runtime gates. `command.list` /
- * `command.schema` remain the single command truth; a command listed here but
- * absent from the live registry is simply not registered (no guessed schema).
+ * behind their existing explicit Runtime gates. `command.list` is a machine
+ * registry probe for this projection; `command.schema` is a diagnostic surface,
+ * not a model tool. A command listed here but absent from the live registry is
+ * simply not registered (no guessed schema).
  *
  * The dsh-tools API is loaded dynamically: an incompatible Harness install
  * without a compatible `@deepseek-ai/dsh-tools` must degrade to CLI-only

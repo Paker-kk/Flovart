@@ -6,7 +6,7 @@ import {
   requiresRuntimeAgentConfirmation,
   runtimeAgentConfirmationSummary,
 } from '../services/workflowAgentBridge';
-import { dispatchWorkflowCommand, setWorkflowExecutor } from '../services/workflowDispatcher';
+import { dispatchWorkflowCommand, setWorkflowExecutor, withWorkflowHumanApproval } from '../services/workflowDispatcher';
 import { createWorkflowNode } from '../components/workflow/constants';
 import { createWorkflowProject, useWorkflowStore } from '../components/workflow/store';
 import { createWorkflowExecutor } from '../services/workflowExecutor';
@@ -32,12 +32,12 @@ describe('workflow Agent browser bridge', () => {
     setWorkflowExecutor(createWorkflowExecutor({ runNode }, { createRunId: () => 'run-browser-agent' }));
 
     try {
-      const result = await dispatchWorkflowCommand({
+      const result = await dispatchWorkflowCommand(withWorkflowHumanApproval({
         id: 'browser-agent-run',
         command: 'workflow.node.run',
-        args: { projectId: project.id, nodeId: 'image-1', confirmed: true },
+        args: { projectId: project.id, nodeId: 'image-1' },
         source: 'agent',
-      });
+      }));
 
       expect(result).toMatchObject({ ok: true, result: { projectId: project.id, nodeId: 'image-1', runId: 'run-browser-agent' } });
       expect(runNode).toHaveBeenCalledWith(

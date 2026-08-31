@@ -107,7 +107,7 @@ Flovart 将规定 Production Skill 的最小对接契约，并通过 Skill Creat
 
 第一次使用可直接阅读 [Skill 使用手册](docs/overview/skill-guide.md)，无需先学习 CLI 或 ProductionSpec。
 
-> 正式支持范围包含 Codex、DeepSeek Harness、Claude Code（CC）、OpenCode、Pi 五个外部导演台；五者的模型工具统一使用 Operation Skill + 本机 CLI（不暴露 MCP 服务）。Codex 与 DeepSeek Harness 优先做 Session Binding 和事件投影；DeepSeek 额外采用专用 Profile + Host/Client Plugin，在 Harness 主壳中提供固定 Flovart Dock、中央制作工作区、快速弹层、Agent Bridge 单导演交接与独立窗口降级。目标架构、插件体验与五宿主实机验收仍在进行中。
+> 当前已验证的外部导演路径以 Codex CLI/Browser、Claude Code 与 OpenCode CLI tracer 为主；它们共享 Operation Skill + 本机 CLI（不暴露 MCP 服务）。DeepSeek Harness 保留显式 Plugin/Profile projection，CodeBuddy Code 与 Pi 通过稳定 Skill + CLI contract 兼容；WorkBuddy 是普通办公 AI 工作台，不是 CodeBuddy Code，也不进入当前 Director Binding。更完整的登录态、插件生命周期和发行态验收仍在进行中。
 
 ## 当前能力与边界
 
@@ -118,7 +118,7 @@ Flovart 将规定 Production Skill 的最小对接契约，并通过 Skill Creat
 | Agent 空间任务工作区 | 旧内置主 Agent 界面已接入；向制作组控制面迁移中 |
 | 多 Provider BYOK、文生图、图生图、文生视频 | 已有基础 |
 | Workflow CLI、命令 Schema、JSON 状态 | 基础能力已接入 |
-| Codex / DeepSeek Harness / Claude Code / OpenCode / Pi | 五者均在正式支持范围；Operation Skill + CLI 是共同模型工具基线，Codex/DeepSeek 深度集成优先，DeepSeek Flovart Dock 插件尚待实机验收 |
+| Codex / DeepSeek Harness / Claude Code / OpenCode / Pi | Codex CLI/Browser、Claude Code/OpenCode CLI tracer 已验证；DSH 为显式 Plugin projection；CodeBuddy Code/Pi 保持兼容目标，登录态与发行态能力仍待验收 |
 | Production Skill 契约与 UGC 生态 | 设计与实现中 |
 | TUI 快捷命令 | 基础能力已接入；任务订阅与断点续跑待完善 |
 

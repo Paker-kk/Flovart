@@ -10,6 +10,7 @@ import localforage from 'localforage';
 import { Type } from 'typebox';
 import { isOpenAICompatibleProvider, resolveProviderBaseUrl } from './baseUrl';
 import { createBrowserWorkflowContract } from './browserWorkflowContract';
+import { withWorkflowHumanApproval } from './workflowDispatcher';
 import { getBundledProductionSkill, type ProductionSkillAttachment } from './productionSkillCatalog';
 import { COMMAND_ALIASES, COMMAND_REGISTRY } from '../tools/flovart/core.js';
 import { AGENT_BROWSER_COMMANDS } from '../tools/flovart/agent-surface.js';
@@ -414,23 +415,22 @@ export function createBrowserAgentTools(dependencies: BrowserAgentToolDependenci
       description: String(definition.summary || command),
       parameters,
       execute: async (_toolCallId, params, _signal) => {
-        const run = async (confirmed: boolean) => workflowContract.dispatch({
+        const envelope = {
           id: crypto.randomUUID(),
           command,
           args: {
             ...(params as Record<string, unknown>),
             projectId: dependencies.projectId,
             workspaceMode: 'browser',
-            ...(confirmed ? { confirmed: true } : {}),
           },
           source: 'agent',
           idempotencyKey: dependencies.activeChangeSetId,
-        });
-        let result = await run(false);
+        } as const;
+        let result = await workflowContract.dispatch(envelope);
         if (result.confirmation?.required) {
           const approved = await dependencies.confirm(result.confirmation.summary);
           if (!approved) throw new Error('用户拒绝了该操作');
-          result = await run(true);
+          result = await workflowContract.dispatch(withWorkflowHumanApproval(envelope));
         }
         if (!result.ok) {
           throw new Error(result.error?.message || `${command} 执行失败`);

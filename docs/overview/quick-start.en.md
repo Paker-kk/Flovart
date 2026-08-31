@@ -17,7 +17,7 @@ Open http://localhost:37522 and enter your service credentials in Settings.
 
 ## Option 2: Direct the Production Crew via an External Agent / CLI
 
-Codex, DeepSeek Harness, Claude Code (CC), OpenCode, and Pi are all in Flovart's official support scope. Their model tools learn the same local CLI through an Operation Skill; Codex and DeepSeek Harness receive deeper session/event integration first. Flovart exposes no MCP server to coding agents and requires no Chrome DevTools Protocol, browser scraping, or file queue.
+Current evidence is split by integration depth: Codex CLI/Browser is the professional golden path; Claude Code and OpenCode have completed CLI tracers; DeepSeek Harness keeps an explicit Plugin/Profile projection; CodeBuddy Code and Pi are compatibility targets through the stable Skill + CLI contract. WorkBuddy is a separate mainstream office AI workspace, not CodeBuddy Code, and is outside the current Director Binding. Flovart exposes no MCP server to coding agents and requires no Chrome DevTools Protocol, browser scraping, or file queue.
 
 > The role reversal is still being migrated: Desktop currently retains the older built-in-main-agent entry and its internal MCP transport. Do not configure that legacy transport as a new external integration. Use only commands marked `available` by `command.list`, and do not treat the old UI as proof that the target architecture has shipped.
 
@@ -33,7 +33,7 @@ npm run flovart:cli -- workflow.inspect --json
 - **The external harness is the director**: it owns the canonical conversation, overall plan, and cross-task scheduling; closing Flovart must not terminate it.
 - **Workspace Operator is the only built-in execution agent**: it calls typed, reversible tools only inside a bounded intent. Production Crew is merely the group name for the Operator, Runtime, workers, and tools—not another agent.
 - **One command registry**: normal work uses the stable Agent surface; read `command.list` / `command.schema` only for bootstrap, compatibility diagnosis, or debugging, and call only commands marked `available`.
-- **One visible-Workflow authority**: require `workspace.status` to be `ready`, then verify every mutation with `workflow.inspect`. Never fall back to the old Canvas, shadow state, CDP, private HTTP, or `.flovart/command-queue.json`.
+- **One visible-Workflow authority**: require `workspace.status` to be `ready`, then verify every mutation with `workflow.inspect`. Never fall back to the old Canvas, shadow state, CDP, private HTTP, or a file queue.
 - **Secret boundary**: Provider secrets stay in Flovart's controlled boundary. The CLI and external harness never read, print, or store raw secrets.
 
 ### Example Commands

@@ -1,5 +1,7 @@
 # Status and diagnostics
 
+> Compatibility surface: `doctor` and the provider bridge below remain for older setup scripts. Use the stable readiness commands for normal Agent work.
+
 Inspect readiness before mutation:
 
 ```bash

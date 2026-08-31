@@ -533,7 +533,7 @@ describe('workflow generation', () => {
       fetchMedia: vi.fn().mockResolvedValue(new Blob(['image'])), ingestMedia: vi.fn().mockResolvedValue({ type: 'image', storageKey: 'result', name: 'result.png', mimeType: 'image/png', bytes: 5 }), onProjectChange: vi.fn(), encodeDataUrl: vi.fn().mockResolvedValue('data:image/png;base64,AA=='),
     });
     expect(executeMedia).not.toHaveBeenCalled();
-    expect(result.nodes.find(node => node.id === 'config-1')?.metadata.error).toBe('当前 Provider 线路不接收 @视频 参考');
+    expect(result.nodes.find(node => node.id === 'config-1')?.metadata.error).toBe('当前 AI 服务不接收 @视频 参考');
   });
 
   it('passes audio references only when the selected video capability supports the audio slot', async () => {

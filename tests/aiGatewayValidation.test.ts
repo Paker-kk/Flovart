@@ -69,7 +69,8 @@ describe('aiGateway - validateApiKey', () => {
         const result = await validateApiKey('google', 'test-google-key');
         expect(result.ok).toBe(true);
         expect(globalThis.fetch).toHaveBeenCalledWith(
-            expect.stringContaining('generativelanguage.googleapis.com')
+            expect.stringContaining('generativelanguage.googleapis.com'),
+            expect.objectContaining({ signal: expect.anything() }),
         );
     });
 
@@ -711,7 +712,7 @@ describe('aiGateway - generateImageWithProvider', () => {
             apiKeyPayload: { id: 'google-video', provider: 'google', capabilities: ['video'], key: 'secret', createdAt: 0, updatedAt: 0 },
             references: [{ type: 'audio', href: 'https://cdn.example.com/music.mp3', mimeType: 'audio/mpeg', slotRole: 'reference_audio', label: '配乐' }],
         });
-        expect(result).toMatchObject({ ok: false, errorMessage: '当前 Provider 线路不接收 @音频 参考' });
+        expect(result).toMatchObject({ ok: false, errorMessage: '当前 AI 服务不接收 @音频 参考' });
         expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 

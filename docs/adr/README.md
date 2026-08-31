@@ -25,3 +25,4 @@
 - [0065：Workflow 变更使用版本前置条件与幂等 Mutation ID](0065-idempotent-revisioned-workflow-mutations.md)
 - [0066：DSH 集成模式下 Flovart 导航与连接状态解耦](0066-decouple-flovart-navigation-from-runtime-availability.md)
 - [0067：分离 Agent Identity、Distribution Target 与 Runtime Binding](0067-separate-host-projection-dimensions.md)
+- [0068：首次安全生成使用渐进配置与显式费用授权](0068-first-safe-generation-boundaries.md)

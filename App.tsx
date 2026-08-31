@@ -11,7 +11,7 @@ import ToastStack from './components/Toast';
 import { AppShell } from './components/AppShell';
 import { StudioTopMenu, type StudioMenuModel } from './components/studio/StudioTopMenu';
 import { useWorkspaceStore } from './stores/useWorkspaceStore';
-import { useWorkflowStore } from './components/workflow/store';
+import { flushWorkflowPersistence, useWorkflowStore } from './components/workflow/store';
 import { getGenerationCapability, type GenerationMode } from './services/generationCapabilities';
 import { cancelWorkflowGeneration, runWorkflowGeneration } from './services/workflowGeneration';
 import { ingestWorkflowMedia, loadWorkflowMediaBlob, releaseWorkflowMediaRecord } from './components/workflow/media';
@@ -285,7 +285,16 @@ const App: React.FC = () => {
             onCanonicalInput: input => { canonicalInput = input; },
             assets: assetLibrary.items.map(({ id, name, mimeType }) => ({ id, name, mimeType })),
             getProject: () => useWorkflowStore.getState().projects.find(item => item.id === projectId) || null,
-            onProjectChange: (next) => { useWorkflowStore.getState().updateProject(projectId, next); },
+            onProjectChange: (next) => {
+                const previous = useWorkflowStore.getState().projects.find(item => item.id === projectId);
+                useWorkflowStore.getState().updateProject(projectId, next);
+                const gainedDurableTask = next.nodes.some(node => {
+                    const taskId = node.metadata.generationProviderTaskId;
+                    if (!taskId || node.metadata.status !== 'loading') return false;
+                    return previous?.nodes.find(item => item.id === node.id)?.metadata.generationProviderTaskId !== taskId;
+                });
+                if (gainedDurableTask) return flushWorkflowPersistence();
+            },
             saveHistory: saveGenerationToHistory,
         });
         const generatedNode = generated.nodes.find(item => item.id === executableNodeId);

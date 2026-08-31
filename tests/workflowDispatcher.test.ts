@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createWorkflowDispatcher, type WorkflowDispatcherDependencies } from '../services/workflowDispatcher';
+import { createWorkflowDispatcher, withWorkflowHumanApproval, type WorkflowDispatcherDependencies } from '../services/workflowDispatcher';
 import { createWorkflowProject } from '../components/workflow/store';
 import { createWorkflowNode } from '../components/workflow/constants';
 import { undoWorkflowDraftChangeSet } from '../components/workflow/draftAuthority';
@@ -271,7 +271,7 @@ describe('workflow dispatcher', () => {
   it('fails run and stop commands when browser adapters are absent', async () => {
     const { dispatch, dependencies } = setup();
     dependencies.executor = undefined;
-    expect((await dispatch({ id: 'run', command: 'workflow.node.run', args: { nodeId: 'image-1', confirmed: true }, source: 'agent' })).error?.code).toBe('RUNNER_UNAVAILABLE');
+    expect((await dispatch(withWorkflowHumanApproval({ id: 'run', command: 'workflow.node.run', args: { nodeId: 'image-1' }, source: 'agent' }))).error?.code).toBe('RUNNER_UNAVAILABLE');
     expect((await dispatch({ id: 'stop', command: 'workflow.node.stop', args: { nodeId: 'image-1', confirmed: true }, source: 'agent' })).error?.code).toBe('RUNNER_UNAVAILABLE');
   });
 
@@ -341,7 +341,7 @@ describe('workflow dispatcher', () => {
     const command = { projectId, nodeId: 'image-1' };
 
     const ui = await executor.runNode(command, { surface: 'ui', correlationId: 'ui-run' });
-    const agentResult = await dispatch({ id: 'agent-run', command: 'workflow.node.run', args: { nodeId: 'image-1', confirmed: true }, source: 'agent' });
+    const agentResult = await dispatch(withWorkflowHumanApproval({ id: 'agent-run', command: 'workflow.node.run', args: { nodeId: 'image-1' }, source: 'agent' }));
     await dispatch({ id: 'cli-run', command: 'workflow.node.run', args: { nodeId: 'image-1' }, source: 'cli' });
     await dispatch({ id: 'runtime-run', command: 'workflow.node.run', args: { nodeId: 'image-1' }, source: 'operator' });
 
@@ -369,7 +369,7 @@ describe('workflow dispatcher', () => {
     });
     const { dispatch } = setup(executor);
 
-    const result = await dispatch({ id: 'provider-error', command: 'workflow.node.run', args: { nodeId: 'image-1', confirmed: true }, source: 'agent' });
+    const result = await dispatch(withWorkflowHumanApproval({ id: 'provider-error', command: 'workflow.node.run', args: { nodeId: 'image-1' }, source: 'agent' }));
 
     expect(result).toMatchObject({ ok: false, commandId: 'provider-error', error: { code: 'PROVIDER_REQUEST_FAILED', message: 'Provider 暂时不可用。' } });
   });
@@ -397,11 +397,11 @@ describe('workflow dispatcher', () => {
     const { dispatch, dependencies } = setup();
     const nodeToolRunner = vi.fn().mockResolvedValue({ status: 'committed', project: null });
     dependencies.nodeToolRunner = nodeToolRunner;
-    const result = await dispatch({
+    const result = await dispatch(withWorkflowHumanApproval({
       id: 'tool', command: 'workflow.node.tool',
-      args: { nodeId: 'image-1', tool: 'upscale', targetLongEdge: 2048, confirmed: true },
+      args: { nodeId: 'image-1', tool: 'upscale', targetLongEdge: 2048 },
       source: 'agent',
-    });
+    }));
     expect(result.ok).toBe(true);
     expect(result.result).toMatchObject({ nodeId: 'image-1', tool: 'upscale', committed: true });
     expect(nodeToolRunner).toHaveBeenCalledWith(expect.any(String), 'image-1', 'upscale', { targetLongEdge: 2048, algorithm: 'high' });
@@ -455,7 +455,7 @@ describe('workflow dispatcher', () => {
   it('rejects unknown canvas tools and requires a connected tool adapter', async () => {
     const { dispatch, dependencies } = setup();
     dependencies.nodeToolRunner = undefined;
-    const missing = await dispatch({ id: 'tool2', command: 'workflow.node.tool', args: { nodeId: 'image-1', tool: 'upscale', confirmed: true }, source: 'agent' });
+    const missing = await dispatch(withWorkflowHumanApproval({ id: 'tool2', command: 'workflow.node.tool', args: { nodeId: 'image-1', tool: 'upscale' }, source: 'agent' }));
     expect(missing.error?.code).toBe('RUNNER_UNAVAILABLE');
 
     dependencies.nodeToolRunner = vi.fn();
