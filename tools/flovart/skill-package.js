@@ -16,6 +16,7 @@ export const SKILL_PACKAGE_TEXT_EXTENSIONS = new Set([
 
 export const SKILL_PACKAGE_MAX_FILE_BYTES = 1024 * 1024;
 export const SKILL_PACKAGE_MAX_TOTAL_BYTES = 4 * 1024 * 1024;
+export const SKILL_PACKAGE_MAX_ENTRIES = 512;
 
 export const SKILL_PACKAGE_IGNORED_DIRS = new Set([
   '.git', '.hg', '.svn', 'node_modules', 'dist', 'build', '.venv', 'venv', '__pycache__', '.idea', '.vscode',
@@ -42,6 +43,43 @@ export function canonicalSkillPackageEntries(entries) {
   return [...entries]
     .map(entry => ({ path: String(entry.path), content: String(entry.content) }))
     .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+}
+
+/**
+ * Validate untrusted entries received from a hub/agent before writing them.
+ * Files read from a local package are already filtered by the directory
+ * walker; network-provided entries must go through the same boundary.
+ */
+export function validateSkillPackageEntries(entries) {
+  if (!Array.isArray(entries)) throw new Error('Skill 包 files 必须是数组');
+  if (entries.length > SKILL_PACKAGE_MAX_ENTRIES) {
+    throw new Error(`Skill 包文件数量超过限制：${SKILL_PACKAGE_MAX_ENTRIES}`);
+  }
+
+  const seen = new Set();
+  let totalBytes = 0;
+  const validated = entries.map((entry, index) => {
+    if (!entry || typeof entry.path !== 'string' || typeof entry.content !== 'string') {
+      throw new Error(`Skill 包第 ${index + 1} 个文件格式非法`);
+    }
+    const relativePath = entry.path;
+    if (relativePath.includes('\\') || !isSkillPackagePath(relativePath)) {
+      throw new Error(`Skill 包路径非法：${relativePath}`);
+    }
+    if (seen.has(relativePath)) throw new Error(`Skill 包存在重复路径：${relativePath}`);
+    seen.add(relativePath);
+    const bytes = Buffer.byteLength(entry.content, 'utf8');
+    if (bytes > SKILL_PACKAGE_MAX_FILE_BYTES) {
+      throw new Error(`Skill 包文件超过大小限制：${relativePath}`);
+    }
+    totalBytes += bytes;
+    if (totalBytes > SKILL_PACKAGE_MAX_TOTAL_BYTES) {
+      throw new Error(`Skill 包总大小超过限制：${SKILL_PACKAGE_MAX_TOTAL_BYTES}`);
+    }
+    return { path: relativePath, content: entry.content };
+  });
+
+  return canonicalSkillPackageEntries(validated);
 }
 
 /** SHA-256 over the canonical package content; stable across CLI/agent/browser sides. */

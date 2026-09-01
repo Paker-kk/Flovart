@@ -17,6 +17,7 @@ import {
   parseProductionSkillManifest,
   parseSkillFrontmatter,
   safeSkillPackageName,
+  validateSkillPackageEntries,
 } from './skill-package.js';
 
 // Bundled skills ship inside the repository and cannot be uninstalled.
@@ -179,7 +180,7 @@ export class SkillRegistry {
   async installPackage({ id, version, files }) {
     if (!safeSkillPackageName(id)) throw new Error(`无效的 Skill id：${id}`);
     if (BUNDLED_SKILL_IDS.includes(id)) throw new Error(`内置 Skill 不可重复安装：${id}`);
-    const entries = canonicalSkillPackageEntries(files);
+    const entries = validateSkillPackageEntries(files);
     if (!entries.some(entry => entry.path === 'SKILL.md')) throw new Error('Skill 包缺少 SKILL.md');
     const manifestYaml = entries.find(entry => entry.path === 'flovart.skill.yaml');
     if (!manifestYaml) throw new Error('Production Skill 包缺少 flovart.skill.yaml');
