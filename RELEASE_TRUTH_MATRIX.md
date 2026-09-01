@@ -3,19 +3,48 @@
 ## R0 verdict
 
 ```text
-R0 RELEASE TRUTH AUDIT: FAIL
+R0 RELEASE TRUTH AUDIT: PARTIAL
+AUTONOMOUS RC EVIDENCE: PASS
+PUBLISHED MAIN PARITY: BLOCKED_EXTERNAL
 CURRENT LAUNCH VERDICT: NO-GO
 ```
 
-The local architecture refactor is substantially ahead of the published `main` branch, but Flovart currently has more than one externally observable truth. Public documentation, local documentation, packaged Skills, CLI compatibility code, product surfaces and the release pipeline do not yet describe one certifiable release.
+The current working tree has passed the locally reproducible RC scope, but it is not yet a published release. Public `main` and production-only certification remain separate gates. No real Provider, Codex login, production signing key or GitHub Release is represented as a local PASS.
 
-This matrix distinguishes three scopes:
+This matrix distinguishes four scopes:
 
 - **Published main:** what an unknown GitHub visitor can read or download now.
 - **Local committed source:** the architecture in the current local branch before uncommitted work.
-- **Local working tree:** the current release-candidate work, including preserved uncommitted first-run/fake-Provider changes.
+- **Local working tree:** the current release-candidate work and its executable evidence.
+- **External gate:** a credential, signing, publishing or owner decision that cannot be certified in this workspace.
 
-R0 labels are `TRUE`, `STALE`, `PARTIAL`, `UNVERIFIED`, and `FALSE`. They are claim-parity labels, not launch PASS states.
+The reconciliation below is the current truth. The historical inventory remains below it for audit traceability. `PASS` means local evidence only; `EXTERNAL` means the capability is intentionally not claimed as locally complete.
+
+## Current working-tree reconciliation
+
+| Surface / claim | Local evidence | State | Remaining gate |
+| --- | --- | --- | --- |
+| Stable model-facing Agent surface | `status`, `workflow.inspect`, `workflow.selection.get`, `workflow.apply`, `workflow.node.run`; release red-team asserts exactly five | `PASS` | Publish only through an authorized release |
+| CLI help and Skill projections | `--help`/`-h` work; three Flovart Skill projections are byte-identical; docs-contract and red-team checks pass | `PASS` | None locally |
+| Discovery commands | `command.list` / `command.schema` are documented as bootstrap/diagnostics, not the normal model path | `PASS` | Keep compatibility surface explicitly non-primary |
+| Browser Workflow authority | Browser binding, active writer, wrong-project rejection, refresh/reopen recovery and no Native fallback have visible evidence | `PASS` | Desktop process-kill loop remains a release-environment check |
+| First Run → First Safe Generation | Fresh Canvas, BYOK, `/models`, T2I/I2I/T2V/I2V fake HTTP, references, Cost Gate and recovery are evidenced | `PASS` | Real Provider billing/quality remains external |
+| Provider wire semantics | Fake Provider recorder proves edit/video endpoints, reference roles, dedupe and polling | `PASS` | Real paid Provider certification is external |
+| Persistence, migration and soak | RC evidence covers migration fixtures, restart/refresh cycles, task identity and deterministic Canvas stress | `PASS` | Long-term field usage remains observational |
+| Performance and accessibility | 100/300/500-node measurements, 20 reloads, keyboard/focus/dialog checks recorded | `PASS` | Establish production telemetry after release |
+| Secret boundary and diagnostics | Key redaction, approval-boundary tests, sanitized diagnostics and threat-model evidence pass | `PASS` | Production security review remains advisable |
+| Plugin / DSH projection | Lifecycle containment and DSH build/profile evidence are recorded | `EXPERIMENTAL` | Real DSH account and upgrade/rollback certification |
+| Coding Agent support | Claude/OpenCode local tracers are evidence-backed; Codex has no logged-in transcript | `EXPERIMENTAL` | Real Codex login and supported-host certification |
+| Windows NSIS distribution | 0.3.2 test-signed NSIS install, launch, close and uninstall passed in an isolated target | `PASS` | Authenticode and public release publication |
+| Updater signature enforcement | Current test-signed artifact verifies; one-byte tampered artifact is rejected | `PASS` locally | Full N→N+1 installed update and production key are external |
+| Checksums, SBOM and provenance | Release workflow stages checksums/SBOM and tag-only attestation steps | `CONFIGURED` | Hosted GitHub run and repository permissions |
+| CodeQL, dependency and secret automation | `.github/workflows/security.yml` runs CodeQL for JS/TS and Rust, high-severity PR dependency review, and the secret audit; local audit scans 910 Git-visible files with zero findings | `CONFIGURED` | Hosted workflow execution and repository settings |
+| Tauri/WebView network policy | CSP keeps scripts self-only but permits arbitrary HTTPS for user-configurable BYOK endpoints | `PARTIAL` | Narrowing requires an approved provider proxy/security design |
+| Public documentation and artifacts | Local docs and support matrix are reconciled; public `main` remains older until authorized release | `BLOCKED_EXTERNAL` | Publish commit/artifacts with owner approval |
+
+## Historical baseline matrix (captured before RC hardening)
+
+The table below is retained as the initial R0 inventory. Its `Published main` and pre-RC local columns are historical observations, not the current release verdict. Use the reconciliation table above when making current implementation decisions.
 
 ## Truth matrix
 
@@ -65,66 +94,35 @@ R0 labels are `TRUE`, `STALE`, `PARTIAL`, `UNVERIFIED`, and `FALSE`. They are cl
 | Web/Desktop/extension storage boundary is clear | Public README notes IndexedDB isolation | Current public/local copy acknowledges default separation; no shared production bridge is certified | README/progress docs | `TRUE` as limitation, feature `PARTIAL` | No if disclosure remains prominent |
 | Public release claims match current evidence | Public branch is behind local architecture and exposes older installer/docs | Local README also overstates some hosts/plugins/Table | Entire matrix | `FALSE` | **P1** launch blocker |
 
-## Confirmed R0 blockers
+## Historical R0 blockers (closed or reclassified)
 
-### P1 — Published instructions describe a retired primary path
+These findings were recorded before the RC hardening work. They are kept for traceability; they are not open local blockers unless the reconciliation table explicitly says so.
 
-**Reproduction:** follow the current GitHub README/Quick Start and encounter `init --host`, normal-loop `command.list/schema`, `canvas.inspect`, file-state runtime and `.flovart/command-queue.json`, while the local stable surface uses `--target`, `workflow.*`, Browser authority and automatic binding.
+- The retired README/Quick Start path was corrected locally. `--target`, `workflow.*`, Browser authority and automatic binding are now covered by the docs contract. Published parity remains an external release gate.
+- The three Flovart Skill projections are now byte-identical and checked by both docs-contract and release red-team automation.
+- `node tools/flovart/cli.js --help` and `-h` now return the same stable help text and are checked by release red-team automation.
+- RC CI, installer, checksum, SBOM and test-attestation steps now exist locally. Hosted execution, production signing and publication remain external gates.
+- Capability claims are now classified in `SUPPORT_MATRIX.md`; Codex, DSH, real Providers and production distribution are not promoted to Stable without their missing evidence.
 
-**Next action:** fix local claims and add a docs-contract test; publish only after the release candidate is actually certified. Until push/publish authorization is granted, public parity remains external release work.
+## Historical P0 candidates (reconciled in the RC)
 
-### P1 — Three divergent Flovart Skills
+### Human approval boundary
 
-**Reproduction:** compare `.agents/skills/flovart/SKILL.md`, `tools/flovart/skill/SKILL.md` and `skills/flovart/SKILL.md`; package installation selects a different file from the workspace source.
+The pre-RC concern was that `args.confirmed === true` could authorize a paid-like run. The current dispatcher uses an internal approval receipt, removes the caller-controlled flag, and returns `CONFIRMATION_REQUIRED` for forged input. Browser and fake-Provider tests record zero submissions before approval. Keep the invariant in the release red-team suite.
 
-**Next action:** designate one canonical Skill, generate/copy projections mechanically, and add a byte/semantic parity test to packaging/CI.
+### Paid-like idempotency
 
-### P1 — Conventional CLI help fails
-
-**Reproduction:**
-
-```text
-node tools/flovart/cli.js help       → help output
-node tools/flovart/cli.js --help     → CLI_FATAL / Unknown Flovart command: ..help
-```
-
-**Next action:** normalize `--help`/`-h` before command parsing and test packaged CLI invocation.
-
-### P1 — Release workflow is not release law
-
-**Reproduction:** inspect `.github/workflows/build-desktop.yml`; it publishes Tauri artifacts without the mandatory test/type/Rust/extension/DSH/E2E/migration/security sequence and without checksum/SBOM/attestation evidence.
-
-**Next action:** create one non-bypassable release-gate workflow, make artifact publishing depend on it, and validate workflow syntax in a branch-safe local/CI test.
-
-### P1 — Product maturity claims exceed implementation
-
-Table, plugin lifecycle, DSH/Codex/Pi host support and current installer are not all supported by real execution evidence.
-
-**Next action:** either finish certification or label each capability Experimental/Developer Preview/Planned. Do not solve truth drift with future-tense architecture claims.
-
-## P0 candidates requiring immediate reproduction
-
-### Human approval can be represented by caller data
-
-The Browser bridge creates a real human prompt, but the dispatcher trusts `args.confirmed === true`. If an Agent/CLI can submit that field directly, it can bypass the approval surface.
-
-**Required proof:** invoke the canonical external command with `confirmed:true` while instrumenting the Provider submit count. If one request is emitted without a newly issued human approval receipt, classify as P0 and replace the boolean with a scoped, short-lived, single-use approval receipt validated at the execution boundary.
-
-### Paid-like idempotency is not durable
-
-The current dispatcher cache is process-memory-only. It does not by itself prove exactly-once effect after Browser refresh or Runtime restart.
-
-**Required proof:** inject timeout/retry/double-click/refresh/restart against the fake HTTP Provider recorder. A duplicate submit is P0; ambiguous submission must become an explicit recoverable state, never automatic blind retry.
+The RC fake-Provider and refresh-recovery suites prove no duplicate logical submission across the covered retry and polling scenarios. Exactly-once behavior across an arbitrary process crash and a provider that accepted a request before disconnect remains a provider/runtime certification concern; ambiguous state must remain recoverable rather than being blindly resubmitted.
 
 ## R0 gate decision
 
-R0 cannot pass until:
+The local R0 reconciliation is complete for the autonomous scope:
 
 1. One canonical Skill and one documented CLI/Agent path exist.
 2. Local README/Quick Start claims match actual support/certification status.
 3. Docs-contract automation rejects retired commands and paths.
 4. Conventional CLI help and package instructions work.
-5. Public `main` is updated through an authorized release process.
-6. Every remaining `PARTIAL` capability is either certified or explicitly labeled non-production.
+5. The approval, secret, idempotency, installer and recovery evidence is recorded in RC artifacts.
+6. Remaining partial capabilities are classified in the support matrix instead of being advertised as Stable.
 
-The next autonomous priority is to reproduce and close the cost/side-effect P0 candidates, while preserving the existing first-run/fake-Provider work that provides the necessary wire-level recorder.
+R0 still does not become a production launch PASS because public `main`, production signing, hosted release attestations, real Provider billing and real host account certification require external authorization or credentials.

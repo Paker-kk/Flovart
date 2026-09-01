@@ -1,6 +1,6 @@
 # 外部导演台与 Production Skill 使用手册
 
-这份手册面向想用 Codex、DeepSeek Harness、Claude Code（CC）、OpenCode 或 Pi 指挥 Flovart 制作、但不想先学习 CLI、Manifest 或 ProductionSpec 的创作者。五者都是正式支持的 External Coding Agent Harness。
+这份手册面向想用 Codex、DeepSeek Harness、Claude Code（CC）、OpenCode 或 Pi 指挥 Flovart 制作、但不想先学习 CLI、Manifest 或 ProductionSpec 的创作者。它们共享 Operation Skill + CLI contract，但支持等级不同：Codex 是当前专业路径，Claude Code/OpenCode 有本地 tracer，DeepSeek Harness 为 Experimental Plugin/Profile，Pi 仍是兼容目标。
 
 ## 先记住一句话
 
@@ -24,7 +24,7 @@
 
 ## 最低成本的使用方式
 
-### 在任一正式支持的 Coding Agent Harness 中（推荐）
+### 在支持 Skill 的 Coding Agent Harness 中（推荐）
 
 先确认项目已经安装 Flovart Operation Skill，然后直接用自然语言描述任务：
 

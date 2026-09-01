@@ -494,3 +494,363 @@ U9 — Final Autonomous Acceptance（本机自动验收完成；真实 Provider/
 1. 文本节点需继续从用户角度确认“编辑正文”与“移动节点”的入口是否足够清晰；不应通过破坏 textarea 编辑语义解决。
 2. 仍未完成 RC6 资源泄漏循环、RC8 键盘/焦点验收、RC9–RC12 安全/插件/Provider/Host chaos 和 RC13+ 发布链。
 3. 下一步读取现有资源/弹窗/键盘测试，完成可访问性与资源回收的真实浏览器/定向回归，再进入威胁模型审计。
+
+# Release Candidate Hardening — RC6/RC8 completion update
+
+## Current phase
+
+RC6 and RC8 are complete. Next phase is RC9 security and plugin isolation.
+
+## Decisions
+
+- The resource soak measures settled ownership by view: Workflow owns one media URL for the fixture; Table owns two because it renders both the selected preview and the source-list thumbnail. A transient 1 → 2 transition is expected asynchronous Table hydration, not a leak.
+- Escape is a global dismissal affordance for Workflow toolbar overlays. Settings is now a labelled modal dialog with an explicit close button, initial focus, and a local Tab trap. Escape closes an open key form first and the settings dialog second.
+- Canvas freeform drag remains spatial; the acceptance claim is limited to keyboard-accessible controls and the existing Delete/layer/inspector alternatives.
+
+## Changed files
+
+- `components/workflow/WorkflowToolbar.tsx`
+- `components/SettingsPanel.tsx`
+- `tests/workflowResourceResolver.test.ts`
+- `RC_RESOURCE_EVIDENCE.md`
+- `RC_ACCESSIBILITY_EVIDENCE.md`
+
+## Tests and browser evidence
+
+- `npx vitest run tests/workflowResourceResolver.test.ts tests/releaseCandidatePersistence.test.ts tests/releaseCandidateCanvasStress.test.ts`: 3 files / 8 tests passed.
+- `npx tsc --noEmit`: passed.
+- Visible Chromium accessibility smoke: 31 named controls, 0 unnamed; focus trap true; all overlay Escape checks true; 0 console/page errors.
+- Visible Chromium resource lifecycle smoke: 30 Workflow → Table → Workflow cycles; settled Table count 2, settled Workflow count 1, no monotonic increase, 0 console/page errors.
+
+## Unresolved risks
+
+- OS-level retained-memory profiling is still pending; the browser object-URL ownership check is not a substitute for it.
+- RC9–RC20 remain to be audited.
+
+## Exact next step
+
+Audit and test the secret boundary, localhost bridge authentication/origin/path handling, Rust IPC input validation, and plugin failure isolation before touching release/update automation.
+
+# Release Candidate Hardening — RC9 security update
+
+## Current phase
+
+RC9 security boundary audit is complete for the currently testable local
+surfaces. Continue with RC10 plugin failure isolation.
+
+## Decisions and fixes
+
+- Hub/Agent-provided Skill package entries now use the same canonical path and
+  text-content boundary as locally scanned packages before installation.
+- The install boundary rejects traversal/absolute/non-canonical paths,
+  non-text extensions, duplicate paths, more than 512 entries, files over
+  1 MiB, and packages over 4 MiB. Rejection happens before package-directory
+  creation; post-create failures still remove the partial directory.
+- `THREAT_MODEL.md` records the browser, Agent Bridge, DSH proxy, Runtime/IPC,
+  Skill/plugin, secret, and release-artifact boundaries without moving any
+  Host-specific logic into Workflow Core.
+
+## Changed files
+
+- `tools/flovart/skill-package.js`
+- `tools/flovart/skill-registry.js`
+- `tests/skillPackage.test.ts`
+- `tests/agentSkillRegistry.test.ts`
+- `THREAT_MODEL.md`
+- `RC_SECURITY_EVIDENCE.md`
+
+## Verification
+
+- Skill/package security focused suite: 2 files, 15 tests passed.
+- `npx tsc --noEmit`: passed.
+- Existing Workspace, DSH proxy, extension, Agent session, Runtime control,
+  and toolkit integrity tests remain the evidence map in
+  `RC_SECURITY_EVIDENCE.md`.
+
+## Unresolved risks / exact next step
+
+- Production updater signature/attestation and real Provider/Codex/DSH account
+  certification remain external gates.
+- RC10 must exercise plugin install/enable/disable/update/rollback/uninstall,
+  malformed manifests, unknown nodes, and renderer/provider failure isolation.
+
+# Release Candidate Hardening — RC10 plugin update
+
+## Current phase
+
+RC10 plugin failure isolation is complete for the current in-process Node
+Plugin SDK and declarative User Provider extension. Continue with RC11
+Provider resilience soak.
+
+## Decisions and fixes
+
+- Node Plugin updates now retain a prior definition and expose explicit
+  rollback; failed/invalid contracts do not create a registry entry.
+- Plugin rendering, panel, and toolbar execution is mounted below a
+  node-local React error boundary. One broken plugin node becomes an
+  understandable placeholder while the rest of the Workflow stays usable.
+- The Node Plugin SDK remains a trusted in-process surface, not a security
+  sandbox. This is explicitly recorded in `THREAT_MODEL.md` and
+  `RC_PLUGIN_EVIDENCE.md`; third-party plugin isolation is not advertised as
+  stable.
+
+## Changed files
+
+- `components/workflow/nodePluginSdk.tsx`
+- `components/workflow/WorkflowNode.tsx`
+- `tests/nodePluginSdk.test.tsx`
+- `tests/workflowEditor.test.tsx`
+- `RC_PLUGIN_EVIDENCE.md`
+- `THREAT_MODEL.md`
+
+## Verification
+
+- `npx vitest run tests/nodePluginSdk.test.tsx tests/workflowEditor.test.tsx tests/userScriptProviderAdapter.test.ts --reporter=dot`: 3 files / 52 tests passed.
+- `npx tsc --noEmit`: passed.
+- Renderer failure regression proves the real Workflow editor remains mounted
+  and renders a node-local fallback.
+
+## Unresolved risks / exact next step
+
+- Provider extension lifecycle is register/unregister/clear today; a separate
+  provider-plugin sandbox/permission model is intentionally not invented in
+  this RC.
+- Continue with Fake Provider 401/429/500/timeout/polling/refresh/restart
+  resilience and duplicate-submit statistics in RC11.
+
+# Release Candidate Hardening — RC11 provider update
+
+## Current phase
+
+RC11 Fake Provider resilience soak is complete. Continue with RC12 Host and
+Browser chaos, then audit updater/CI/offline/diagnostics.
+
+## Verification
+
+- `tests/releaseCandidateProviderResilience.test.ts` runs a real localhost
+  HTTP 30/30/20/20 soak: 100 successful logical generations, 100 submit
+  requests, 0 duplicate submits, 30 I2I edit requests with references, and
+  20 I2V requests with first-frame references.
+- The same test proves a rate-limit failure followed by an explicit healthy
+  retry remains visible and creates exactly two requests for two attempts.
+- Existing fake integration covers unauthorized, 429, 500, malformed response,
+  model-discovery timeout, polling timeout, and resume-existing-task without a
+  second submission.
+
+## Evidence
+
+- `RC_PROVIDER_RESILIENCE_EVIDENCE.md`
+- `tests/releaseCandidateProviderResilience.test.ts`
+
+## Unresolved risks / exact next step
+
+- This is local fake HTTP evidence only; real Provider pricing/billing,
+  cancellation, account limits, and visual quality remain external.
+- RC12 must inject Browser refresh/close, second tab, project switch, Runtime
+  restart, Agent restart, and Host switch while asserting no wrong-target or
+  duplicate generation write.
+
+# Release Candidate Hardening — RC12 Host chaos update
+
+## Current phase
+
+RC12 Host and Browser chaos is complete for the source WebUI and local Agent
+surfaces that are available in this environment. Continue with RC13–RC17
+updater, artifact provenance, CI, offline, and diagnostics hardening.
+
+## Verification
+
+- Visible Chromium tracer bullet: two-tab Writer lock, first-tab close,
+  recovery CTA, explicit `WORKSPACE_UNAVAILABLE`, recovery inspect, wrong
+  project binding rejection, Claude Code Host activation, Codex revocation,
+  unchanged active project, zero browser errors, and fixture cleanup all
+  passed.
+- The second tab did not include the launcher-only automatic Writer claim;
+  the first tab remained the active Writer until it was closed.
+- Existing startup/Agent restart and async-video refresh evidence is recorded
+  in `RC_HOST_CHAOS_EVIDENCE.md`.
+
+## Changed files
+
+- `RC_HOST_CHAOS_EVIDENCE.md`
+
+## Remaining risks / exact next step
+
+- A desktop Runtime process-kill loop is not independently measured in this
+  source-WebUI run; keep the existing bootstrap/restart evidence and do not
+  claim full desktop Runtime chaos until a Runtime process is available.
+- Proceed to inspect the real Tauri updater configuration, test-signing path,
+  release workflow, offline shell, and sanitized diagnostics.
+
+# Release Candidate Hardening — RC13–RC20 completion update
+
+## Current phase
+
+RC13–RC20 autonomous hardening is complete for the capabilities available
+without real Provider/Codex/DSH accounts. The repository is ready for a final
+release-candidate verdict after rebuilding the final local NSIS artifact.
+
+## Decisions
+
+- The production desktop workflow remains `.github/workflows/build-desktop.yml`.
+  It stages only bundle installers, emits SHA256 checksums, generates a
+  platform-specific SPDX SBOM with Anchore, and creates tag-only GitHub
+  artifact attestations. The manual legacy workflow is not treated as the
+  authoritative release gate.
+- A test-only Tauri signing key was used in an isolated temporary config. The
+  repository production public key/config and ignored local key files were not
+  changed; production key ownership remains an external release check.
+- Offline UX is a shell-level state: local project/assets/Canvas remain usable,
+  while remote Provider, marketplace, and Agent work waits for recovery.
+- Advanced Dock diagnostics are generated from an allowlisted DTO. They retain
+  useful status/project/host fields but never serialize the connection token,
+  query string, Provider credentials, or request bodies.
+- The release red-team matcher treats client identity comparisons as valid
+  binding logic and only rejects literal branches on known Host identities.
+
+## Changed files
+
+- `.github/workflows/build-desktop.yml`
+- `.github/workflows/ci.yml`
+- `scripts/run-critical-suite.mjs`
+- `scripts/release-red-team.mjs`
+- `services/supportDiagnostics.ts`
+- `components/OfflineNotice.tsx`
+- `components/AppShell.tsx`
+- `components/dock/ProductionControl.tsx`
+- `tests/offlineShell.test.tsx`
+- `tests/supportDiagnostics.test.ts`
+- `SUPPORT_MATRIX.md`
+- `THREAT_MODEL.md`
+- `RC_*_EVIDENCE.md`
+- `README.md`, `README.en.md`, progress docs, and `CHANGELOG.md`
+
+## Verification
+
+- Full Vitest: `150` files, `1017 passed`, `1 skipped` (`1018` total).
+- Critical suite: `10/10` repetitions; each repetition `9` files / `48` tests,
+  total runtime `53.5s`.
+- TypeScript: `npx tsc --noEmit` passed.
+- Web build: passed; existing dynamic-import and large-chunk warnings remain.
+- Browser extension build: passed.
+- DSH plugin build: passed with client loader contract verification.
+- Rust: `cargo test --all-targets` passed, `36` tests.
+- Docs contract: `18` files checked.
+- Release red-team: `ok=true`, zero failures, five public Agent commands.
+- Visible Chromium offline smoke: editor remained visible while offline,
+  recovery cleared the notice, and browser/page errors were zero.
+- Local Tauri test-signing proof: valid signature accepted and tampered
+  installer rejected. Local NSIS install/launch/uninstall proof is recorded in
+  `RC_INSTALLER_EVIDENCE.md`.
+
+## Remaining risks / exact next step
+
+- Final local NSIS rebuild and isolated install/launch/uninstall smoke are now
+  complete. The final test-signed package is `12,249,543` bytes with SHA-256
+  `962D27A1B44FC0F56B82EBA47345B8F1A62F0BAA836FE22476CF634F815D74A9` and a
+  416-byte updater signature; install/launch/graceful-close/uninstall all
+  passed in a unique temporary directory, and the final signature verified
+  while a one-byte tampered copy was rejected.
+- A full installed N→N+1 updater run, production Authenticode, GitHub hosted
+  SBOM/provenance, real Provider billing/cancellation, Codex login transcript,
+  and DSH login are external gates and must not be reported as passed.
+- The developer `node_modules` tree has existing Radix/React peer drift that
+  makes `npm sbom --package-lock-only` reject locally; hosted release uses the
+  independent Anchore scan after clean `npm ci`.
+
+## Final RC handoff
+
+The autonomous RC evidence is complete. Run the final plan/status update and
+report `AUTONOMOUS RC: PASS` only for the locally verifiable scope; report
+`PRODUCTION LAUNCH: NO-GO` until the external certification gates above are
+performed with production-equivalent credentials and signing material.
+
+## Closure verification
+
+- `npm run docs:check`: passed, 18 files checked.
+- `npm run release:red-team`: passed, zero failures and five public Agent
+  commands.
+- `git diff --check`: passed; only the existing LF/CRLF normalization warnings
+  were emitted for progress docs.
+- Final artifact status: NSIS `12,249,543` bytes, SHA-256
+  `962D27A1B44FC0F56B82EBA47345B8F1A62F0BAA836FE22476CF634F815D74A9`, updater
+  signature 416 bytes, no repository-related process or listener remains.
+
+# Launch truth reconciliation and security automation continuation
+
+## Current phase
+
+R0/R15/R26 truth reconciliation and security automation are complete for the
+locally verifiable scope. The launch verdict remains `NO-GO` because public
+parity, real accounts, production signing and hosted release certification are
+not local evidence.
+
+## Decisions
+
+- `RELEASE_TRUTH_MATRIX.md` now has a current working-tree reconciliation table
+  and retains the pre-RC inventory as an explicitly historical snapshot.
+- The three Flovart Skill projections remain byte-identical and are checked by
+  docs-contract and release red-team automation.
+- `npm run release:secret-audit` scans Git-visible tracked and non-ignored
+  untracked files, redacts findings, and fails on high-confidence key/token
+  patterns. It does not treat ignored local test signing keys as repository
+  material.
+- `.github/workflows/security.yml` is reusable by the tag release path and
+  runs CodeQL for JavaScript/TypeScript and Rust, high-severity dependency
+  review on pull requests, and the secret audit.
+- `build-desktop.yml` runs a tag release gate, creates draft Releases, waits for
+  the complete build matrix and artifact integrity steps, then finalizes from a
+  separate publish job. The old manual `release.yml` is now a non-publishing
+  redirect, so it cannot bypass the release law.
+
+## Changed files
+
+- `.github/workflows/build-desktop.yml`
+- `.github/workflows/ci.yml`
+- `.github/workflows/security.yml`
+- `.github/workflows/release.yml`
+- `scripts/release-secret-audit.mjs`
+- `scripts/release-red-team.mjs`
+- `tests/runtimeAgentTextStream.test.ts`
+- `package.json`
+- `RELEASE_TRUTH_MATRIX.md`
+- `LAUNCH_GOAL.md`
+- `THREAT_MODEL.md`
+- `SUPPORT_MATRIX.md`
+- `RC_SECURITY_AUTOMATION_EVIDENCE.md`
+- `docs/content/docs/progress/todo.mdx`
+- `docs/content/docs/progress/pending-test.mdx`
+
+## Verification
+
+- Full Vitest: `150` files, `1017 passed`, `1 skipped` (`1018` total).
+- TypeScript: `npx tsc --noEmit` passed.
+- Web build: passed; existing dynamic-import and large-chunk warnings remain.
+- Browser extension build: passed.
+- DSH plugin build: passed with client loader contract verification.
+- Rust: `cargo test --manifest-path src-tauri/Cargo.toml --all-targets` passed,
+  `36` tests.
+- Critical suite: `10/10`; each repetition had `9` files and `48` tests,
+  completed in `45.0s`.
+- Docs contract: passed, `18` files checked.
+- Release red-team: passed, zero failures and five public Agent commands.
+- Secret audit: passed, `910` Git-visible files scanned and zero findings.
+- All workflow YAML files parsed successfully with the repository YAML parser.
+- `git diff --check` passed; only the existing LF/CRLF normalization warnings
+  for progress docs remain.
+
+## Remaining risks / exact next step
+
+- Run the hosted `security.yml` and tag `build-desktop.yml` once in GitHub to
+  collect CodeQL, dependency-review, artifact-attestation and draft-finalize
+  evidence. A workflow file is configured, not proof of a hosted run.
+- Enable and verify GitHub secret scanning, push protection and branch rules in
+  the release repository; these settings cannot be proven from source alone.
+- Perform the external N→N+1 updater run, Windows Authenticode check, real
+  Provider billing/cancellation test and logged-in Codex/DSH transcripts.
+- Keep the accepted CSP tradeoff visible: arbitrary HTTPS is currently needed
+  for user-configurable BYOK endpoints; narrowing it requires an approved
+  provider proxy/security design.
+- Do not publish, push, create production signing material or mark the launch
+  `GO` from this workspace without the required owner authorization and
+  external evidence.

@@ -122,7 +122,7 @@ Flovart 将规定 Production Skill 的最小对接契约，并通过 Skill Creat
 | Production Skill 契约与 UGC 生态 | 设计与实现中 |
 | TUI 快捷命令 | 基础能力已接入；任务订阅与断点续跑待完善 |
 
-当前创作者运行时以 TypeScript / Node.js 为主。Go + Gin + GORM 只用于企业控制面，例如组织、RBAC、审计和私有化管理；它不是视频制作运行时。
+当前创作者运行时以 TypeScript / Node.js 为主。Go + Gin + GORM 只用于企业控制面，例如组织、RBAC、审计和私有化管理；它不是视频制作运行时。各 Host、Provider 与插件的真实证据等级见 [Support Matrix](SUPPORT_MATRIX.md)。
 
 ## 快速开始
 

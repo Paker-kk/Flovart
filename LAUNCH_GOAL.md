@@ -3,7 +3,7 @@
 ## Release Candidate → Production Launch
 
 **Status:** `ACTIVE`  
-**Current phase:** `R0 — RELEASE TRUTH AUDIT`  
+**Current phase:** `R0/R15/R26 — TRUTH RECONCILIATION & SECURITY AUTOMATION`
 **Current launch verdict:** `NO-GO` until every autonomous and external certification gate below has evidence.
 
 ## Mission

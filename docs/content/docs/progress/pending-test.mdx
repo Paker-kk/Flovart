@@ -4,6 +4,20 @@ title: 待测试确认
 
 本页只记录当前版本已经进入代码或文档、但仍需用户确认的变更。旧版本的 Canvas、Art、Excalidraw、MCP、Managed/Connected Agent 与阶段施工流水不再保留在这里；需要追溯时使用 Git 历史。完成用户验收后，再把稳定能力更新到[功能特性](../overview/features.mdx)。
 
+## Release Candidate Hardening：发行候选验收
+
+- 已建立 `RC_BASELINE.md`、安装器/迁移/持久化/Canvas stress/资源/accessibility/security/plugin/provider/Host chaos/updater/offline/diagnostics/red-team 证据文档；本机自主验收不等同于真实账号、付费接口或生产发布认证。
+- Windows 本地 NSIS 已实际构建、隔离安装、启动、关闭和卸载；Tauri test-only updater 签名已验证有效载荷可验签且篡改包被拒绝。生产 updater private key、Authenticode 和完整 N→N+1 updater 安装仍待发行机确认。
+- CI 已加入 docs/typecheck/full Vitest/Web/extension/DSH/Rust/release invariant 门禁；关键套件本机 `10/10` 通过，GitHub hosted workflow 还需在仓库权限和 release secret 下实际执行。
+- Release security 已加入 `npm run release:secret-audit`、`.github/workflows/security.yml` 的 CodeQL（JS/TS + Rust）与 PR 高危依赖审查；本机扫描 910 个 Git-visible files 为零发现，GitHub secret scanning/push protection 与 hosted 首轮结果仍需在仓库设置中确认。
+- 断网时保留本地项目、素材和 Canvas 编辑，并以产品文案提示远程能力等待恢复；高级 Dock 支持复制脱敏诊断 JSON。默认页面不展示连接 Token、Provider secret 或运行时协议字段。
+- 支持等级统一记录在根目录 `SUPPORT_MATRIX.md`：Codex/Claude/OpenCode/DSH 为 Experimental，CodeBuddy Code/Pi/WorkBuddy 为 Planned 或 mainstream projection 候选，真实 Provider/账号/账单不写成 Stable。
+
+待用户/外部环境确认：
+
+1. 在 disposable Windows 发行环境使用生产等价签名完成 N→N+1 更新、无效签名拒绝、升级中断恢复和 Authenticode 验证。
+2. 登录 Codex、真实 Provider（必要时 DSH）完成首次安装/生成/账单/取消/登录态恢复 transcript；本轮 fake provider 不替代这些认证。
+
 ## First Run → First Safe Generation：首启到首次安全生成
 
 - 首次打开没有 AI 服务时仍可进入并编辑正常 Canvas；只有执行生成时才显示“添加 AI 服务”入口，不再以 Provider 错误或禁用按钮阻塞首屏。

@@ -121,7 +121,7 @@ Flovart will define the minimum integration contract for Production Skills and p
 | Production Skill contract and UGC ecosystem | In design and implementation |
 | TUI `/xxxx` shortcuts, job subscriptions, and resumable runs | Planned |
 
-The creator runtime is primarily TypeScript and Node.js. Go + Gin + GORM belong to the enterprise control plane for organizations, RBAC, audit, and private deployment management; Go is not the creative runtime.
+The creator runtime is primarily TypeScript and Node.js. Go + Gin + GORM belong to the enterprise control plane for organizations, RBAC, audit, and private deployment management; Go is not the creative runtime. Evidence levels for Hosts, Providers, and plugins are tracked in the [Support Matrix](SUPPORT_MATRIX.md).
 
 ## Quick start
 
