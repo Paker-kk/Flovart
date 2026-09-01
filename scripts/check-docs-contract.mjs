@@ -12,6 +12,12 @@ const stableAgentSurface = [
   'workflow.node.run',
 ];
 
+const skillProjectionPaths = [
+  '.agents/skills/flovart/SKILL.md',
+  'tools/flovart/skill/SKILL.md',
+  'skills/flovart/SKILL.md',
+];
+
 const releaseDocPaths = [
   'README.md',
   'README.en.md',
@@ -91,18 +97,20 @@ export function checkDocsContract({ rootDir = path.resolve(path.dirname(fileURLT
     }
   }
 
-  for (const relativePath of ['.agents/skills/flovart/SKILL.md', 'tools/flovart/skill/SKILL.md']) {
+  for (const relativePath of skillProjectionPaths) {
     const text = docs.find(doc => doc.relativePath === relativePath)?.text || '';
     for (const command of stableAgentSurface) {
       if (!text.includes(`\`${command}\``)) errors.push(`${relativePath}: stable Agent command ${command} is missing`);
     }
   }
 
-  const projectionA = fs.existsSync(path.join(rootDir, '.agents/skills/flovart/SKILL.md'))
-    ? fs.readFileSync(path.join(rootDir, '.agents/skills/flovart/SKILL.md'), 'utf8') : '';
-  const projectionB = fs.existsSync(path.join(rootDir, 'tools/flovart/skill/SKILL.md'))
-    ? fs.readFileSync(path.join(rootDir, 'tools/flovart/skill/SKILL.md'), 'utf8') : '';
-  if (projectionA !== projectionB) errors.push('.agents/skills/flovart/SKILL.md and tools/flovart/skill/SKILL.md have drifted');
+  const canonicalSkill = fs.existsSync(path.join(rootDir, skillProjectionPaths[0]))
+    ? fs.readFileSync(path.join(rootDir, skillProjectionPaths[0]), 'utf8') : '';
+  for (const relativePath of skillProjectionPaths.slice(1)) {
+    const projection = fs.existsSync(path.join(rootDir, relativePath))
+      ? fs.readFileSync(path.join(rootDir, relativePath), 'utf8') : '';
+    if (projection !== canonicalSkill) errors.push(`${relativePath} has drifted from ${skillProjectionPaths[0]}`);
+  }
 
   return { errors, files: docs.map(doc => doc.relativePath) };
 }
