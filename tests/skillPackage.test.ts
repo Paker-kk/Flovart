@@ -9,6 +9,10 @@ import {
   parseProductionSkillManifest,
   parseSkillFrontmatter,
   safeSkillPackageName,
+  SKILL_PACKAGE_MAX_ENTRIES,
+  SKILL_PACKAGE_MAX_FILE_BYTES,
+  SKILL_PACKAGE_MAX_TOTAL_BYTES,
+  validateSkillPackageEntries,
 } from '../tools/flovart/skill-package.js';
 import { hashProductionSkillSnapshot } from '../services/productionSkillSnapshot.js';
 
@@ -44,6 +48,34 @@ describe('skillPackage shared helpers', () => {
     expect(hash).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(hash).toBe(await hashProductionSkillSnapshot(canonical));
     expect(hash).not.toBe(await hashSkillPackageEntries([...entries, { path: 'c.md', content: '' }]));
+  });
+
+  it('validates untrusted package entries before installation', () => {
+    expect(validateSkillPackageEntries([
+      { path: 'z.md', content: 'z' },
+      { path: 'SKILL.md', content: 'skill' },
+    ]).map(entry => entry.path)).toEqual(['SKILL.md', 'z.md']);
+    expect(() => validateSkillPackageEntries([{ path: '../escape.md', content: 'x' }])).toThrow('路径');
+    expect(() => validateSkillPackageEntries([{ path: '/absolute.md', content: 'x' }])).toThrow('路径');
+    expect(() => validateSkillPackageEntries([{ path: 'C:\\absolute.md', content: 'x' }])).toThrow('路径');
+    expect(() => validateSkillPackageEntries([{ path: 'assets/cover.png', content: 'x' }])).toThrow('路径');
+    expect(() => validateSkillPackageEntries([{ path: 'foo\\bar.md', content: 'x' }])).toThrow('路径');
+    expect(() => validateSkillPackageEntries([
+      { path: 'a.md', content: 'x' },
+      { path: 'a.md', content: 'y' },
+    ])).toThrow('重复');
+    expect(() => validateSkillPackageEntries([
+      { path: 'large.md', content: 'x'.repeat(SKILL_PACKAGE_MAX_FILE_BYTES + 1) },
+    ])).toThrow('大小');
+    expect(() => validateSkillPackageEntries([
+      ...Array.from({ length: Math.ceil(SKILL_PACKAGE_MAX_TOTAL_BYTES / SKILL_PACKAGE_MAX_FILE_BYTES) + 1 }, (_, index) => ({
+        path: `total-${index}.md`,
+        content: 'x'.repeat(SKILL_PACKAGE_MAX_FILE_BYTES),
+      })),
+    ])).toThrow('总大小');
+    expect(() => validateSkillPackageEntries(
+      Array.from({ length: SKILL_PACKAGE_MAX_ENTRIES + 1 }, (_, index) => ({ path: `f${index}.md`, content: '' })),
+    )).toThrow('文件数量');
   });
 
   it('parses a valid production manifest and rejects broken ones', () => {

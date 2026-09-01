@@ -9,6 +9,7 @@ import { WorkflowMiniMap } from '../components/workflow/WorkflowMiniMap';
 import { workflowMediaStorage } from '../components/workflow/storage';
 import type { WorkflowProject } from '../components/workflow/types';
 import { getGenerationCapability } from '../services/generationCapabilities';
+import { installWorkflowNodePlugin, uninstallWorkflowNodePlugin } from '../components/workflow/nodePluginSdk';
 
 const makeProject = (): WorkflowProject => ({
   id: 'project-1',
@@ -209,6 +210,31 @@ describe('InfiniteWorkflow surface interactions', () => {
     fireEvent.pointerDown(node('image-media').querySelector('img')!, { button: 0, pointerId: 23, clientX: 140, clientY: 150 });
     fireEvent.pointerUp(window, { pointerId: 23, clientX: 140, clientY: 150 });
     expect(editor().querySelectorAll('video')).toHaveLength(0);
+  });
+
+  it('contains a renderer failure to the plugin node instead of taking down the Canvas', () => {
+    const pluginId = 'test.renderer-failure';
+    installWorkflowNodePlugin({
+      pluginId,
+      type: 'plugin:renderer-failure',
+      version: '1.0.0',
+      title: '故障插件',
+      outputs: () => [],
+      render: () => { throw new Error('插件渲染失败'); },
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const initial = makeProject();
+      initial.nodes = [createWorkflowNode('broken-plugin', 'plugin:renderer-failure', { x: 100, y: 100 })];
+      render(<Harness initial={initial} />);
+
+      expect(screen.getByTestId('workflow-editor')).toBeInTheDocument();
+      expect(screen.getByTestId('workflow-plugin-error')).toHaveTextContent('故障插件暂时不可用');
+      expect(node('broken-plugin')).toBeInTheDocument();
+    } finally {
+      errorSpy.mockRestore();
+      uninstallWorkflowNodePlugin(pluginId);
+    }
   });
 
   it('selects image content without starting a node drag', () => {

@@ -168,6 +168,36 @@ describe('agent SkillRegistry', () => {
     await expect(registry.uninstall('missing.skill')).rejects.toThrow('未安装');
   });
 
+  it('rejects oversized, duplicate, binary, and non-canonical network entries before creating a package', async () => {
+    const cases = [
+      [{ path: 'SKILL.md', content: 'x' }, { path: 'SKILL.md', content: 'duplicate' }],
+      [{ path: 'SKILL.md', content: 'x' }, { path: 'assets/cover.png', content: 'binary' }],
+      [{ path: 'SKILL.md', content: 'x' }, { path: '../escape.md', content: 'escape' }],
+    ];
+    for (const [index, files] of cases.entries()) {
+      const id = `community.reject${index}`;
+      const manifest = MANIFEST_YAML.replace('id: community.demo', `id: ${id}`);
+      await expect(registry.installPackage({
+        id,
+        version: '1.0.0',
+        files: [...files, { path: 'flovart.skill.yaml', content: manifest }],
+      })).rejects.toThrow();
+      expect(existsSync(join(skillsRoot, id))).toBe(false);
+    }
+
+    const oversizedId = 'community.oversized';
+    const oversizedManifest = MANIFEST_YAML.replace('id: community.demo', `id: ${oversizedId}`);
+    await expect(registry.installPackage({
+      id: oversizedId,
+      version: '1.0.0',
+      files: [
+        { path: 'SKILL.md', content: 'x'.repeat(1024 * 1024 + 1) },
+        { path: 'flovart.skill.yaml', content: oversizedManifest },
+      ],
+    })).rejects.toThrow('大小');
+    expect(existsSync(join(skillsRoot, oversizedId))).toBe(false);
+  });
+
   it('resolves an installed package for agent binding by id+version', async () => {
     writePackage(userRoot, 'community.demo');
     const resolved = await registry.resolvePackage('community.demo', '1.0.0');

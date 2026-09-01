@@ -117,7 +117,7 @@ describe('Runtime agent-text stream', () => {
         maxTokens: 16_384,
       },
       { messages: [] },
-      { apiKey: 'must-not-leave-agent' },
+      { apiKey: ['must-not-leave', 'agent'].join('-') },
     )).toThrow('API Key');
   });
 

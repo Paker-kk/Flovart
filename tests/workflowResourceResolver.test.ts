@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { resolveWorkflowResource } from '../services/workflowResourceResolver';
+import { getActiveBlobUrls, resetBlobUrls } from './setup';
+
+afterEach(() => resetBlobUrls());
 
 describe('workflow executable resource resolver', () => {
   it('passes a direct URL through without reading canvas state', async () => {
@@ -35,6 +38,9 @@ describe('workflow executable resource resolver', () => {
       executable: { kind: 'blob-url', source: 'workflow-storage' },
     });
     expect(cleanup).toHaveLength(1);
+    expect(getActiveBlobUrls().size).toBe(1);
+    cleanup.splice(0).forEach(url => URL.revokeObjectURL(url));
+    expect(getActiveBlobUrls().size).toBe(0);
   });
 
   it('preserves a runtime artifact locator when desktop hydration is unavailable but allowed', async () => {

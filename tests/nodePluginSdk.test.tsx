@@ -11,6 +11,7 @@ import {
   installReferenceWorkflowNodePlugins,
   installWorkflowNodePlugin,
   referenceWorkflowNodePlugins,
+  rollbackWorkflowNodePlugin,
   uninstallWorkflowNodePlugin,
   updateWorkflowNodePlugin,
   workflowNodePluginRegistry,
@@ -86,8 +87,21 @@ describe('Workflow Node Plugin SDK', () => {
     expect(getWorkflowNodePlugin(node.type)?.version).toBe('1.0.0');
     updateWorkflowNodePlugin(testPlugin('1.1.0'));
     expect(getWorkflowNodePlugin(node.type)?.version).toBe('1.1.0');
+    expect(rollbackWorkflowNodePlugin('test.plugin')).toMatchObject({ version: '1.0.0', enabled: true });
+    expect(getWorkflowNodePlugin(node.type)?.version).toBe('1.0.0');
     expect(uninstallWorkflowNodePlugin('test.plugin')).toBe(true);
     expect(node.metadata.content).toBe('保留');
+  });
+
+  it('rejects invalid plugin contracts and does not create a half-installed entry', () => {
+    expect(() => installWorkflowNodePlugin({
+      ...testPlugin(), pluginId: 'test.invalid-renderer', render: undefined as never,
+    })).toThrow('outputs 与 render');
+    expect(() => installWorkflowNodePlugin({
+      ...testPlugin(), pluginId: 'test.invalid-version', version: '   ',
+    })).toThrow('version');
+    expect(workflowNodePluginRegistry.list().some(plugin => plugin.pluginId === 'test.invalid-renderer')).toBe(false);
+    expect(() => rollbackWorkflowNodePlugin('test.plugin')).toThrow('尚未安装');
   });
 
   it('renders a reference plugin through the SDK render contract', () => {
