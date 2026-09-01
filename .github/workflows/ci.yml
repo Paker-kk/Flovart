@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web-and-runtime:
+    name: Web, extension, DSH, Rust
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Docs contract
+        run: npm run docs:check
+
+      - name: Release red-team invariants
+        run: npm run release:red-team
+
+      - name: Tracked secret audit
+        run: npm run release:secret-audit
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit and integration tests
+        run: npm test -- --reporter=dot
+
+      - name: Web build
+        run: npm run build
+
+      - name: Browser extension build
+        run: npm run ext:build
+
+      - name: DSH plugin build
+        run: npm --prefix dsh-plugin run build
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets
+
+      - name: Git diff check
+        run: git diff --check
+
+  critical-stability:
+    name: Critical suite 10x
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Critical suite repeated ten times
+        run: npm run test:critical

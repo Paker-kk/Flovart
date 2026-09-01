@@ -37,6 +37,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 # 串行跑同一组的 job，避免 prerelease 标签 race condition
 concurrency:
@@ -44,8 +46,76 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A version tag may create only a draft release until every local release
+  # gate and artifact-integrity step has completed. This prevents a partially
+  # built tag from becoming a public release.
+  release-gate:
+    name: Release gate
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Docs contract
+        run: npm run docs:check
+
+      - name: Release red-team invariants
+        run: npm run release:red-team
+
+      - name: Tracked secret audit
+        run: npm run release:secret-audit
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit and integration tests
+        run: npm test -- --reporter=dot
+
+      - name: Web build
+        run: npm run build
+
+      - name: Browser extension build
+        run: npm run ext:build
+
+      - name: DSH plugin build
+        run: npm --prefix dsh-plugin run build
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets
+
+      - name: Critical suite repeated ten times
+        run: npm run test:critical
+
+      - name: Git diff check
+        run: git diff --check
+
+  security-gate:
+    name: Hosted security gate
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/security.yml
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      security-events: write
+
   build:
     name: Build ${{ matrix.label }}
+    needs: [release-gate, security-gate]
+    if: ${{ always() && (needs.release-gate.result == 'success' || needs.release-gate.result == 'skipped') && (needs.security-gate.result == 'success' || needs.security-gate.result == 'skipped') }}
     strategy:
       fail-fast: false
       matrix:
@@ -188,9 +258,84 @@ jobs:
           tagName: ${{ steps.meta.outputs.tag_name }}
           releaseName: ${{ steps.meta.outputs.release_name }}
           releaseBody: ${{ steps.meta.outputs.release_body }}
+          releaseDraft: true
           prerelease: ${{ steps.meta.outputs.prerelease }}
           includeUpdaterJson: ${{ steps.meta.outputs.updater }}
           args: --target ${{ matrix.rust_target }} ${{ matrix.bundle_args }}
+
+      # 将 Tauri 产物收敛到稳定目录，供 checksum、SBOM 和 provenance 使用。
+      # 只复制 bundle 目录中的安装包，避免把 sidecar 当作发布物。
+      - name: Stage Windows release artifacts
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $installerDir = Join-Path $PWD 'dist/release-artifacts/installers'
+          New-Item -ItemType Directory -Force -Path $installerDir | Out-Null
+          $files = Get-ChildItem -LiteralPath 'src-tauri/target' -Recurse -File |
+            Where-Object {
+              $_.FullName -match '\\bundle\\(nsis|msi)\\' -and
+              @('.exe', '.msi') -contains $_.Extension.ToLowerInvariant() -and
+              $_.Name -notlike '*.sig'
+            }
+          if (-not $files) { throw 'No Windows installer was produced under src-tauri/target/**/bundle.' }
+          foreach ($file in $files) {
+            Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $installerDir $file.Name) -Force
+          }
+          $hashLines = foreach ($file in Get-ChildItem -LiteralPath $installerDir -File | Sort-Object Name) {
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($file.Name)"
+          }
+          $hashLines | Set-Content -LiteralPath (Join-Path $installerDir '..\\SHA256SUMS.txt') -Encoding ascii
+
+      - name: Stage Linux release artifacts
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          set -euo pipefail
+          installer_dir="dist/release-artifacts/installers"
+          mkdir -p "$installer_dir"
+          mapfile -t files < <(find src-tauri/target -type f \( -name '*.deb' -o -name '*.AppImage' \) -path '*/bundle/*' -print)
+          if [[ "${#files[@]}" -eq 0 ]]; then
+            echo 'No Linux installer was produced under src-tauri/target/**/bundle.' >&2
+            exit 1
+          fi
+          for file in "${files[@]}"; do cp "$file" "$installer_dir/"; done
+          (cd "$installer_dir" && sha256sum -- * | sort) > dist/release-artifacts/SHA256SUMS.txt
+
+      - name: Generate release SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: ${{ github.workspace }}
+          format: spdx-json
+          output-file: ${{ github.workspace }}/dist/release-artifacts/flovart-${{ matrix.platform }}-sbom.spdx.json
+          artifact-name: flovart-${{ matrix.platform }}-${{ matrix.rust_target }}-sbom
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Attest release artifacts and SBOM
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ github.workspace }}/dist/release-artifacts/installers/*
+          sbom-path: ${{ github.workspace }}/dist/release-artifacts/flovart-${{ matrix.platform }}-sbom.spdx.json
+
+      - name: Upload checksums and SBOM to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.meta.outputs.tag_name }}" \
+            dist/release-artifacts/SHA256SUMS.txt \
+            dist/release-artifacts/flovart-${{ matrix.platform }}-sbom.spdx.json \
+            --clobber
+
+      - name: Upload release evidence bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: flovart-${{ matrix.platform }}-${{ matrix.rust_target }}-release-evidence
+          path: dist/release-artifacts
+          if-no-files-found: error
 
       - name: Build Windows Agent Toolkit bundle
         if: matrix.platform == 'windows-latest' && startsWith(github.ref, 'refs/tags/v')
@@ -214,3 +359,24 @@ jobs:
             "dist/agent-toolkit/flovart-agent-toolkit-win32-x64.tar.gz" `
             "dist/agent-toolkit/flovart-agent-toolkit-manifest.json" `
             --clobber
+
+  # Matrix builds upload into a draft. Finalization is deliberately a
+  # separate job so one platform cannot publish while another is still
+  # building or attesting its artifacts.
+  publish-release:
+    name: Publish verified release
+    needs: build
+    if: ${{ (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish completed draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            gh release edit "${{ github.ref_name }}" --draft=false
+          else
+            release_name="nightly-${{ github.run_number }}-${GITHUB_SHA::7}"
+            gh release edit "$release_name" --draft=false --prerelease
+          fi
