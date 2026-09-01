@@ -569,6 +569,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     const [activeTab, setActiveTab] = React.useState<'api' | 'models' | 'security'>('api');
     const [showAdvancedApi, setShowAdvancedApi] = React.useState(false);
     const [runtimeProviders, setRuntimeProviders] = React.useState<RuntimeProviderStatus[] | null>(null);
+    const settingsDialogRef = React.useRef<HTMLDivElement>(null);
     const configuredRuntimeProviders = runtimeProviders?.filter(item => item.ready) || [];
 
     React.useEffect(() => {
@@ -600,8 +601,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     const inputClass = 'isl-well w-full px-3 py-2.5 text-sm text-[var(--isl-ink)] outline-none placeholder:text-[var(--isl-ink-ghost)]';
     const chipClass = 'isl-chip px-3 py-2 text-sm';
     const sectionPanelClass = 'rounded-2xl border-[1.5px] border-[var(--isl-border)] bg-[var(--isl-surface-2)] p-3';
-
-    if (!isOpen) return null;
 
     const addPricingRule = () => setEditPricingRules(current => [...current, {
         id: crypto.randomUUID(), unit: capabilities.includes('video') ? 'video_second' : 'image', rate: 0, currency: 'USD', source: 'manual',
@@ -838,6 +837,44 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         setShowKeyModal(false);
     };
 
+    React.useEffect(() => {
+        if (!isOpen) return;
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                if (showKeyModal) handleCancelEdit();
+                else onClose();
+                return;
+            }
+            if (event.key !== 'Tab') return;
+            const dialog = settingsDialogRef.current;
+            if (!dialog) return;
+            const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            )).filter(element => element.getClientRects().length > 0);
+            if (!focusable.length) return;
+            const active = document.activeElement;
+            if (!dialog.contains(active)) {
+                event.preventDefault();
+                (event.shiftKey ? focusable[focusable.length - 1] : focusable[0]).focus();
+                return;
+            }
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && active === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && active === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        const firstFocusable = settingsDialogRef.current?.querySelector<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]');
+        firstFocusable?.focus();
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, onClose, showKeyModal]);
+
     /** 联网拉取当前 Provider 可用的模型列表 */
     const handleFetchModels = async (targetProvider: AIProvider, targetKey: string, targetBaseUrl?: string) => {
         if (!targetKey.trim()) return;
@@ -1046,21 +1083,25 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         setIsBatchTesting(false);
     };
 
+    if (!isOpen) return null;
+
     return (
-        <div className="theme-aware fixed inset-0 z-100 flex items-center justify-center bg-black/35 backdrop-blur-sm" onClick={onClose}>
+        <div ref={settingsDialogRef} role="dialog" aria-modal="true" aria-labelledby="settings-title" data-testid="settings-dialog" className="theme-aware fixed inset-0 z-100 flex items-center justify-center bg-black/35 backdrop-blur-sm" onClick={onClose}>
             <div
                 className="isl-shell relative max-h-[90vh] w-[94%] max-w-6xl overflow-y-auto p-6"
                 onClick={(event) => event.stopPropagation()}
             >
                 <div className="mb-6 flex items-center justify-between">
                     <div>
-                        <h3 className="text-xl font-extrabold text-[var(--isl-ink)]">设置</h3>
+                        <h3 id="settings-title" className="text-xl font-extrabold text-[var(--isl-ink)]">设置</h3>
                         <p className="mt-1 text-sm text-[var(--isl-ink-soft)]">
                             管理 AI 服务、模型映射和本地安全策略。主题与语言请在顶栏切换。
                         </p>
                     </div>
                     <button
                         type="button"
+                        aria-label="关闭设置"
+                        title="关闭设置"
                         onClick={onClose}
                         className={`flex h-10 w-10 items-center justify-center rounded-2xl border transition ${
                             isDark ? 'border-[#2A3140] text-[#98A2B3] hover:bg-[#1B2029]' : 'border-[#E4E7EC] text-[#667085] hover:bg-[#F9FAFB]'

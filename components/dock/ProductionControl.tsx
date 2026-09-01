@@ -2,6 +2,8 @@ import { Boxes, Bot, CircleAlert, CircleDashed, Copy, LoaderCircle, Send, Shield
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkflowNode, WorkflowProject } from '../workflow/types';
 import { DockCrewClient, DockClientError, loadDockAgentUrl, type DockConnection, type DockDirectorStatus, type DockIntent, type DockReceipt } from '../../services/dockCrewClient';
+import { serializeSupportDiagnostics } from '../../services/supportDiagnostics';
+import { useAgentConnectionStore } from '../../stores/useAgentConnectionStore';
 import type { DockBadges } from './protocol';
 
 export type ProductionControlMode = 'binding' | 'intents' | 'receipts' | 'events';
@@ -52,7 +54,14 @@ export function ProductionControl({ project, client, connection, connectionReady
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
   const eventCursor = useRef(0);
+  const agentStatus = useAgentConnectionStore(state => state.status);
+  const agentClientId = useAgentConnectionStore(state => state.clientId);
+  const agentProjectId = useAgentConnectionStore(state => state.projectId);
+  const agentRevision = useAgentConnectionStore(state => state.revision);
+  const activeHostIdentity = useAgentConnectionStore(state => state.activeHostIdentity);
+  const writerStatus = useAgentConnectionStore(state => state.writerStatus);
 
   const refreshDirector = useCallback(async () => {
     if (!client) return;
@@ -188,6 +197,31 @@ export function ProductionControl({ project, client, connection, connectionReady
     });
   }, [director, project]);
 
+  const copyDiagnostics = useCallback(async () => {
+    if (!navigator.clipboard) {
+      setError('当前环境不支持复制诊断信息。');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(serializeSupportDiagnostics({
+        appVersion: import.meta.env.VITE_APP_VERSION || '0.3.2',
+        connectionUrl: connection?.url,
+        connectionStatus: agentStatus,
+        connectionErrorCode: connectionError?.code,
+        clientId: agentClientId,
+        projectId: agentProjectId,
+        revision: agentRevision,
+        activeHostIdentity: activeHostIdentity || director?.binding?.hostKind,
+        writerStatus,
+        project,
+      }));
+      setDiagnosticsCopied(true);
+      window.setTimeout(() => setDiagnosticsCopied(false), 1200);
+    } catch {
+      setError('诊断信息复制失败，请重试。');
+    }
+  }, [activeHostIdentity, agentClientId, agentProjectId, agentRevision, agentStatus, connection, connectionError, director, project, writerStatus]);
+
   const mediaNodes = useMemo(() => project?.nodes.filter(node => node.type === 'image' || node.type === 'video') || [], [project]);
 
   // 配对遵循本机 Agent 的显式连接流程：地址可从上次配对恢复，Token 只由用户或受信宿主提供。
@@ -216,6 +250,7 @@ export function ProductionControl({ project, client, connection, connectionReady
               <label>Token<input value={token} type="password" placeholder="短期 Token" onChange={event => setToken(event.target.value)} /></label>
               {connectionError && <div className="agent-dock-error">{connectionError.message}</div>}
               <button type="button" onClick={connect}><ShieldCheck size={14} />连接 Agent</button>
+              <button type="button" className="agent-dock-secondary-action" onClick={() => void copyDiagnostics()}><Copy size={14} />{diagnosticsCopied ? '已复制诊断信息' : '复制诊断信息'}</button>
             </div>
           </div>
         </section>
@@ -273,7 +308,7 @@ export function ProductionControl({ project, client, connection, connectionReady
               </div>
             </div>
           )}
-          {mode === 'binding' && <DirectorSummary director={director} project={project} onCopy={copyCommand} copied={copied} onUnbind={client ? () => void client.unbindDirector().then(refreshDirector) : undefined} />}
+          {mode === 'binding' && <DirectorSummary director={director} project={project} onCopy={copyCommand} copied={copied} onCopyDiagnostics={() => void copyDiagnostics()} diagnosticsCopied={diagnosticsCopied} onUnbind={client ? () => void client.unbindDirector().then(refreshDirector) : undefined} />}
           {mode === 'events' && (
             <div className="agent-dock-events">
               {events.length === 0 && <div className="agent-context-empty"><CircleDashed size={22} /><span>事件流为空；断开重连后按游标恢复。</span></div>}
@@ -311,11 +346,13 @@ export function ProductionControl({ project, client, connection, connectionReady
   );
 }
 
-function DirectorSummary({ director, project, onCopy, copied, onUnbind }: {
+function DirectorSummary({ director, project, onCopy, copied, onCopyDiagnostics, diagnosticsCopied, onUnbind }: {
   director: DockDirectorStatus | null;
   project: WorkflowProject | null;
   onCopy: () => void;
   copied: boolean;
+  onCopyDiagnostics: () => void;
+  diagnosticsCopied: boolean;
   onUnbind?: () => void;
 }) {
   return (
@@ -332,6 +369,7 @@ function DirectorSummary({ director, project, onCopy, copied, onUnbind }: {
           <p>完整对话仍在外部 Harness；此处只保存非秘密绑定、Intent、Receipt 与执行事实。</p>
           <div className="agent-dock-director-actions">
             <button type="button" onClick={onCopy}>{copied ? <CircleAlert size={13} /> : <Copy size={13} />}{copied ? '已复制' : '复制连接命令'}</button>
+            <button type="button" onClick={onCopyDiagnostics}><Copy size={13} />{diagnosticsCopied ? '已复制诊断信息' : '复制诊断信息'}</button>
             {onUnbind && <button type="button" onClick={onUnbind}><X size={13} />归档绑定</button>}
           </div>
         </>
@@ -339,7 +377,10 @@ function DirectorSummary({ director, project, onCopy, copied, onUnbind }: {
         <>
            <p className="agent-dock-director-empty">未绑定 Director。当前 Host Projection 必须显式建立或接管项目绑定。
            <code>flovart director.bind --agent-identity deepseek-harness --session-id &lt;session&gt;{project ? ` --project-id ${project.id}` : ''} --json</code></p>
-           <button type="button" onClick={onCopy}><Copy size={13} />{copied ? '已复制' : '复制绑定命令'}</button>
+           <div className="agent-dock-director-actions">
+             <button type="button" onClick={onCopy}><Copy size={13} />{copied ? '已复制' : '复制绑定命令'}</button>
+             <button type="button" onClick={onCopyDiagnostics}><Copy size={13} />{diagnosticsCopied ? '已复制诊断信息' : '复制诊断信息'}</button>
+           </div>
         </>
       )}
     </div>

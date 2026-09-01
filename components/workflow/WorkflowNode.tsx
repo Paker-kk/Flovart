@@ -1,12 +1,38 @@
 import { Camera, Check, ChevronsDown, Clapperboard, FileText, Image as ImageIcon, Music2, Pause, Pencil, Play, Plus, Sparkles, Star, Upload, Video, Volume2, VolumeX, X } from 'lucide-react';
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { Component, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { motion } from 'motion/react';
 import { WorkflowConfigPanel } from './WorkflowConfigPanel';
 import { getWorkflowOperationCapability } from './operationRegistry';
 import { buildCssFilter } from '../ImageFilterPanel';
 import { useWorkflowMediaUrl } from './media';
-import { getWorkflowNodePlugin, type WorkflowNodePluginContext } from './nodePluginSdk';
+import { getWorkflowNodePlugin, type WorkflowNodePluginContext, type WorkflowNodePluginDefinition } from './nodePluginSdk';
 import type { WorkflowNode as WorkflowNodeData } from './types';
+
+function WorkflowPluginSurface({ plugin, pluginContext }: { plugin: WorkflowNodePluginDefinition; pluginContext: WorkflowNodePluginContext }) {
+  return <>
+    <div className="workflow-node__plugin-render">{plugin.render({ node: pluginContext.node, context: pluginContext })}</div>
+    {plugin.panel && <div className="workflow-node__plugin-panel">{plugin.panel({ node: pluginContext.node, context: pluginContext })}</div>}
+    {plugin.toolbar && <div className="workflow-node__plugin-toolbar" data-workflow-overlay>{plugin.toolbar({ node: pluginContext.node, context: pluginContext })}</div>}
+  </>;
+}
+
+class WorkflowPluginErrorBoundary extends Component<{ children: ReactNode; pluginTitle: string }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (this.state.failed) {
+      return <div className="workflow-node__empty" data-testid="workflow-plugin-error" role="status">
+        <FileText size={26} />
+        <span>{this.props.pluginTitle}暂时不可用</span>
+      </div>;
+    }
+    return this.props.children;
+  }
+}
 
 export function WorkflowNode({
   node,
@@ -254,11 +280,9 @@ export function WorkflowNode({
       <div className="workflow-node__body">
         {plugin
           ? pluginContext
-            ? <>
-              <div className="workflow-node__plugin-render">{plugin.render({ node: pluginContext.node, context: pluginContext })}</div>
-              {plugin.panel && <div className="workflow-node__plugin-panel">{plugin.panel({ node: pluginContext.node, context: pluginContext })}</div>}
-              {plugin.toolbar && <div className="workflow-node__plugin-toolbar" data-workflow-overlay>{plugin.toolbar({ node: pluginContext.node, context: pluginContext })}</div>}
-            </>
+            ? <WorkflowPluginErrorBoundary key={`${plugin.pluginId}:${plugin.version}`} pluginTitle={plugin.title}>
+                <WorkflowPluginSurface plugin={plugin} pluginContext={pluginContext} />
+              </WorkflowPluginErrorBoundary>
             : <div className="workflow-node__empty"><FileText size={26} /><span>插件未启用</span></div>
           : <>
         {isMedia && (media.url || hasMediaReference) && <div className="workflow-node__drag-handle" data-workflow-drag-handle />}

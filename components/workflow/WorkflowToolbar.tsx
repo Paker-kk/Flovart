@@ -96,6 +96,18 @@ export function WorkflowToolbar({
     document.addEventListener('pointerdown', handler);
     return () => document.removeEventListener('pointerdown', handler);
   }, [addOpen]);
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setAddOpen(false);
+      setHistoryOpen(false);
+      setToolsOpen(false);
+      setShortcutsOpen(false);
+      setZoomOpen(false);
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
   const visibleMedia = useMemo(() => sharedMedia.filter(media => {
     if (libraryType !== 'all' && media.type !== libraryType) return false;
     return !libraryQuery.trim() || media.name.toLowerCase().includes(libraryQuery.trim().toLowerCase());

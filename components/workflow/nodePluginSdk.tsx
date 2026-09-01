@@ -162,6 +162,7 @@ type InstalledPlugin = {
   definition: WorkflowNodePluginDefinition;
   restoreOutput: () => void;
   enabled: boolean;
+  history: WorkflowNodePluginDefinition[];
 };
 
 export class WorkflowNodePluginRegistry {
@@ -171,7 +172,7 @@ export class WorkflowNodePluginRegistry {
     validatePlugin(definition);
     if (this.plugins.has(definition.pluginId)) throw new Error(`Node Plugin「${definition.pluginId}」已安装。`);
     if ([...this.plugins.values()].some(item => item.definition.type === definition.type)) throw new Error(`Node Plugin type「${definition.type}」已被占用。`);
-    this.plugins.set(definition.pluginId, { definition, restoreOutput: registerPluginOutput(definition), enabled: true });
+    this.plugins.set(definition.pluginId, { definition, restoreOutput: registerPluginOutput(definition), enabled: true, history: [] });
     return this.info(definition.pluginId)!;
   }
 
@@ -180,10 +181,27 @@ export class WorkflowNodePluginRegistry {
     const current = this.plugins.get(definition.pluginId);
     if (!current) throw new Error(`Node Plugin「${definition.pluginId}」尚未安装。`);
     if (current.definition.type !== definition.type) throw new Error('Node Plugin 更新不能改变 type。');
+    const previousDefinition = current.definition;
     current.restoreOutput();
-    current.restoreOutput = registerPluginOutput(definition);
-    current.definition = definition;
+    try {
+      current.restoreOutput = registerPluginOutput(definition);
+      current.definition = definition;
+      current.history.push(previousDefinition);
+    } catch (error) {
+      current.restoreOutput = registerPluginOutput(previousDefinition);
+      throw error;
+    }
     return this.info(definition.pluginId)!;
+  }
+
+  rollback(pluginId: string): WorkflowNodePluginInfo {
+    const current = this.require(pluginId);
+    const previousDefinition = current.history.pop();
+    if (!previousDefinition) throw new Error(`Node Plugin「${pluginId}」没有可回滚版本。`);
+    current.restoreOutput();
+    current.restoreOutput = registerPluginOutput(previousDefinition);
+    current.definition = previousDefinition;
+    return this.info(pluginId)!;
   }
 
   enable(pluginId: string): WorkflowNodePluginInfo {
@@ -250,6 +268,10 @@ export function installWorkflowNodePlugin(definition: WorkflowNodePluginDefiniti
 
 export function updateWorkflowNodePlugin(definition: WorkflowNodePluginDefinition): WorkflowNodePluginInfo {
   return workflowNodePluginRegistry.update(definition);
+}
+
+export function rollbackWorkflowNodePlugin(pluginId: string): WorkflowNodePluginInfo {
+  return workflowNodePluginRegistry.rollback(pluginId);
 }
 
 export function enableWorkflowNodePlugin(pluginId: string): WorkflowNodePluginInfo {

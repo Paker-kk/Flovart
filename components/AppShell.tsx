@@ -1,4 +1,5 @@
 import React from 'react';
+import { OfflineNotice } from './OfflineNotice';
 
 interface AppShellProps {
   topBar?: React.ReactNode;
@@ -30,6 +31,7 @@ export const AppShell: React.FC<AppShellProps> = ({
     onDrop={onDrop}
   >
     <div className="shrink-0">{topBar}</div>
+    <OfflineNotice />
     <div className="min-h-0 flex flex-1 relative">
       {leftSidebar && <div className="shrink-0">{leftSidebar}</div>}
       <div className="min-w-0 min-h-0 flex-1 relative flex flex-col">{main}</div>
