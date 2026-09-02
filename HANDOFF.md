@@ -854,3 +854,1213 @@ not local evidence.
 - Do not publish, push, create production signing material or mark the launch
   `GO` from this workspace without the required owner authorization and
   external evidence.
+
+# Final Release Candidate Certification
+
+## Current phase
+
+Final RC certification is complete for the locally controllable scope. The
+clean detached source candidate is
+`27c81ad3f5c3a5c69c463aa90e724d2002c8300c`; the review base and `origin/main`
+remain `9a1534b035350152c87d93a5f6e07f7452f3f66f`. No push, tag, GitHub Release,
+production signing key, or real paid Provider call was performed.
+
+## Release truth decisions
+
+- `VERSION`, root/package-lock/package versions, CLI package, Tauri config and
+  Cargo package are aligned at `0.3.2`; DSH remains independently versioned at
+  `0.1.0`.
+- The updater endpoint is owned by `avabbbb/Flovart`; version and retired-owner
+  checks are enforced by `npm run version:check`.
+- Public documentation now uses `--target`, `status → start --open when needed
+  → workflow.inspect`, and the five-command Agent surface. `command.list` and
+  `command.schema` are discovery/diagnostic paths only. The docs checker scans
+  Git-visible documentation rather than a fixed file list.
+- Desktop release workflow publication is draft-first. Manual dispatch defaults
+  to `publish=false`; the legacy release workflow is non-publishing.
+- DSH dependency loading is optional and isolated to its Plugin projection; a
+  clean root checkout no longer fails merely because `@deepseek-ai/dsh-tools`
+  is absent.
+
+## Final candidate verification
+
+- Clean `npm ci` and `npm --prefix dsh-plugin ci` passed; existing peer-resolution
+  warnings are emitted by the dependency tree but do not fail installation.
+- `npm run version:check`, `npm run docs:check`, `npm run release:red-team`,
+  `npm run release:secret-audit`, and `git diff --check` passed. The clean
+  candidate docs check reported `131` files; the review worktree reported `132`
+  because its ignored generated Skill copy was present. Secret audit scanned
+  `914` Git-visible files with zero findings.
+- Full Vitest: `150` files, `1017 passed`, `1 skipped` (`1018` total).
+- TypeScript, Web build (`4306` modules), Browser Extension build and DSH build
+  with client-loader contract all passed.
+- Rust `cargo test --manifest-path src-tauri/Cargo.toml --all-targets` passed
+  with all `41` tests green under `CARGO_BUILD_JOBS=1`.
+- Critical suite: `10/10`; each repetition had `9` files and `48` tests.
+- `npm pack ./tools/flovart` passed at `flovart-cli@0.3.2`, producing a package
+  with `66` files and the bundled Skill projections.
+
+## Windows installer evidence
+
+- Final local NSIS: `Flovart_0.3.2_x64-setup.exe`, `12,252,087` bytes,
+  SHA-256
+  `63381D17A78A10083F46671954C7DFBE73A5C1F8042ACD0E53288C2518898937`.
+- Isolated smoke installed with exit `0`, launched the real `flovart.exe`,
+  closed gracefully, uninstalled with exit `0`, and removed the install root.
+- This is a local unsigned/AuthentiCode-free RC package; production Windows
+  signing remains external.
+
+## Updater evidence
+
+- A disposable test-signed N `0.3.1` installer and N+1 `0.3.2` installer were
+  served through an isolated HTTPS fixture. The installed N app downloaded,
+  replaced itself and relaunched as N+1.
+- A one-byte tampered N+1 payload was rejected; the installed app stayed at
+  `0.3.1` and no replacement process appeared. The signed payload was restored
+  and its feed signature match rechecked.
+- The fixture did not contain a project, so project/asset preservation across
+  update is not claimed by this evidence. Full details are in
+  `RC_UPDATER_EVIDENCE.md`.
+
+## External gates
+
+- Hosted GitHub CI/security/release execution and repository security settings
+  were not run against this unpushed candidate.
+- Production Tauri updater/AuthentiCode signing key custody and public feed
+  publication remain pending.
+- Real Provider model, billing, cancellation and account behavior remain
+  pending; Fake Provider evidence is not promoted to a real-provider pass.
+- Real logged-in Codex certification remains pending. DSH stays Experimental
+  until its authenticated lifecycle is certified.
+
+## Exact next step
+
+Push the reviewed candidate only after owner approval, run the hosted security
+and draft release workflows on that exact SHA, then perform the external
+Provider/Codex/signing gates. Keep `PRODUCTION LAUNCH: NO-GO` until those
+evidence packages exist.
+
+## Release artifact verification continuation
+
+### Current phase
+
+The release candidate workflow now has a content-level artifact gate in
+addition to the existing release red-team markers. The checker validates
+installer version names, exact checksum coverage and digest matches, and
+validates the supplied SPDX JSON document when the hosted job passes
+`--sbom`.
+
+### Verification
+
+- `npx vitest run tests/releaseArtifactCheck.test.js --reporter=dot`: 2/2
+  passed, including tamper rejection.
+- The final local NSIS checksum (`Flovart_0.3.2_x64-setup.exe`, 12,252,087
+  bytes) passed the same validator with zero errors.
+- `release:red-team`, `version:check`, `docs:check` and
+  `release:secret-audit` remain green after the workflow change.
+
+The local installer does not contain a generated Syft SBOM; the hosted
+workflow is the authoritative SBOM/provenance gate and has not been run on the
+unpushed reviewed candidate. No production signing or publication was done.
+
+### Exact next step
+
+Recreate the clean detached candidate including this artifact-gate change,
+rerun the release checks that bind evidence to its SHA, then—only with owner
+approval—run the hosted draft release workflow on that exact SHA.
+
+# Final Release Candidate Certification — final clean candidate
+
+## Current phase
+
+The final local review candidate is clean detached commit
+`b7ba494b1d7d542d12f00d3f5711a43e3d5eb1b1` in
+`C:\\Users\\ava\\AppData\\Local\\Temp\\flovart-rc-candidate-f46b418215ba44c1a083da5dbfa80b9c`.
+It is derived from review base
+`9a1534b035350152c87d93a5f6e07f7452f3f66f1`; neither this candidate nor the
+working-tree changes were pushed, tagged, or published.
+
+## Final clean-candidate evidence
+
+- `npm ci` and `npm --prefix dsh-plugin ci` passed.
+- Full Vitest passed: `151` files, `1019` passed, `1` skipped (`1020` total).
+- `npm run test:critical` passed `10/10`; every repetition had `9` files and
+  `48` tests (`35.1s`).
+- `npx tsc --noEmit`, Web build (`4306` modules), Browser Extension build, DSH
+  build/client-loader contract and Rust `cargo test --all-targets` (`41` tests)
+  passed.
+- After `npm pack ./tools/flovart`, `docs:check` checked `133` documents;
+  `release:red-team`, `release:secret-audit` (`917` files, zero findings),
+  `version:check` and `release:artifacts:check` passed. The packaged Agent
+  setup guidance no longer points at file-state runtime.
+- Final clean-candidate NSIS build passed with
+  `Flovart_0.3.2_x64-setup.exe`, `12,254,279` bytes and SHA-256
+  `41D9178E515F5C2C33BFC5977E73FC12263E22292F829139E7DD746DA3EBC194`.
+  Isolated install, real `flovart.exe` launch, graceful close and uninstall
+  all returned success; the temporary install root was removed.
+- The artifact checker validates the same installer and checksum with zero
+  errors; the local package intentionally has no Syft SBOM.
+
+## Honest release boundaries
+
+- The installed N→N+1 test updater and invalid-signature rejection remain
+  valid local evidence from the preceding candidate `27c81ad…`, but the
+  fixture did not seed project data and is not promoted to an exact final-SHA
+  data-preservation PASS.
+- Packaged Tauri UI first-generation automation could not be independently
+  driven through WebView2 DevTools in this environment; browser/Fake Provider
+  E2E and packaged install/launch are separate positive evidence. This is not
+  a reason to alter Workflow or Provider authority.
+- GitHub-hosted CI/security/SBOM/provenance has not run against the unpushed
+  candidate. Repository security settings, production updater/AuthentiCode
+  signing, real Provider billing/cancellation and logged-in Codex/DSH flows
+  remain external gates.
+
+## Exact next step
+
+After owner approval, push this reviewed source, run the hosted security and
+draft release workflows against the exact SHA, then execute the external
+Provider/Codex/signing certifications. Keep `PRODUCTION LAUNCH: NO-GO` until
+those evidence packages exist; do not start another architecture rewrite.
+
+# Final RC Certification — dependency security closure
+
+## Current phase
+
+The source candidate `52b7e51e7fdd1094b98b88a173b8b7111fb03d12` is the latest
+clean detached build candidate. This pass made no Host, Workflow, PromptBar or
+Provider architecture change; it closed the remaining locally actionable npm
+dependency audit finding and added that audit to the reusable Hosted security
+workflow.
+
+## Changes
+
+- Confirmed that the current source tree does not import
+  `@huggingface/transformers` or `@excalidraw/excalidraw`; removed both unused
+  production dependencies and their transitive vulnerable trees.
+- Updated direct `nanoid` and `react-router` constraints and re-resolved the
+  compatible dependency graph without `npm audit fix --force`.
+- Added `npm run release:dependency-audit` and a clean-install official npm
+  registry audit job to `.github/workflows/security.yml`.
+- Moved the completed dependency-security item out of the release todo and
+  recorded the exact evidence in `RC_DEPENDENCY_AUDIT.md`.
+
+## Verification
+
+- `npm ci --ignore-scripts --registry=https://registry.npmjs.org`: passed;
+  `586` packages added and `587` audited.
+- Full official-registry `npm audit --audit-level=high`: `0 vulnerabilities`.
+- Runtime-only official-registry `npm audit --omit=dev --audit-level=high`:
+  `0 vulnerabilities`.
+- Full Vitest: `151` files, `1019` passed, `1` skipped (`1020` total).
+- TypeScript, Web build (`4306` modules), extension build, DSH build and Rust
+  tests (`41`) passed; critical suite passed `10/10` (`9` files/`48` tests per
+  repetition).
+- Docs contract checked `134` documents; version check, release red-team and
+  secret audit (`918` files, zero findings) passed.
+- Rebuilt NSIS from the candidate: `Flovart_0.3.2_x64-setup.exe`,
+  `12,248,162` bytes,
+  SHA-256 `B780E378C16E48CEA058316F658CB594641F832335C7611011572164AB8ACB22`.
+  Isolated install, real executable launch, graceful close, uninstall and
+  artifact checksum verification all passed.
+
+## Remaining boundaries
+
+- The candidate remains detached and unpushed; no Hosted GitHub run or
+  repository-setting change is claimed for this SHA.
+- Production updater signing/AuthentiCode, clean-machine data-preserving
+  N→N+1 certification, real Provider billing/cancellation, and logged-in
+  Codex/DSH certification remain external gates.
+- `PRODUCTION LAUNCH: NO-GO` remains the correct verdict until those external
+  gates are completed. Do not begin another architecture rewrite for these
+  items.
+
+## Exact next step
+
+After explicit owner approval, publish this source candidate, run the Hosted
+security and draft release workflows against the exact pushed SHA, then attach
+the real Provider/Codex/signing evidence. Keep the local candidate and its
+evidence available for comparison during that external certification.
+
+# Final RC certification continuation — packaged update preservation
+
+## Current phase
+
+The temporary updater probe is complete and removed. The candidate source is
+restored to the formal `0.3.2` release configuration: the production
+`avabbbb/Flovart` updater endpoint, production-configured public key, normal
+window title, and the existing startup auto-check path. No test key,
+loopback endpoint, TLS exception, or debug UI remains in the source tree.
+
+## New evidence
+
+- The final restored candidate NSIS package is
+  `Flovart_0.3.2_x64-setup.exe`, `12,248,835` bytes,
+  SHA-256 `53B7BD71D2FB1E35EB2A57347EBA0C7AD111EDD101FBB0F4360FF942D9436AD8`.
+- Its isolated NSIS smoke returned install `0`, observed the real
+  `flovart.exe`, closed gracefully, returned uninstall `0`, and removed the
+  temporary install root.
+- A disposable test-signed `0.3.1` installation updated through the real
+  Tauri updater path to `0.3.2`. The feed recorded metadata, installer
+  download, and post-relaunch metadata requests. A seeded project container
+  remained visible as `本地项目 1` after relaunch.
+- The exact update hashes, runner result, and honest process-observation
+  limitation are recorded in `RC_UPDATER_EVIDENCE.md`; this is an
+  application-level preservation pass, not production signing or cross-schema
+  migration certification.
+
+## Verification after cleanup
+
+- `npm run version:check`: pass, `0.3.2` / `avabbbb/Flovart`.
+- `npm run docs:check`: pass, `134` documents.
+- `npm run release:red-team`: pass, five public Agent commands and no local
+  signing files.
+- `npm run release:secret-audit`: pass, `918` files and zero findings.
+- `git diff --check`: pass.
+- `npm run tauri:build`: pass; final local NSIS rebuilt from the restored
+  configuration.
+- The main developer checkout still contains the two ignored paths
+  `src-tauri/.tauri_private_key` and `.pub`; their contents were not read or
+  copied. They are not in the clean candidate and must be treated as external
+  signing material, not as repository evidence.
+
+## Remaining risks / exact next step
+
+- The candidate remains local and unpushed; Hosted GitHub workflow execution,
+  repository security settings, production updater/AuthentiCode signing and
+  public feed publication are not claimed.
+- Real Provider billing/cancellation behavior and logged-in Codex/DSH
+  certification remain external.
+- The update preservation fixture uses the same schema on N and N+1, so a
+  cross-schema production migration and interrupted packaged migration remain
+  separate gates.
+- Run the final local regression against this restored source, then—only with
+  owner approval—run the Hosted draft-release/security workflows on the exact
+  published SHA. Keep Production Launch `NO-GO` until every external gate has
+  evidence.
+
+## Hosted failure reconciliation
+
+Read-only `gh` inspection found the latest workflow-bearing `main` SHA
+`9a1534b035350152c87d93a5f6e07f7452f3f66f1` had Security green, Critical 10x
+green, CI failed in Docs contract, and Build Desktop ended in
+`startup_failure` with no jobs. The CI log identified the old checker requiring
+the ignored `tools/flovart/skill/SKILL.md`, while the local candidate checker
+now makes that generated copy optional. A clean dependency-installed detached
+checkout confirmed `docs:check` and red-team pass without the generated copy.
+The Build Desktop validation annotation also reported that the reusable
+security job requested `pull-requests: read` while the caller granted
+`pull-requests: none`; the candidate now grants that permission explicitly and
+the red-team check guards it. The candidate workflow/dependency fixes are not
+Hosted-certified until this candidate is published; no rerun, push, tag, or
+release was triggered here.
+
+Remote `main` has since advanced to `969478db26e7f55668bcb3a782e58962fe0f3f47`
+through the scheduled traffic snapshot, which changes only `stats/history.json`;
+no new RC workflow result is attached to that generated commit.
+
+## Final local certification closure
+
+- Final clean detached evidence candidate: `835c0ba1ba673760fc64e77aee92b2b3d15ad5b2`.
+- The application/release-workflow source used for the final package is clean
+  commit `ea0b78d26ddf00fdba590098a99c678c12db8efe`; later candidate commits
+  only update release evidence documents.
+- Post-commit gates passed again: version `0.3.2` / `avabbbb/Flovart`, docs
+  contract (`134` files), red-team (five Agent commands, zero failures), secret
+  audit (`918` files, zero findings), full Vitest (`151` files; `1021` passed,
+  `1` skipped), typecheck, Web/Extension/DSH/Rust builds, dependency audits,
+  exact NSIS checksum verification and diff check.
+- Final NSIS evidence: `12,245,646` bytes,
+  SHA-256 `D7502F44DA03064FA03BACE39BDBBDEA2E267294D5F2C787606F59D4760D2F63`;
+  isolated install, launch, graceful close and uninstall passed.
+- Local test-signed updater evidence includes the current signed
+  project-container-preservation update and current invalid-signature rejection;
+  migration tests also cover truncated-envelope recovery. This does not
+  certify the production key, public feed, or cross-schema/interrupted migration.
+- No push, tag, release, Hosted rerun, production signing, paid Provider call,
+  or Codex login was performed. The exact next step is owner-approved Hosted
+  execution against this SHA, followed by external Provider/Codex/signing
+  certification.
+
+## Hosted attestation permission review
+
+The current GitHub `actions/attest@v4` contract requires
+`artifact-metadata: write` in addition to `id-token: write` and
+`attestations: write`. The desktop workflow now grants the missing permission,
+and `release:red-team` asserts all three before a Hosted run. This was a local
+workflow hardening change; the exact candidate still needs one Hosted execution.
+
+## Clean candidate artifact closure
+
+- Rebuilt the current detached candidate after `npm ci --ignore-scripts`:
+  `Flovart_0.3.2_x64-setup.exe`, `12,247,847` bytes, SHA-256
+  `E7FB4E01CF9A4C0F5A3D486B0C44B2938501019D292EC4D2C14E454D27AFD469`.
+- The current artifact passed the isolated NSIS install/launch/graceful-close/
+  uninstall smoke and `release:artifacts:check` with zero errors.
+- A local npm SPDX-2.3 package-lock SBOM passed the same checker with 663
+  packages and 1,377 relationships. This does not replace Hosted Syft or
+  provenance attestation evidence.
+- No source architecture changed in this closure. The candidate remains
+  unpushed; Hosted CI, repository security settings, production signing,
+  real-provider and Codex certification remain explicit external gates.
+
+## Packaged migration probe closure
+
+A disposable test-only seeder NSIS package wrote a resource-rich version-0
+envelope through IndexedDB using the same installed WebView2 runtime as the
+candidate. The production candidate NSIS package then launched against that
+same disposable `UserDataFolder`; a second seeder launch read the migrated
+state. The report was `seed(version=0)` followed by `read(version=1)`, with the
+project title, two node IDs and migrated widths, connection, provider metadata,
+generation history, and asset ID preserved. The production installer exited
+`0` and its launch was observed.
+
+This closes the normal packaged cross-schema migration evidence gap without
+changing production source or runtime configuration. The seeder, report
+server, temporary profile/installers, and test-created WebView2 policy value
+were cleaned up. A process kill during the migration write itself remains
+`NOT VERIFIED`; deterministic backup recovery tests cover the source-level
+failure boundary. The next authoritative step remains owner-approved Hosted
+execution against the clean candidate, followed by external Provider, Codex,
+and production-signing certifications.
+
+## Updater interruption evidence closure
+
+The disposable test-signed N installation was exercised against a slow local
+HTTPS updater feed. The real update control requested the N+1 installer, the
+exact N process was terminated during the download, and the installed version
+remained `0.3.1`. A subsequent normal launch requested the feed and installer
+again and completed the replacement at `0.3.2`. The harness result was
+`nVersionAfterInterrupt=0.3.1`, `nPlusOneVersionAfterRetry=0.3.2`, with both
+slow and retry requests observed. This closes the interrupted updater-download
+scenario locally; it does not certify a process kill during migration writes,
+production signing, a public feed, or Hosted provenance. Evidence is recorded
+in `RC_UPDATER_EVIDENCE.md`.
+
+## Critical-suite stability recheck
+
+The latest clean-candidate default-parallel critical run completed
+`20/20` repetitions, with `9` files and `50` tests passing in each repetition
+(`68.8s`). The focused rate-limit test completed `20/20`, and a serial version
+of the same nine-file suite completed `10/10`. One earlier parallel attempt
+had a transient connection-error classification in the rate-limit assertion;
+it did not reproduce in the higher-count rerun and no source change was made.
+This is recorded in `RC_CI_EVIDENCE.md`, not represented as a Hosted CI pass.
+
+## Post-workflow-fix artifact closure
+
+The release workflow hardening commit
+`491970e5345523bc7ca0223f18d773a978b6a014` makes non-tag desktop dry runs use
+the unsigned local Tauri overlay while tagged builds continue to use the
+production updater configuration and version gate. A local probe of the
+production configuration without `TAURI_SIGNING_PRIVATE_KEY` stopped at the
+expected signing boundary; it did not weaken the production requirement.
+
+The rebuilt candidate NSIS artifact from packaged candidate commit
+`a7d4d5b6cc650c9746886a7e2a5ef780f43919b5` is
+`Flovart_0.3.2_x64-setup.exe`, `12,249,424` bytes, SHA-256
+`849B9EF771F16957EB334CD21BE194587BACF79D615D0BFE5903B3B882D8EC71`.
+The latest isolated smoke installed it with exit `0`, observed the real
+`flovart.exe`, closed it gracefully, uninstalled with exit `0`, and removed
+the temporary install root. The staged artifact, checksum manifest, and local
+SPDX SBOM passed `release:artifacts:check` with zero errors. The candidate
+remains unpushed and Hosted CI/provenance, production signing, real Provider,
+and real Codex certification remain external gates.
+
+## Packaged UI generation observation boundary
+
+The latest isolated NSIS package was also installed with a local Fake Provider
+running. The installed app remained alive, but the WebView2 runtime exposed no
+usable CDP endpoint on the test debug port after 30 connection attempts, so no
+automated UI assertion or Provider request was made from that installed window.
+This is `NOT_VERIFIED` for the packaged full-generation path, not a product
+failure and not a substitute for the already passing source WebUI/Fake Provider
+E2E. The test app, provider, profile and temporary files were cleaned up; no
+production process or user data was touched.
+
+## Exact-source installer rebuild
+
+The latest clean-candidate source at `68865e7c3a0b674adf7118860d8a0afba132f237`
+was rebuilt with the unsigned local Tauri configuration. The resulting NSIS
+package is `Flovart_0.3.2_x64-setup.exe`, `12,245,884` bytes, SHA-256
+`12C7802F9CEDB2FE05B646251959A5B1BAC33F77237A458D13741532B170D426`.
+The staged checksum and local SPDX SBOM passed `check-release-artifacts` with
+zero errors. This is the current artifact identity; earlier hashes in this
+append-only handoff are historical rebuilds.
+
+## Final exact-source gate recheck
+
+The clean application/package source was `68865e7c3a0b674adf7118860d8a0afba132f237`;
+the clean evidence candidate at capture was `697a77c4a65455ffc7967b448ccf6f0ddd6bcf26`.
+The final recheck passed Vitest (`151` files, `1,021` passed, `1` skipped),
+TypeScript, Web build (`4,306` modules), Extension build, DSH build, Rust
+`--all-targets` (`41` tests), and the official-registry npm audit (`0`
+vulnerabilities). Docs contract (`134` files), version parity, tag-version,
+red-team, secret audit, staged NSIS/SHA256/SBOM verification, and `git diff
+--check` also passed. The exact-source NSIS artifact is
+`Flovart_0.3.2_x64-setup.exe`, `12,245,884` bytes,
+`12C7802F9CEDB2FE05B646251959A5B1BAC33F77237A458D13741532B170D426`; its
+isolated install/launch/close/uninstall smoke passed. Hosted execution,
+production signing, real Provider/Codex certification, packaged UI generation
+observation, and process-kill-during-migration-write remain explicitly
+unverified or external as described above.
+
+## Desktop WebView generation fix and current artifact
+
+The source-identical candidate commit `ce0c235` fixes packaged WebView2
+generation when a provider returns a `data:` image URL. Tauri CSP allows the
+image to render but does not allow `fetch(data:...)`; the generation path now
+decodes data URLs directly to a Blob and retains fetch for ordinary remote URLs.
+Focused media/generation regression tests passed (`55/55`).
+
+The exact clean candidate was rebuilt with `src-tauri/tauri.local.conf.json`.
+The current NSIS package is `Flovart_0.3.2_x64-setup.exe`, `12,246,944` bytes,
+SHA-256 `17FF507822D8A9A0D469FF3C382A6F4AB4CC85154CAA30B791237F7B3FCD2F24`.
+The isolated installer smoke passed install, launch, graceful close and
+uninstall; the package is unsigned by design. The staged checksum/SBOM bundle
+at `C:\\tmp\\flovart-rc-artifacts-clean-candidate-20260902-v3` passed
+`check-release-artifacts` with zero errors.
+
+A temporary CDP-only Tauri overlay, with the same application source and only
+an extra WebView2 debugging port, was used to observe the installed app
+complete Fake Provider T2I. The request, artifact persistence and successful
+node state were observed in the packaged WebView. Exact formal-package
+generation observation still lacks an approved external harness; this is kept
+as a boundary rather than promoted to a formal package PASS. Process-kill
+during migration writes also remains `NOT_VERIFIED`.
+
+## CodeQL alert reconciliation and current candidate
+
+On 2026-09-02 the public GitHub code-scanning API was read without changing
+repository state. It reported 13 open alerts, all on older `main` SHA
+`9a1534b035350152c87d93a5f6e07f7452f3f66f1`: 1 critical, 9 high and 3 medium.
+The candidate source already changed the old URL, stack-trace, XSS, generated
+source quoting, identity replacement and randomness sites; it also now bounds
+the topic-research artifact key to 4096 characters and uses an ASCII scan.
+The critical DSH proxy alert is not declared closed because its fetch target
+still derives from launcher configuration even though loopback, route and
+token guards are present. The complete disposition is in
+`RC_CODEQL_TRIAGE.md`; Hosted CodeQL must run on the exact pushed candidate.
+
+The source-security change is clean commit
+`1444453597e2cb9c7c5a3867f406e33391cd4a3a`. It was rebuilt as
+`Flovart_0.3.2_x64-setup.exe`, `12,247,499` bytes, SHA-256
+`2DE7DF820459F681521D99EBBA4D6D4E18ACE645E8DF95821166E44D4F7AD26F`.
+Staged checksum/SPDX verification and isolated NSIS install, launch, graceful
+close and uninstall passed. The focused topic-research regression is `5/5`.
+
+The candidate remains detached and unpushed. Local security checks are green,
+but Hosted CodeQL, repository security settings, production signing, public
+release publication and real Provider/Codex certification remain external.
+
+## Packaged migration crash recovery closure
+
+- A source-identical instrumented NSIS package used an isolated WebView2 profile
+  and CDP-only IndexedDB hook to terminate the exact Flovart process tree after
+  the migration backup write and after the replacement current-envelope write.
+- Both restarts completed version-0 → version-1 migration and preserved
+  migration-crash-project / migration-crash-node; taskkill returned status 0
+  for both phases. This closes the previously unverified local failure-injection
+  boundary for a packaged WebView2 test build.
+- This remains local evidence only: production Authenticode/updater signing,
+  Hosted release execution, and clean-machine production-key certification are
+  still external.
+
+## Final RC candidate security closure (2026-09-02)
+
+### Current phase
+
+Final Release Candidate Certification: local source, artifact and security
+hardening recheck. The candidate remains detached and unpublished.
+
+### Architecture decisions
+
+- DSH Workspace proxy targets are now restricted to an explicit-port
+  `http://127.0.0.1` origin. The outbound URL is rebuilt from a fixed loopback
+  literal; only the allowlisted route/method and owned status query fields are
+  forwarded, and the Workspace token remains host-side.
+- Desktop workflow permissions are least-privilege by job: read-only global
+  permissions, with release artifact/attestation/finalization writes scoped to
+  the jobs that require them. This does not change Workflow, Provider or Agent
+  authority.
+
+### Changed files
+
+- `dsh-plugin/src/workspaceProxy.ts`
+- `tests/dshWorkspaceProxy.test.ts`
+- `scripts/release-red-team.mjs`
+- `.github/workflows/build-desktop.yml`
+- `RC_CODEQL_TRIAGE.md`
+- RC evidence and progress documents updated to the current candidate anchor.
+
+### Verification
+
+- DSH proxy focused suite: `2/2`.
+- DSH build and client loader contract: pass.
+- `docs:check`: `135` files, pass.
+- `release:red-team`: pass, including parsed workflow permission scope.
+- `release:secret-audit`: `919` files scanned, `0` findings.
+- `version:check`: `0.3.2`, owner `avabbbb/Flovart`, pass.
+- Rebuilt NSIS candidate from `af1cae95faa171f4016c2bcf7c3381f007b05067`:
+  `Flovart_0.3.2_x64-setup.exe`, `12,248,576` bytes,
+  SHA-256 `063E89817C7F3900204409054B8CB089123CCA86C57CDDBB60142CC9FC1BDCB7`.
+- Artifact checksum/SBOM checker and isolated install, launch, graceful close
+  and uninstall smoke: pass.
+
+### External gates still open
+
+- The exact candidate still needs a Hosted GitHub CI/CodeQL/release dry-run;
+  the old public main snapshot has 13 CodeQL alerts, including one critical
+  DSH proxy alert, and this local hardening is not a Hosted closure.
+- Production Tauri signing/Authenticode, public updater feed, repository
+  security settings, real Provider billing/quality and real Codex login remain
+  external certification gates.
+
+### Exact next step
+
+After owner-approved publication of this candidate, run the Hosted security and
+desktop workflows on the exact SHA, then update `RC_CODEQL_TRIAGE.md`,
+`GITHUB_REPOSITORY_SECURITY_CHECKLIST.md` and `RELEASE_TRUTH_MATRIX.md` from
+the resulting run IDs. Do not call the production launch GO until external
+Provider, Codex and production-signing evidence is attached.
+
+## First-user generation and public-doc closure
+
+### Current phase
+
+Final Release Candidate Certification: public documentation parity and visible
+first-user generation recheck. The candidate remains detached and unpublished.
+
+### Changes
+
+- `App.tsx` now resolves dotted translation paths such as
+  `promptBar.generate`, so nested product copy is rendered instead of leaking
+  an implementation key into button labels and tooltips.
+- `README.en.md` and `docs/overview/quick-start.en.md` now describe the real
+  `/#/app` first-run route, optional onboarding, “Add AI service”, minimal
+  service-address/API-Key setup, automatic model discovery and Advanced-only
+  capability declarations.
+- The Chinese Quick Start, install guide and docs contract already carry the
+  matching first-run path; the docs checker discovers Git-visible Markdown and
+  MDX rather than relying on a fixed file-count allowlist.
+
+### Verification
+
+- `npx tsc --noEmit`: pass.
+- Workflow node overlay regression: `27/27`.
+- `npm run docs:check`: `135 files`, pass.
+- `npm run version:check`: `0.3.2`, `avabbbb/Flovart`, pass.
+- `npm run release:red-team`: pass.
+- Visible Chromium fresh-context smoke with local Fake Provider: pass. It
+  opened `/#/app`, left Canvas editable before setup, connected with service
+  address + API Key, discovered models, showed one Chinese cost confirmation,
+  rendered one image artifact, and observed one generation POST with zero page
+  or console errors. The sanitized evidence is
+  `C:\tmp\flovart-c14-first-user-evidence.json`; screenshots are
+  `C:\tmp\flovart-c14-first-run.png` and
+  `C:\tmp\flovart-c14-first-generation.png`.
+
+### Exact next step
+
+The NSIS candidate has now been rebuilt from the committed source containing
+the nested translation fix. The package hash/version evidence and isolated
+installer lifecycle smoke are current; next run the full local quality gate.
+Hosted CI, CodeQL, production signing, real Provider and real Codex
+certification remain external.
+
+## NSIS rebuild after first-user fix
+
+- Application source: `18b317348d0c32720b10b59c0f8e5450c239ce10`; package commit:
+  `e080a08387644d2fcc4a46a5e7dad5a9ce65273e`.
+- `npm run tauri:build` with `src-tauri/tauri.local.conf.json` completed a
+  real Windows x64 NSIS build.
+- Package: `Flovart_0.3.2_x64-setup.exe`, `12,249,655` bytes,
+  SHA-256 `827AF318C965542372B018C8D851F127C15CB80FC365182EACEC39B7ABE8D86D`.
+- `npm run release:artifacts:check -- --artifact-dir ... --sbom ...` passed
+  with zero errors after the checksum manifest was aligned to the checker’s
+  basename contract.
+- `release-installer-smoke.ps1` passed silent install, real executable launch,
+  graceful close, uninstall and removal of the temporary install directory.
+- This is an unsigned local RC package; production Authenticode, updater
+  signing, Hosted provenance and public publication remain external.
+
+## Nested DSH dependency audit closure
+
+### Current phase
+
+Final Release Candidate Certification: clean-source dependency security
+recheck.
+
+### Changes
+
+- Updated `dsh-plugin`'s direct `esbuild` build dependency and lockfile from the
+  vulnerable `0.21.x` line to `0.28.2`.
+- Added nested DSH dependency audits to both CI jobs and the hosted Security
+  dependency-audit job.
+
+### Verification
+
+- Clean source commit: `8e34bac2530f43f84819c22fc4ac45fb3b1db7ee`.
+- Root clean install, full and production-only npm audits: `0 vulnerabilities`.
+- DSH clean install and `npm audit --prefix dsh-plugin --audit-level=moderate`:
+  `0 vulnerabilities`.
+- DSH build and client loader contract: pass.
+- The package evidence above predates this dependency-only change and must be
+  replaced by a new NSIS build from the exact clean source.
+
+### Exact next step
+
+Finish the clean-source Rust/full gate, rebuild the NSIS candidate from commit
+`8e34bac2530f43f84819c22fc4ac45fb3b1db7ee`, rerun artifact/install evidence,
+then update the current package hashes in the release evidence documents.
+
+## Clean-source package after nested DSH audit closure
+
+### Verification
+
+- Source commit: `8e34bac2530f43f84819c22fc4ac45fb3b1db7ee`.
+- Full local gate: Vitest `151` files (`1,023` passed, `1` skipped), TypeScript,
+  Web, extension, DSH and Rust `--all-targets` (`41` tests), root and nested
+  DSH audits, docs/version/red-team/secret checks, and critical stability
+  `10/10` all pass.
+- NSIS: `Flovart_0.3.2_x64-setup.exe`, `12,248,570` bytes, SHA-256
+  `2639193E7A59CD081056DF13D8214F1F455B351BA3A3B950623260CC91A4D29A`.
+- SPDX-2.3 SBOM: 663 packages and 1,377 relationships; artifact checker has
+  zero errors.
+- Isolated installer smoke: install `0`, real executable launch observed,
+  graceful close, uninstall `0`, install root removed.
+
+### Current external gates
+
+The package is unsigned local evidence (`Authenticode: NotSigned`). Hosted
+CI/CodeQL/provenance, production updater signing, public release publication,
+real Provider billing/quality, and logged-in Codex certification remain
+external. The exact package and machine result are in
+`C:\tmp\flovart-rc-artifacts-clean-candidate-20260902-v8`.
+
+### Exact next step
+
+Review or publish this candidate through the repository's Hosted workflow on
+the exact source SHA. Do not call the production launch GO until Hosted
+security/provenance, production signing, and required real account/provider
+certification evidence is attached.
+
+## Final-source browser recheck
+
+- Clean source `8e34bac2530f43f84819c22fc4ac45fb3b1db7ee` was rerun in visible
+  Chromium with a fresh browser context and local Fake Provider HTTP server.
+- The first-run path opened `/#/app`, remained Canvas-editable before setup,
+  connected with service address + API Key, discovered three models, showed one
+  product-language cost confirmation, and rendered the fake image artifact.
+- The recorder observed one image-generation POST with prompt `一只猫` and zero
+  references; API Key presence was false, page errors were `0`, and console
+  errors were `0`.
+- Refreshed evidence: `C:\tmp\flovart-c14-first-user-evidence.json`,
+  `C:\tmp\flovart-c14-first-run.png`, and
+  `C:\tmp\flovart-c14-first-generation.png`.
+
+## Final exact candidate and repository gate snapshot
+
+### Current phase
+
+Final Release Candidate Certification: exact-source evidence reconciliation.
+The current candidate is clean and detached at
+`8e34bac2530f43f84819c22fc4ac45fb3b1db7ee`; it has not been pushed, tagged,
+or published.
+
+### Verification
+
+- Full local quality gate: Vitest `151` files (`1,023` passed, `1` skipped),
+  TypeScript, Web, extension, DSH and Rust `--all-targets` (`41` tests) passed.
+- Root full/production-only npm audits and nested DSH moderate audit: `0`
+  vulnerabilities.
+- Docs contract (`134` files), version parity (`0.3.2`, owner
+  `avabbbb/Flovart`), release red-team, secret audit (`919` files / `0`
+  findings), critical suite (`10/10`), and diff check passed.
+- Current local NSIS: `Flovart_0.3.2_x64-setup.exe`, `12,248,570` bytes,
+  SHA-256
+  `2639193E7A59CD081056DF13D8214F1F455B351BA3A3B950623260CC91A4D29A`.
+  Artifact/SBOM verification and isolated install, launch, graceful close and
+  uninstall passed. Authenticode is `NotSigned` by design for this local RC.
+
+### Read-only GitHub snapshot
+
+- Remote `main` is `969478db26e7f55668bcb3a782e58962fe0f3f47`; it contains only
+  the scheduled traffic snapshot after the older reviewed SHA.
+- Public Releases still contain only immutable `v0.2.0-test`.
+- No Hosted run is associated with the exact candidate. The latest relevant
+  remote runs are still on older main: Security succeeded, CI failed, and
+  Build Desktop ended in `startup_failure`.
+- Public CodeQL has 13 open alerts on older main (1 critical, 9 high, 3
+  medium); the candidate has no Hosted scan yet.
+- Repository API reports Dependabot security updates and Secret Scanning/push
+  protection disabled, no rulesets, Actions allowed for all actions, and main
+  unprotected. No repository setting was changed.
+
+### RC0 residual-process cleanup
+
+The final process audit found one stale `node agent/index.js` from the earlier
+temporary candidate worktree, owning `127.0.0.1:17373`. Its command line did
+not point at the user worktree. Only that PID (`46624`) was force-stopped; no
+user Chrome/Edge process was touched. A follow-up listener/process check found
+no Flovart candidate, Playwright, Fake Provider, Vite, or certification
+processes and no listener on the tested RC ports.
+
+### Exact next step
+
+Owner-approved publication of this exact candidate is required before running
+Hosted CI/CodeQL/release dry-run on the same SHA. After Hosted results are
+attached, update `RC_CODEQL_TRIAGE.md`,
+`GITHUB_REPOSITORY_SECURITY_CHECKLIST.md`, and `RELEASE_TRUTH_MATRIX.md` with
+run IDs. Production launch remains `NO-GO` until production signing, real
+Provider certification, and the prepared Codex login transcript are attached.
+
+## Final RC package recheck after CLI help closure
+
+### Current phase
+
+Final Release Candidate Certification: exact application/package evidence
+reconciliation. The current application/package source is clean detached
+commit `a1e6a39d232558fddd29c286bcbbb389218ac437`; it has not been pushed,
+tagged, or published.
+
+### Changes and decisions
+
+- Retired provider setup/model-test/batch commands are now labelled `[retired]`
+  in conventional CLI help, while the stable five-command Agent surface and
+  compatibility registry remain unchanged.
+- The DSH plugin direct `esbuild` range is now `^0.28.2`; the clean nested DSH
+  moderate-severity audit reports zero vulnerabilities. CI and security
+  workflows run that nested audit explicitly.
+- No Workflow, Provider, Browser authority, Host projection or secret-boundary
+  architecture was changed in this recheck.
+
+### Verification
+
+- Full Vitest: `151` files passed; `1,024` passed and `1` skipped (`1,025`
+  total), exit `0`.
+- Focused provider-routing regression: `6/6`.
+- TypeScript, Web build (`4,306` modules), Browser Extension build, DSH build
+  and client-loader contract, and Rust `--all-targets` (`41` tests): passed.
+- Root full/production-only npm audits and nested DSH moderate audit: `0`
+  vulnerabilities.
+- Docs contract (`134` files), version check (`0.3.2`, `avabbbb/Flovart`),
+  release red-team, secret audit (`919` files / `0` findings), critical suite
+  (`10/10`) and `git diff --check`: passed.
+- Current unsigned local NSIS package:
+  `Flovart_0.3.2_x64-setup.exe`, `12,248,622` bytes, SHA-256
+  `0A7B6B79CFD6EAC2A031ADB2838846895F7A31CBFCDC4182515E33F8526F7CE6`.
+  `release:artifacts:check` passed with zero errors and the SPDX-2.3
+  package-lock SBOM contains 663 packages and 1,377 relationships.
+- Repeated isolated installer smoke returned `installExit: 0`,
+  `launchObserved: true`, `closeMode: graceful`, `uninstallExit: 0`, and
+  `installRootExistsAfterUninstall: false`.
+- The visible fresh-context Browser/Fake Provider first-user smoke remains
+  green: Canvas was editable before setup, a service address plus API Key
+  discovered models, one product-language cost confirmation preceded one
+  T2I request, and the artifact appeared with zero page/console errors.
+
+### Exact local artifact
+
+The package is staged at
+`C:\tmp\flovart-rc-artifacts-clean-candidate-20260902-v9` and is bound to the
+application/package source commit above. Authenticode is `NotSigned` by design
+for this local RC. The package does not certify production updater signing,
+Hosted provenance, real Provider billing, or a logged-in Codex transcript.
+
+### Remaining external gates
+
+- Owner-approved publication and one Hosted CI/security/CodeQL/desktop dry run
+  on this exact source are still required.
+- Repository security settings (Dependabot, secret scanning/push protection,
+  branch/ruleset protection and Actions policy) remain owner gates.
+- Production Tauri signing/Authenticode, real Provider certification and real
+  Codex certification remain pending. DSH remains Experimental unless its
+  authenticated lifecycle is separately certified.
+
+### Exact next step
+
+Publish or otherwise authorize this exact application/package source for a
+Hosted dry run, attach the resulting run IDs and attestations, and keep the
+production launch verdict `NO-GO` until the external gates are complete.
+
+## Exact v10 packaged UI observation boundary
+
+The current v10 NSIS package was installed into disposable roots and launched
+with test-only WebView2 debugging policies on ports `48129` and `48130`; a
+fixed-port process observation on `48131` confirmed the real app and its
+isolated WebView2 child. The real app logged normal Runtime startup, but no
+debug listener or `/json/version` endpoint became available in the bounded
+probes; consequently no UI assertion or Provider request was made from that
+installed window. The result is `NOT_VERIFIED` for exact-package UI generation,
+not a product failure or a substitute for source WebUI evidence. All probe
+processes and RC ports were cleared. The exact temporary install and profile
+paths remain as trace artifacts because the shell safety policy rejected
+recursive deletion; they contain no repository or user project data.
+
+## Final candidate package rebuild
+
+The final application/package source anchor is clean detached commit
+`e7b8280014478e4fd3021f4f9a578b343bea11d2`. From that source,
+`npm run tauri:build` completed the Vite production build, Rust release build,
+and NSIS bundle. The resulting `Flovart_0.3.2_x64-setup.exe` is
+`12,242,510` bytes with SHA-256
+`36DE61FACC47A5293BE31EF521E0A4A2CCD75E1C22D023AB327C2CBBD5091155`.
+The staged checksum/SBOM artifact checker passed with zero errors, and the
+isolated installer smoke passed install, real executable launch, graceful
+close, uninstall, and install-root removal. Evidence refreshes after this
+package build are documentation-only and do not change the packaged
+application source.
+
+## Final candidate quality rerun
+
+After the v10 package was rebuilt from application/package source commit
+`e7b8280014478e4fd3021f4f9a578b343bea11d2`, the final source was rechecked
+without changing application code. Full Vitest passed `151` files with `1,024`
+passed and `1` skipped; TypeScript, extension build, DSH build/loader contract,
+and Rust `cargo test --all-targets` (`41` tests) passed. The critical suite was
+green `10/10`, root and nested DSH audits reported zero vulnerabilities, and
+version/docs/red-team/secret/artifact gates remained green. This is local
+candidate evidence only; Hosted CI/CodeQL/provenance, production signing,
+real Provider and real Codex certification remain external.
+
+## Test-only installed UI first-generation evidence
+
+The exact v10 no-debug package still has a separate `NOT_VERIFIED` WebView2 UI
+observation boundary. To close that observability gap without changing
+production code or configuration, a second NSIS package was built from the
+same application source anchor `e7b8280014478e4fd3021f4f9a578b343bea11d2`
+with an external test-only Tauri window overlay at
+`C:\tmp\tauri-webview-cdp-test.conf.json`. The overlay exposed CDP on port
+`48134` only for this disposable test package.
+
+Installed packaged UI smoke passed: Home → 新建 Workflow → first-run setup →
+editable unconfigured Canvas → image prompt → local Fake Provider model
+discovery → one product-language cost confirmation → one generated image on
+the Canvas. The recorder observed one `POST /v1/images/generations` for
+`gpt-image-2`, prompt `一只猫`, zero references; page/console errors were zero
+and the fake key was absent from browser/recorder evidence. Test package hash,
+install path, screenshots and machine-readable evidence are recorded in
+`RC_PACKAGED_UI_EVIDENCE.md`.
+
+This strengthens the installed product-path evidence only. The test package is
+not the production v10 artifact, is unsigned, and does not change the pending
+Hosted, production signing, real Provider or real Codex gates.
+
+## Final autonomous local certification checkpoint
+
+The clean candidate evidence commit is
+`4a060ec380a096a8f63effbc169291d6fb3d7c00`; the application/package source
+anchor remains `e7b8280014478e4fd3021f4f9a578b343bea11d2`. The candidate has
+not been pushed, tagged, or published. The exact v10 production-configured
+local NSIS artifact remains `Flovart_0.3.2_x64-setup.exe`, `12,242,510` bytes,
+SHA-256 `36DE61FACC47A5293BE31EF521E0A4A2CCD75E1C22D023AB327C2CBBD5091155`,
+and `release:artifacts:check` passes with zero errors.
+
+The final local recheck passed: Vitest `151` files / `1,024` passed / `1`
+skipped; TypeScript; Web build (`4,306` modules); extension build; DSH build
+and client-loader contract; Rust all-targets (`41` tests); critical suite
+`10/10`; official-registry root full and production-only audits; nested DSH
+moderate audit; docs contract `135` files; version parity; release red-team;
+secret audit `920` files / `0` findings; artifact verification; and diff
+hygiene. The candidate has no tested RC listener or process remaining.
+
+The source-identical test-only WebView2 overlay package completed the installed
+Home → 新建 Workflow → first-run AI setup → editable Canvas → Fake Provider
+model discovery → cost confirmation → T2I artifact path with zero page/console
+errors and no fake-key leakage. This does not upgrade the exact v10 no-debug UI
+observation, production signing, Hosted provenance, real Provider or Codex
+status.
+
+```text
+PRODUCT CORE: PASS (local evidence)
+AUTONOMOUS RC: PASS (local scope)
+RELEASE CANDIDATE ENGINEERING: PENDING HOSTED CERTIFICATION
+PRODUCTION LAUNCH: NO-GO
+```
+
+Remaining external gates are owner-authorized publication of the candidate,
+Hosted CI/security/CodeQL/release dry-run and attestation, repository security
+settings, production Tauri/Authenticode signing, real Provider certification,
+and the logged-in Codex certification transcript. DSH remains Experimental
+unless its authenticated lifecycle is separately certified. The exact next
+step is to publish or otherwise authorize this candidate for Hosted execution,
+attach run IDs and artifact attestations, and retain `NO-GO` until the external
+gates pass.
+
+## CLI package distribution closure
+
+An isolated `flovart-cli@0.3.2` install found one real release defect after the
+Desktop candidate checkpoint: the npm `files` allowlist omitted
+`crew-command-surface.js`, so the installed `flovart --help` crashed before
+the CLI could start. The allowlist was corrected to include that module plus
+the reachable `bootstrap-coordinator.js` and `web-discovery.js` modules.
+
+The repaired tarball was built and installed in a disposable prefix. It
+contains 69 package entries, includes the `bin`, `managed-agent` and Skill
+projections, and passed `flovart --help` (exit 0) and `flovart status --json`
+(exit 0, structured offline status). The tarball is
+`flovart-cli-0.3.2.tgz`, 123,585 bytes, SHA-256
+`EA3A4EC80FBCFC19F0EDCADBC029949BB68E2283F81FF6519B034A1C1FF0E1C1`.
+`tests/cliPackageManifest.test.js` now guards the package allowlist against
+missing reachable top-level modules. This fix is currently uncommitted in
+the main user worktree; the Desktop NSIS evidence above remains bound to its
+separate clean application source anchor and is not relabeled as containing
+this npm-only change.
+## Exact clean candidate after CLI distribution closure
+
+The final local clean candidate is d22406102260715e8a3c229b1eb84e48a913ef81.
+It includes the corrected flovart-cli@0.3.2 package allowlist and
+tests/cliPackageManifest.test.js. From this candidate, the Windows x64 NSIS
+artifact Flovart_0.3.2_x64-setup.exe is 12,250,236 bytes with SHA-256
+2E4BED3B09F5A11D62062C2C020ACEE25245E20E30EB5BFB1391C4DA003DA1B0.
+Artifact/SBOM verification and isolated install, launch, graceful close and
+uninstall passed. The candidate is unpushed and unsigned; Hosted CI/CodeQL,
+repository security settings, production signing, real Provider and logged-in
+Codex certification remain external, so production launch stays NO-GO.
+The matching flovart-cli@0.3.2 tarball is 123,596 bytes with SHA-256
+F9EB5E2823D6A9B4ED27C0D19276C6AB561A93DF5C7C9FAE168C98D307A701FB and passed
+isolated npm installation, help and structured offline status.
+## Exact candidate final recheck
+
+The exact candidate recheck passed full Vitest (152 files; 1,026 passed, 1
+skipped), TypeScript, Web/extension/DSH builds, DSH loader contract, Rust
+all-targets (41 tests), critical stability 10/10, official-registry audits,
+docs (136 files), version, red-team, secret (921 files / 0 findings) and diff
+hygiene. The only local release warning is the intentional unsigned status.
+
+## Final exact candidate after warning cleanup
+
+The exact clean detached candidate is
+`d539a9979cb7230f95783e3144d21ea9b6ac7685`; it is clean and unpushed. A fresh
+`npm run tauri:build` produced the Windows x64 NSIS package
+`Flovart_0.3.2_x64-setup.exe`, 12,252,502 bytes, SHA-256
+`97B144CEBA32864DE2905F6588EA1F6827AAD83AE1F76C8126A07E25B7ADED53`.
+Artifact/SBOM validation and isolated install, real executable launch,
+graceful close and uninstall passed from
+`C:\tmp\flovart-rc-artifacts-clean-candidate-20260902-v11`.
+
+The same candidate passed full Vitest (152 files; 1,026 passed; 1 skipped),
+TypeScript, Web/extension/DSH builds, DSH loader contract, Rust all-targets
+(41 tests), critical stability 10/10, official-registry dependency audits,
+docs (136 files), version, red-team, secret (921 files / 0 findings), artifact
+and diff checks. The matching `flovart-cli@0.3.2` tarball is 123,596 bytes,
+SHA-256 `F9EB5E2823D6A9B4ED27C0D19276C6AB561A93DF5C7C9FAE168C98D307A701FB`;
+isolated npm install, `flovart --help` and structured offline status passed.
+
+The candidate is unsigned and has no Hosted CI/CodeQL/provenance run attached.
+Production signing, repository security settings, real Provider certification,
+authenticated Codex certification and public release publication remain
+external gates. Existing non-fatal jsdom/React `act(...)` and Ant Design
+deprecation warnings remain visible in the full test output; no assertion
+failed, and the previous unawaited usage-monitor warning is fixed.
+
+## Stable-tag signing preflight
+
+The desktop release workflow now fails closed before the Tauri action when a
+stable `v*` tag has no `TAURI_SIGNING_PRIVATE_KEY`. Manual/local dry-runs keep
+using `src-tauri/tauri.local.conf.json` with updater artifacts disabled. The
+release red-team checks the workflow marker and the YAML parser successfully
+parsed all six tracked workflow files. This is a workflow hardening change in
+the current main worktree; Hosted execution still remains external.
+
+## External release state rechecked
+
+Read-only GitHub checks on 2026-09-02 still show the candidate is not on the
+remote `main`: the latest public release is `v0.2.0-test`, and the latest CI,
+Desktop and Security runs are attached to the older `main` SHA
+`9a1534b035350152c87d93a5f6e07f7452f3f66f1`. The public API still reports 13
+open CodeQL alerts on that older SHA. Dependabot alerts/security updates,
+secret scanning/push protection are disabled; `main` is unprotected, rulesets
+are empty, and Actions allow all actions with SHA pinning disabled. No GitHub
+setting, push, tag or release was changed by this pass. These remain external
+release gates for the final candidate.
+
+The latest read-only `codex login status` is `Not logged in`. The main user
+worktree contains two ignored signing-key files, which were not read or used;
+the clean candidate contains none. This does not convert either local file
+presence or the absent Codex session into production certification.
+
+## Final exact candidate with stable-tag signing preflight
+
+The final clean candidate is commit `71f8395e071e237d6fb83c03e340d55d795b3df0`
+in `C:\\tmp\\flovart-rc-clean-8e34bac-20260902`. It contains the release
+workflow fail-closed check requiring `TAURI_SIGNING_PRIVATE_KEY` for stable
+`v*` tags and the corresponding red-team assertion. The candidate is clean;
+the main worktree remains dirty by design so existing user changes are
+preserved.
+
+The exact candidate passed the local release gates: full Vitest `152 files,
+1026 passed, 1 skipped`; critical suite `10/10`; TypeScript; web, extension,
+DSH and Rust builds/tests; version parity; docs contract across `136` files;
+secret audit `921 scanned, 0 findings`; release red-team with no failures;
+YAML parsing for all six workflows; artifact verification; and `git diff
+--check`. The final NSIS artifact was rebuilt from this candidate as
+`Flovart_0.3.2_x64-setup.exe`, `12,250,318` bytes, SHA-256
+`A731DA53DFCE2A27F8F09BE0E57222B5E6E375BA6DFE7069088AB76B3F289DF8`, and the
+isolated install/launch/close/uninstall smoke passed. Its file version and
+product version are `0.3.2`; it is intentionally unsigned in the local
+dry-run. The isolated CLI package smoke also passed (`flovart-cli@0.3.2`,
+SHA-256 `F9EB5E2823D6A9B4ED27C0D19276C6AB561A93DF5C7C9FAE168C98D307A701FB`).
+
+The exact formal NSIS package has no usable WebView2 CDP endpoint, so packaged
+UI generation remains explicitly `NOT_VERIFIED`; the source-identical CDP
+overlay test remains separate evidence and passed the first-run, Fake Provider
+T2I path. No production updater signature/latest feed was produced. Hosted
+GitHub workflow execution, repository security settings, production signing,
+real Provider certification, and real Codex login remain external gates.
+
+Next step: preserve this evidence and obtain the external approvals/credentials
+before any production tag or publication. Do not push, tag, publish, alter
+GitHub settings, or read the ignored local signing-key files without explicit
+authorization.
+
+## Final release-truth sweep
+
+The current evidence-document heads were reconciled to the exact candidate
+`71f8395e071e237d6fb83c03e340d55d795b3df0`, the v12 NSIS artifact, and the
+latest local counts. Historical v10/e7b references remain only in explicitly
+historical sections. The final local checks were rerun after this sweep:
+docs contract `136` files, version parity `0.3.2`, red-team no failures,
+secret audit `921` files / `0` findings, candidate artifact checker `ok`, and
+`git diff --check` passed.
+
+The read-only remote snapshot now observes `origin/main` at
+`c60b452719fc3b0ddd32225556fbd86b73b5f299` (`chore: daily traffic snapshot`);
+the candidate is still not published or rebased onto that generated commit.
+The public release remains `v0.2.0-test`. GitHub Code Scanning still reports
+13 open alerts whose observed instances point to `9a1534b035350152c87d93a5f6e07f7452f3f66f1`; repository security settings still report
+Dependabot updates, Secret Scanning/push protection disabled, no branch
+protection/rulesets, and no Hosted run for the candidate. These are read-only
+external gates; no GitHub setting or remote state was changed.
+
+## Final RC candidate after updater artifact verification
+
+The clean temporary candidate was advanced to
+`e98564a8fe20aa97c8cfcab05749db06035843c9` in
+`C:\tmp\flovart-rc-clean-8e34bac-20260902`. The temporary candidate worktree
+is clean and contains only the release-metadata verifier/test/workflow change
+after the prior `71f8395e` source boundary; the main worktree remains dirty by
+design so user changes are preserved.
+
+The exact candidate was rebuilt with `src-tauri/tauri.local.conf.json` into
+`C:\tmp\flovart-rc-artifacts-clean-candidate-20260902-v13`:
+
+```text
+Flovart_0.3.2_x64-setup.exe
+bytes: 12249053
+sha256: 9eb92267aca04f672adad4c50b0c8fd39ff1a9666bb5d9a4f8317290d3448af1
+```
+
+The NSIS artifact checker, real install/launch/graceful-close/uninstall smoke,
+full Vitest (`153` files, `1030` passed, `1` skipped), TypeScript, Web,
+extension, DSH, Rust, critical `10/10`, docs (`136` files), version, secret
+(`923` scanned, `0` findings), red-team and `git diff --check` gates passed.
+The focused updater verifier passed `4/4` tests and the isolated test-signed
+feed passed its valid `latest.json` + `.sig` sidecar check.
+
+The desktop release workflow now stages Tauri's `latest.json` and target
+signature sidecars on stable tags and fails closed when a platform entry,
+versioned HTTPS artifact, or matching `.sig` is absent. This verifier checks
+feed/sidecar metadata integrity; it does not claim cryptographic production
+signature verification. Local builds intentionally disable updater artifacts,
+so production signing, Hosted CI, provenance, public feed publication, real
+Provider billing and authenticated Codex remain external gates.
+
+Next step is evidence-only final local gate rerun and report reconciliation.
+Do not push, tag, publish, alter GitHub settings, or read the ignored local
+signing-key files without explicit authorization.
+
+## Final candidate after public-doc parity closure
+
+The previous `e98564a` candidate was extended with the public documentation
+parity fix that makes compatibility `command.schema` lookup diagnostic-only;
+the resulting clean candidate is
+`4e06c7fb57a668347189de23d731fa912104e080` in the same temporary worktree.
+The exact candidate was rebuilt into
+`C:\tmp\flovart-rc-artifacts-clean-candidate-20260902-v14`:
+
+```text
+Flovart_0.3.2_x64-setup.exe
+bytes: 12248495
+sha256: 9156349dab4f217ba0108df32dfff22c54ca262c139d8e55de4f81a92976cffe
+```
+
+The v14 artifact passed checksum/SBOM validation and the real isolated NSIS
+install, launch, graceful-close and uninstall smoke. The exact candidate then
+passed full Vitest (`153` files, `1030` passed, `1` skipped), TypeScript,
+extension build, DSH build/loader contract, Rust `41` tests, critical `10/10`,
+docs (`136` files), version parity, secret audit (`923` scanned, `0` findings),
+release red-team, updater focused tests (`4/4`) and `git diff --check`.
+
+The candidate is still detached, clean, unpushed and untagged. The main
+worktree remains dirty by design and still contains two ignored local signing
+files; these were not read or used. No Hosted workflow, production signature,
+public updater feed, real Provider account or authenticated Codex result is
+claimed. Production launch remains `NO-GO` until those external gates are
+certified.
+
+## Final candidate after matrix-level updater verification
+
+The release workflow was then hardened against a multi-platform feed race:
+`latest.json` accumulates entries as matrix jobs upload their assets, so the
+per-platform jobs only stage local evidence and the `publish-release` job now
+downloads the complete draft asset set after `build` succeeds. It rejects an
+absent draft, unsafe asset name, missing feed, or failed `latest.json`/`.sig`
+verification before the draft can become public.
+
+The resulting clean candidate is
+`5ed7da08f083b314f75159f99c7e1929e9a3b3bd`. Its exact v15 local NSIS package
+is staged at
+`C:\tmp\flovart-rc-artifacts-clean-candidate-20260902-v15`:
+
+```text
+Flovart_0.3.2_x64-setup.exe
+bytes: 12249203
+sha256: d87730624188a82cb1425beef0a723c9564898cfbb59c817d3bc2bbfcbd55247
+```
+
+The package checker and real isolated install/launch/graceful-close/uninstall
+smoke passed. The candidate's full Vitest, TypeScript, extension, DSH, Rust,
+critical `10/10`, docs/version/secret/red-team and diff gates were already
+green before this workflow-only change; the workflow change itself passed
+red-team and updater focused tests. No Hosted run, production signature,
+public feed, real Provider, or authenticated Codex certification is claimed.
+
+## Final exact candidate after release-finalizer invariant
+
+The current clean candidate is
+`3f9bee9306f44da3ea8be9c480ad4e5fc91acf65`. Its v16 local NSIS artifact is
+staged at `C:\tmp\flovart-rc-artifacts-clean-candidate-20260902-v16`:
+
+```text
+Flovart_0.3.2_x64-setup.exe
+bytes: 12250417
+sha256: ec89aa5cf9fea82b824ba229bd9368d6f5aa49e4f2b1f32adf040c1854d25020
+```
+
+The release red-team now asserts that the complete updater feed check is in
+`publish-release`, after draft assets are downloaded, rather than in one
+partial matrix job. The exact candidate passed full Vitest again (`153` files,
+`1030` passed, `1` skipped), and the v16 checksum/SBOM plus isolated NSIS
+install/launch/graceful-close/uninstall smoke passed. The candidate remains
+detached, clean, unpushed and untagged; Hosted workflow, production signing,
+real Provider and authenticated Codex certification remain external.
+
+## Hosted environment probe after final local candidate
+
+Two non-release GitHub Actions workflows were manually dispatched against the
+remote `main` SHA `c60b452719fc3b0ddd32225556fbd86b73b5f299`; neither run used
+the unpublished local candidate. CI run [33598287044](https://github.com/avabbbb/Flovart/actions/runs/33598287044)
+failed only at the older remote Docs contract because it still required the
+missing/stale generated `tools/flovart/skill/SKILL.md` and the retired Agent
+surface; its separate Critical suite 10x job passed. Security run
+[33598299717](https://github.com/avabbbb/Flovart/actions/runs/33598299717)
+passed tracked-secret audit and both CodeQL jobs; dependency review was
+skipped because manual dispatch is not a pull request.
+
+The exact local candidate was then checked from a new detached checkout with
+no generated Skill and no copied dependencies: `npm ci --ignore-scripts` plus
+`npm run docs:check` passed (`135 files`). This confirms the local checker fix
+does not depend on ignored packaging output. Hosted certification of the exact
+candidate remains pending because it has not been published.
