@@ -17,7 +17,8 @@ export class SkillHubError extends Error {
 }
 
 export function normalizeHubUrl(input) {
-  const text = String(input || '').trim().replace(/\/+$/, '');
+  let text = String(input || '').trim();
+  while (text.endsWith('/')) text = text.slice(0, -1);
   if (!text) throw new SkillHubError('INVALID_URL', 'Skill Hub 地址不能为空。');
   let url;
   try {
@@ -28,7 +29,9 @@ export function normalizeHubUrl(input) {
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     throw new SkillHubError('INVALID_URL', 'Skill Hub 只支持 http(s) 地址。');
   }
-  return url.origin + url.pathname.replace(/\/+$/, '');
+  let pathname = url.pathname;
+  while (pathname.endsWith('/')) pathname = pathname.slice(0, -1);
+  return url.origin + pathname;
 }
 
 /** Install/downloads may only reach https endpoints or loopback http (SSRF guard). */

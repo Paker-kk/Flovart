@@ -201,7 +201,30 @@ function researchRoot(outputDir) {
 }
 
 function safeKey(value) {
-  return String(value).replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 96) || 'research';
+  const source = String(value).slice(0, 4096);
+  let normalized = '';
+  let separatorPending = false;
+  for (const character of source) {
+    const code = character.charCodeAt(0);
+    const allowed = (code >= 48 && code <= 57)
+      || (code >= 65 && code <= 90)
+      || (code >= 97 && code <= 122)
+      || character === '.'
+      || character === '_'
+      || character === '-';
+    if (allowed) {
+      normalized += character;
+      separatorPending = false;
+    } else if (!separatorPending) {
+      normalized += '-';
+      separatorPending = true;
+    }
+  }
+  let start = 0;
+  let end = normalized.length;
+  while (start < end && normalized[start] === '-') start += 1;
+  while (end > start && normalized[end - 1] === '-') end -= 1;
+  return normalized.slice(start, end).slice(0, 96) || 'research';
 }
 
 function artifactMarkdown(result) {

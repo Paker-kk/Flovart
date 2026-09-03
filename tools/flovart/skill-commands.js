@@ -16,7 +16,9 @@ import {
   SkillHubError,
 } from './skill-hub.js';
 import { readWebDiscovery } from './web-discovery.js';
-import { probeWebUi } from './local-agent.js';
+import { buildBrowserBootstrapUrl, inspectLocalAgent, probeWebUi, readLocalAgentConnection } from './local-agent.js';
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 // Default local WebUI endpoints, in probe order (dev Vite first, then toolkit web).
 // Override with FLOVART_WEBUI_PORTS="http://127.0.0.1:8080,http://127.0.0.1:9000".
@@ -147,7 +149,7 @@ export async function runSkillCommand(command, args = {}) {
     case 'web.open': {
       const explicit = String(args.url ?? '').trim();
       try {
-        const url = await openWebUi(explicit);
+        const url = await openWebUi(explicit, { opener: args.opener });
         return okResult({ command, opened: url, method: 'native-opener' });
       } catch (cause) {
         return error(cause?.code || 'NO_WEBUI', cause instanceof Error ? cause.message : String(cause));
@@ -173,7 +175,27 @@ async function probeCandidate(candidate, timeoutMs = 600) {
   return Boolean(await probeWebUi(candidate, { timeoutMs }).catch(() => null));
 }
 
-export async function openWebUi(explicitUrl = '') {
+function isLoopbackUrl(value) {
+  try { return LOOPBACK_HOSTS.has(new URL(value).hostname); } catch { return false; }
+}
+
+async function openVerifiedWebUi(target, verified = true, opener = openUrlNative) {
+  let openTarget = target;
+  if (verified) {
+    try {
+      const connection = readLocalAgentConnection();
+      const inspected = await inspectLocalAgent(connection, { timeoutMs: 600 });
+      if (inspected.state === 'ready') openTarget = buildBrowserBootstrapUrl(target, connection);
+    } catch {
+      // A plain WebUI remains a valid fallback when the optional Browser Agent is offline.
+    }
+  }
+  opener(openTarget);
+  return target;
+}
+
+export async function openWebUi(explicitUrl = '', options = {}) {
+  const opener = typeof options.opener === 'function' ? options.opener : openUrlNative;
   let target = explicitUrl.trim();
   if (target) {
     const url = new URL(target);
@@ -181,16 +203,14 @@ export async function openWebUi(explicitUrl = '') {
       throw new SkillHubError('INVALID_URL', 'web.open 只接受 http(s) 地址。');
     }
     target = url.toString();
-    openUrlNative(target);
-    return target;
+    return openVerifiedWebUi(target, isLoopbackUrl(target) && await probeCandidate(target), opener);
   }
   for (const candidate of webuiCandidates()) {
     if (await probeCandidate(candidate)) {
-      openUrlNative(candidate);
-      return candidate;
+      return openVerifiedWebUi(candidate, true, opener);
     }
   }
-  throw Object.assign(new Error('没有发现运行中的 Flovart WebUI。请先运行 `npx flovart-cli start --open` 或 `npm run dev`。'), { code: 'NO_WEBUI' });
+  throw Object.assign(new Error('没有发现运行中的 Flovart WebUI。请先运行 `npx flovart-cli start --source --web --open`；不要单独运行 `npm run dev` 来建立 Agent 连接。'), { code: 'NO_WEBUI' });
 }
 
 /** Open a URL with the OS default browser without shell-parsing bootstrap query strings. */
