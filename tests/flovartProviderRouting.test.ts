@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { HELP_TEXT } from '../tools/flovart/core.js';
 import { RUNTIME_COMMANDS, RUNTIME_WRITE_COMMANDS } from '../tools/flovart/runtime-command-surface.js';
 
 const RETIRED_COMMANDS: Array<[string, string[]]> = [
@@ -30,6 +31,13 @@ describe('Flovart retired browser Bridge commands', () => {
     expect(RUNTIME_WRITE_COMMANDS.has('generate.video')).toBe(true);
     expect(RUNTIME_COMMANDS.has('provider.select-model')).toBe(false);
     expect(RUNTIME_COMMANDS.has('generate.images-batch')).toBe(false);
+  });
+
+  it('labels retired commands instead of presenting them as active help paths', () => {
+    expect(HELP_TEXT).toContain('provider.begin-setup ...                       [retired]');
+    expect(HELP_TEXT).toContain('provider.select-model ...                      [retired]');
+    expect(HELP_TEXT).toContain('provider.test                                   [retired]');
+    expect(HELP_TEXT).toContain('generate.images-batch --file shots.json         [retired]');
   });
 
   it.each(RETIRED_COMMANDS)('rejects retired browser-Bridge command %s without queueing it', (command, args) => {

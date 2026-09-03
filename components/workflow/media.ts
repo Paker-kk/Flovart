@@ -251,7 +251,32 @@ export async function workflowBlobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+function decodeDataUrl(dataUrl: string): Blob {
+  const match = dataUrl.match(/^data:([^,]*),(.*)$/is);
+  if (!match) throw new Error('无法读取图片结果');
+  const metadata = match[1] || 'text/plain;charset=US-ASCII';
+  const mimeType = metadata.split(';', 1)[0] || 'application/octet-stream';
+  const payload = match[2];
+  if (!metadata.split(';').slice(1).some(part => part.toLowerCase() === 'base64')) {
+    try {
+      return new Blob([decodeURIComponent(payload)], { type: mimeType });
+    } catch {
+      throw new Error('无法读取图片结果');
+    }
+  }
+  try {
+    const binary = atob(payload.replace(/\s/g, ''));
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return new Blob([bytes], { type: mimeType });
+  } catch {
+    throw new Error('无法读取图片结果');
+  }
+}
+
 export async function workflowDataUrlToBlob(dataUrl: string): Promise<Blob> {
+  const trimmed = dataUrl.trim();
+  if (/^data:/i.test(trimmed)) return decodeDataUrl(trimmed);
   const response = await fetch(dataUrl);
   if (!response.ok) throw new Error('无法读取图片结果');
   return response.blob();

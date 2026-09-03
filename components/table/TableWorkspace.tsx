@@ -51,7 +51,7 @@ export function TableWorkspace({
   const sourceMedia = useWorkflowMediaUrl(selectedNode?.metadata.storageKey, selectedNode?.metadata.href);
   const localUrl = useBlobUrl(localSource?.blob || null);
   const resultUrl = useBlobUrl(result?.blob || null);
-  const previewUrl = resultUrl || localUrl || sourceMedia.url;
+  const previewUrl = safeMediaUrl(resultUrl || localUrl || sourceMedia.url);
   const sourceName = localSource?.name || selectedNode?.metadata.name || selectedNode?.title || '未选择素材';
 
   useEffect(() => {
@@ -187,8 +187,9 @@ export function TableWorkspace({
 
 function TableSourceRow({ node, active, onClick }: { node: WorkflowNode; active: boolean; onClick: () => void }) {
   const media = useWorkflowMediaUrl(node.metadata.storageKey, node.metadata.href);
+  const mediaUrl = safeMediaUrl(media.url);
   return <button type="button" onClick={onClick} className="mb-1 flex w-full items-center gap-2 rounded-lg border p-1.5 text-left transition" style={{ borderColor: active ? 'var(--isl-mint)' : 'transparent', background: active ? 'var(--isl-mint-bg)' : 'transparent' }}>
-    <span className="grid h-9 w-11 shrink-0 place-items-center overflow-hidden rounded-md bg-black/10">{media.url ? (node.type === 'video' ? <video src={media.url} muted preload="metadata" className="h-full w-full object-cover" /> : <img src={media.url} alt="" className="h-full w-full object-cover" />) : node.type === 'video' ? <Video size={14} /> : <ImageIcon size={14} />}</span>
+    <span className="grid h-9 w-11 shrink-0 place-items-center overflow-hidden rounded-md bg-black/10">{mediaUrl ? (node.type === 'video' ? <video src={mediaUrl} muted preload="metadata" className="h-full w-full object-cover" /> : <img src={mediaUrl} alt="" className="h-full w-full object-cover" />) : node.type === 'video' ? <Video size={14} /> : <ImageIcon size={14} />}</span>
     <span className="min-w-0"><strong className="block truncate text-[11px]">{node.metadata.name || node.title}</strong><span className="text-[9px]" style={{ color: 'var(--isl-ink-ghost)' }}>{node.type === 'video' ? '视频节点' : '图片节点'}</span></span>
   </button>;
 }
@@ -202,4 +203,16 @@ function useBlobUrl(blob: Blob | null) {
     return () => URL.revokeObjectURL(next);
   }, [blob]);
   return url;
+}
+
+function safeMediaUrl(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value, 'http://flovart.local');
+    if (url.protocol === 'http:' || url.protocol === 'https:' || url.protocol === 'blob:') return url.href;
+    if (url.protocol === 'data:' && /^(image|video|audio)\//i.test(url.pathname)) return url.href;
+    return null;
+  } catch {
+    return null;
+  }
 }

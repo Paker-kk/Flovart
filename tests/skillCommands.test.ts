@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { runSkillCommand, openUrlNative, buildNativeOpenCommand } from '../tools/flovart/skill-commands.js';
+import { runSkillCommand, buildNativeOpenCommand } from '../tools/flovart/skill-commands.js';
 import { SkillRegistry } from '../tools/flovart/skill-registry.js';
 
 const MANIFEST_YAML = `schemaVersion: flovart.production-skill/1
@@ -146,32 +146,37 @@ describe('flovart CLI skill commands', () => {
 
 describe('web.open', () => {
   it('opens a probing candidate with the native opener via global fetch', async () => {
+    const opener = vi.fn();
     vi.stubGlobal('fetch', vi.fn(async input => {
       const url = String(input);
       if (url === 'http://127.0.0.1:37522') return { ok: true, status: 200, text: async () => '<body data-flovart-webui="1"></body>' };
       throw new Error('unreachable');
     }));
     try {
-      const result = await runSkillCommand('web.open', {});
+      const result = await runSkillCommand('web.open', { opener });
       expect(result.ok).toBe(true);
       expect(result.opened).toBe('http://127.0.0.1:37522');
+      expect(opener).toHaveBeenCalledWith('http://127.0.0.1:37522');
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
   it('answers NO_WEBUI when nothing is listening', async () => {
+    const opener = vi.fn();
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
     try {
-      const result = await runSkillCommand('web.open', {});
+      const result = await runSkillCommand('web.open', { opener });
       expect(result.ok).toBe(false);
       expect(result.error.code).toBe('NO_WEBUI');
+      expect(result.error.message).toContain('不要单独运行 `npm run dev`');
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
   it('honors FLOVART_WEBUI_PORTS over the default probe order', async () => {
+    const opener = vi.fn();
     process.env.FLOVART_WEBUI_PORTS = 'http://127.0.0.1:8080,http://127.0.0.1:9000';
     vi.stubGlobal('fetch', vi.fn(async input => {
       return String(input) === 'http://127.0.0.1:8080'
@@ -179,7 +184,7 @@ describe('web.open', () => {
         : { ok: false, status: 404 };
     }));
     try {
-      const result = await runSkillCommand('web.open', {});
+      const result = await runSkillCommand('web.open', { opener });
       expect(result.ok).toBe(true);
       expect(result.opened).toBe('http://127.0.0.1:8080');
     } finally {
@@ -188,9 +193,54 @@ describe('web.open', () => {
     }
   });
 
-  it('spawns the platform opener without a shell', () => {
-    // openUrlNative is best-effort: on CI/headless it must not throw.
-    expect(() => openUrlNative('http://127.0.0.1:37522')).not.toThrow();
+  it('uses a one-time Agent bootstrap when opening a ready Flovart WebUI', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'flovart-web-open-'));
+    const configPath = join(dir, 'agent.json');
+    const target = 'http://127.0.0.1:6100/';
+    const opener = vi.fn();
+    writeFileSync(configPath, JSON.stringify({ url: 'http://127.0.0.1:6101', token: 'secret-token' }), 'utf8');
+    const previousConfig = process.env.FLOVART_AGENT_CONFIG;
+    process.env.FLOVART_AGENT_CONFIG = configPath;
+    vi.stubGlobal('fetch', vi.fn(async input => {
+      const url = String(input);
+      if (url === target) return { ok: true, status: 200, text: async () => '<body data-flovart-webui="1"></body>' };
+      if (url.endsWith('/health')) return { ok: true, status: 200, json: async () => ({ ok: true, clients: 0, hasWorkflow: false }) };
+      if (url.endsWith('/crew/protocol')) return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      throw new Error('unexpected request');
+    }));
+    try {
+      const result = await runSkillCommand('web.open', { url: target, opener });
+      expect(result).toMatchObject({ ok: true, opened: target });
+      expect(JSON.stringify(result)).not.toContain('secret-token');
+      expect(opener).toHaveBeenCalledWith(expect.stringContaining('agentToken=secret-token'));
+      expect(opener.mock.calls[0][0]).toContain('activateBrowserWriter=1');
+    } finally {
+      vi.unstubAllGlobals();
+      if (previousConfig === undefined) delete process.env.FLOVART_AGENT_CONFIG;
+      else process.env.FLOVART_AGENT_CONFIG = previousConfig;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('never probes or appends the local Agent token to an external URL', async () => {
+    const opener = vi.fn();
+    const fetcher = vi.fn(async () => { throw new Error('external URL must not be probed'); });
+    vi.stubGlobal('fetch', fetcher);
+    try {
+      const result = await runSkillCommand('web.open', { url: 'https://example.com', opener });
+      expect(result).toMatchObject({ ok: true, opened: 'https://example.com/' });
+      expect(opener).toHaveBeenCalledWith('https://example.com/');
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps the native opener command loopback-safe', () => {
+    expect(buildNativeOpenCommand('http://127.0.0.1:37522', 'win32')).toEqual({
+      cmd: 'rundll32.exe',
+      args: ['url.dll,FileProtocolHandler', 'http://127.0.0.1:37522'],
+    });
   });
 
   it('keeps Windows bootstrap query parameters out of shell parsing', () => {

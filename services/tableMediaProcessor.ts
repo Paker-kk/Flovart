@@ -91,7 +91,12 @@ async function processVideo(blob: Blob, tool: TableToolId): Promise<TableProcess
   if (typeof MediaRecorder === 'undefined') throw new Error('当前浏览器不支持视频预处理导出。');
   const video = document.createElement('video');
   const url = URL.createObjectURL(blob);
-  video.src = url;
+  const safeUrl = safeBlobUrl(url);
+  if (!safeUrl) {
+    URL.revokeObjectURL(url);
+    throw new Error('视频预处理地址无效。');
+  }
+  video.src = safeUrl;
   video.muted = true;
   video.playsInline = true;
   await new Promise<void>((resolve, reject) => {
@@ -202,8 +207,10 @@ function addApplause(context: CanvasRenderingContext2D, width: number, height: n
 async function loadImage(blob: Blob): Promise<HTMLImageElement> {
   const url = URL.createObjectURL(blob);
   try {
+    const safeUrl = safeBlobUrl(url);
+    if (!safeUrl) throw new Error('图片预处理地址无效。');
     const image = new Image();
-    image.src = url;
+    image.src = safeUrl;
     await image.decode();
     return image;
   } finally {
@@ -213,4 +220,13 @@ async function loadImage(blob: Blob): Promise<HTMLImageElement> {
 
 function canvasBlob(canvas: HTMLCanvasElement, mimeType: string): Promise<Blob> {
   return new Promise((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('处理结果导出失败。')), mimeType, .92));
+}
+
+function safeBlobUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'blob:' ? url.href : null;
+  } catch {
+    return null;
+  }
 }

@@ -11,6 +11,8 @@ import {
   setWorkflowMediaCanonicalProjects,
   unregisterWorkflowMediaTransientReferences,
   useWorkflowMediaUrl,
+  workflowBlobToDataUrl,
+  workflowDataUrlToBlob,
   workflowMediaType,
 } from '../components/workflow/media';
 import { workflowMediaStorage } from '../components/workflow/storage';
@@ -80,6 +82,16 @@ describe('workflow media', () => {
     expect(fitWorkflowMediaSize('image', 1600, 900)).toEqual({ width: 420, height: 236 });
     expect(fitWorkflowMediaSize('video', 1080, 1920)).toEqual({ width: 180, height: 320 });
     expect(fitWorkflowMediaSize('audio')).toEqual({ width: 340, height: 120 });
+  });
+
+  it('decodes data URLs without relying on a CSP-blocked data fetch', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    const blob = await workflowDataUrlToBlob('data:image/png;base64,SGVsbG8=');
+
+    expect(blob.type).toBe('image/png');
+    expect(await workflowBlobToDataUrl(blob)).toBe('data:image/png;base64,SGVsbG8=');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('persists the Blob under a durable storage key without embedding its contents', async () => {

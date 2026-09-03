@@ -3052,9 +3052,16 @@ export async function downloadSeedanceVideoResult(videoUrl: string, options?: { 
  * - 其他：fallback 到 Ark 风格（保留向后兼容）。
  */
 function detectSeedanceCancelRoute(baseUrl: string): 'ark' | 'gateway' {
-    const lower = (baseUrl || '').toLowerCase();
-    if (lower.includes('/api/llm/v1') || lower.includes('/v1/tasks')) return 'gateway';
-    if (lower.includes('volces.com') || lower.includes('/api/v3')) return 'ark';
+    let url: URL;
+    try {
+        url = new URL(baseUrl);
+    } catch {
+        return 'ark';
+    }
+    const pathname = url.pathname.toLowerCase();
+    if (pathname.includes('/api/llm/v1') || pathname.includes('/v1/tasks')) return 'gateway';
+    const hostname = url.hostname.toLowerCase();
+    if (hostname === 'volces.com' || hostname.endsWith('.volces.com') || pathname.includes('/api/v3')) return 'ark';
     return 'ark';
 }
 
@@ -3467,7 +3474,7 @@ export async function generateVideoWithProvider(
             prompt,
             cfg_scale: 0.5,
             mode: options?.resolution?.toLowerCase() === '1080p' ? 'pro' : 'std',
-            aspect_ratio: aspectRatio.replace(':', ':'),
+            aspect_ratio: aspectRatio,
             duration: String(options?.durationSec || 5),
         };
         if (firstFrame) {

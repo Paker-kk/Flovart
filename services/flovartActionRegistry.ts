@@ -95,7 +95,9 @@ const BUILTIN_ACTIONS: FlovartActionDefinition[] = [
 const BUILTIN_ACTION_MAP = new Map(BUILTIN_ACTIONS.map((definition) => [definition.action, definition]));
 
 function createActionId(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const randomUUID = globalThis.crypto?.randomUUID?.bind(globalThis.crypto);
+  if (!randomUUID) throw new Error('当前运行环境不支持安全随机标识。');
+  return `${prefix}_${randomUUID()}`;
 }
 
 export function listFlovartActions(): FlovartActionDefinition[] {

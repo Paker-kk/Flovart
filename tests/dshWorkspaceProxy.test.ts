@@ -61,12 +61,17 @@ describe('DeepSeek Harness Workspace proxy', () => {
   it('rejects unrelated paths and non-loopback workspace targets', () => {
     expect(resolveWorkspaceProxyTarget(
       'http://127.0.0.1:17372',
-      '/flovart-workspace/director/status?host=deepseek&sessionId=session-a',
+      '/flovart-workspace/director/status?host=deepseek&sessionId=session-a&evil=https%3A%2F%2Fexample.com',
       'GET',
     )?.href).toBe('http://127.0.0.1:17372/director/status?host=deepseek&sessionId=session-a');
     expect(resolveWorkspaceProxyTarget('http://127.0.0.1:17372', '/flovart-workspace/director/handoff', 'POST')?.pathname).toBe('/director/handoff');
     expect(resolveWorkspaceProxyTarget('http://127.0.0.1:17372', '/flovart-workspace/director/handoff', 'GET')).toBeNull();
     expect(resolveWorkspaceProxyTarget('http://127.0.0.1:17372', '/flovart-workspace/agent/flovart/turn', 'POST')).toBeNull();
-    expect(() => resolveWorkspaceProxyTarget('https://example.com', '/flovart-workspace/health')).toThrow(/本机 http/);
+    expect(() => resolveWorkspaceProxyTarget('https://example.com', '/flovart-workspace/health')).toThrow(/127\.0\.0\.1/);
+    expect(() => resolveWorkspaceProxyTarget('http://localhost:17372', '/flovart-workspace/health')).toThrow(/127\.0\.0\.1/);
+    expect(() => resolveWorkspaceProxyTarget('http://[::1]:17372', '/flovart-workspace/health')).toThrow(/127\.0\.0\.1/);
+    expect(() => resolveWorkspaceProxyTarget('http://127.0.0.1:17372/base', '/flovart-workspace/health')).toThrow(/127\.0\.0\.1/);
+    expect(() => resolveWorkspaceProxyTarget('http://127.0.0.1:0', '/flovart-workspace/health')).toThrow(/端口无效/);
+    expect(() => resolveWorkspaceProxyTarget('http://127.0.0.1:17372@127.0.0.2', '/flovart-workspace/health')).toThrow(/127\.0\.0\.1/);
   });
 });

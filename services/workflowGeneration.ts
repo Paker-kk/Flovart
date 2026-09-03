@@ -2,7 +2,7 @@ import { nanoid } from 'nanoid';
 import { CAMERA_MOVEMENTS, createWorkflowNode, STYLE_PRESETS } from '../components/workflow/constants';
 import { buildCanonicalGenerationInput, resolveWorkflowInputs, type CanonicalGenerationInput, type WorkflowAssetReferenceInput } from '../components/workflow/inputResolver';
 import { promptIntentFromNode, type PromptIntent } from '../components/workflow/promptIntent';
-import { createWorkflowVideoPoster, discardWorkflowMediaRecord, fitWorkflowMediaSize, ingestWorkflowMedia, isWorkflowMediaKeyReferenced, releaseWorkflowMediaRecord, type WorkflowMediaRecord } from '../components/workflow/media';
+import { createWorkflowVideoPoster, discardWorkflowMediaRecord, fitWorkflowMediaSize, ingestWorkflowMedia, isWorkflowMediaKeyReferenced, releaseWorkflowMediaRecord, workflowDataUrlToBlob, type WorkflowMediaRecord } from '../components/workflow/media';
 import type { WorkflowGenerationMode, WorkflowNode, WorkflowProject } from '../components/workflow/types';
 import type { ProductModelMode, UserApiKey } from '../types';
 import { executeUnifiedIgnition, generateTextWithProvider, SeedanceSubmissionUnknownError, type UnifiedIgnitionInput, type UnifiedIgnitionResult } from './aiGateway';
@@ -120,10 +120,12 @@ async function toDataUrl(blob: Blob): Promise<string> {
 
 async function mediaResult(result: Extract<UnifiedIgnitionResult, { ok: true }>, mode: 'image' | 'video', runtime: WorkflowGenerationRuntime) {
   try {
-    const blob = await (runtime.fetchMedia || (href => fetch(href).then(response => {
-      if (!response.ok) throw new Error('无法下载生成结果');
-      return response.blob();
-    })))(result.mediaUrl);
+    const blob = /^data:/i.test(result.mediaUrl)
+      ? await workflowDataUrlToBlob(result.mediaUrl)
+      : await (runtime.fetchMedia || (href => fetch(href).then(response => {
+        if (!response.ok) throw new Error('无法下载生成结果');
+        return response.blob();
+      })))(result.mediaUrl);
     const extension = mode === 'video' ? 'mp4' : 'png';
     const file = typeof File === 'undefined' ? Object.assign(blob, { name: `workflow-result.${extension}`, lastModified: Date.now() }) as File : new File([blob], `workflow-result.${extension}`, { type: result.mimeType || blob.type, lastModified: Date.now() });
     const record = await (runtime.ingestMedia || ingestWorkflowMedia)(file);

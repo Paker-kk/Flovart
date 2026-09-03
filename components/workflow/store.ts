@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { persist, type PersistStorage, type StorageValue } from 'zustand/middleware';
 import { INITIAL_WORKFLOW_VIEWPORT } from './constants';
 import { pruneWorkflowMedia, setWorkflowMediaCanonicalProjects } from './media';
-import { migrateWorkflowPersistedState, migrateWorkflowProject, WORKFLOW_PERSISTENCE_VERSION } from './migrations';
+import { migrateWorkflowPersistedState, migrateWorkflowProject, WORKFLOW_BACKUP_KEY, WORKFLOW_PERSISTENCE_VERSION } from './migrations';
 import { workflowStorage } from './storage';
 import type { WorkflowProject } from './types';
 
@@ -125,6 +125,18 @@ export const workflowPersistStorage: PersistStorage<PersistedWorkflowState, Prom
       setWorkflowPersistenceError(null);
       return value;
     } catch (error) {
+      if (name === WORKFLOW_STORE_KEY) {
+        try {
+          const backup = await workflowStorage.get<{ version: number; state: PersistedWorkflowState }>(WORKFLOW_BACKUP_KEY);
+          if (backup && typeof backup.version === 'number' && backup.state) {
+            console.warn('[Workflow] Recovered a truncated persisted envelope from the migration backup.');
+            setWorkflowPersistenceError(null);
+            return { state: backup.state, version: backup.version };
+          }
+        } catch {
+          // Preserve the original read error when the backup is unavailable too.
+        }
+      }
       console.warn('[Workflow] Failed to read persisted projects.', error);
       setWorkflowPersistenceError({ operation: 'read', error });
       return null;

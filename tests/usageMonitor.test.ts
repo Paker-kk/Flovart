@@ -15,7 +15,7 @@ describe('API usage ledger and budget', () => {
     const input = { key, productModelId: 'flovart:gpt-image-2', routeId: 'gpt-image-2', type: 'image' as const };
     const record = await reserveApiUsage(input);
     expect(record).toMatchObject({ status: 'reserved', estimatedCost: 0.6, billableState: 'estimated' });
-    expect(getUsageSummary([key])).resolves.toEqual(new Map([[key.id, expect.objectContaining({ currentMonthCostCents: 60 })]]));
+    await expect(getUsageSummary([key])).resolves.toEqual(new Map([[key.id, expect.objectContaining({ currentMonthCostCents: 60 })]]));
     await expect(assertApiBudget(input)).rejects.toThrow('月度预算上限');
   });
 

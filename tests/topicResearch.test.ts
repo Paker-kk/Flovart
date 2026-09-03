@@ -101,4 +101,19 @@ describe('Flovart topic research adapter', () => {
     expect(result.coverage.missing).toEqual(['x']);
     expect(result.warnings).toContain('X collection requires an authenticated X provider adapter; no public scraping fallback is treated as reliable.');
   });
+
+  it('bounds and sanitizes untrusted artifact keys without regex backtracking', async () => {
+    const outputDir = await mkdtemp(join(tmpdir(), 'flovart-research-'));
+    const result = await collectTopicResearch({
+      topic: 'bounded key',
+      sources: ['reddit'],
+      outputDir,
+    }, {
+      idempotencyKey: `${'!'.repeat(100_000)}-stable`,
+      fetchImpl: async () => new Response(FEED, { status: 200 }),
+      now: new Date('2026-07-25T00:00:00Z'),
+    });
+
+    expect(result.artifact.jsonPath).toBe(join(outputDir, 'research.json'));
+  });
 });
