@@ -1,13 +1,14 @@
-import { spawn, execSync } from 'node:child_process';
+import { spawn, execFileSync, execSync } from 'node:child_process';
 import { existsSync, copyFileSync } from 'node:fs';
 import { createServer as createNetServer } from 'node:net';
 import { homedir, platform } from 'node:os';
 import { dirname, join } from 'node:path';
 import { installToolkit, planToolkitStart, startToolkit } from './bundle-manager.js';
-import { inspectLocalAgent, probeWebUi, readLocalAgentConnection, redactBootstrapUrl, waitForLocalAgent } from './local-agent.js';
+import { inspectLocalAgent, probeWebUi, readLocalAgentConnection, redactBootstrapUrl, waitForLocalAgent, waitForWebUi } from './local-agent.js';
 import { FlovartRuntimeClient } from './runtime-client.js';
 import { FlovartBootstrapCoordinator } from './bootstrap-coordinator.js';
 import { clearWebDiscovery, readWebDiscovery, writeWebDiscovery } from './web-discovery.js';
+import { clearBrowserLaunchState, isBrowserLaunchPending, readBrowserLaunchState, writeBrowserLaunchState } from './browser-launch-state.js';
 
 const FLOVART_HOME = join(homedir(), '.flovart');
 const PROJECT_DIR = join(FLOVART_HOME, 'project');
@@ -16,6 +17,7 @@ const PG_USER = 'postgres';
 const PG_PASSWORD = 'postgres';
 const PG_DB = 'flovart';
 const PG_PORT = '5433';
+const DOCKER_DEFAULT_PORTS = Object.freeze({ db: 5433, hub: 11452, enterprise: 11453, web: 1635 });
 
 const URLS = {
   web: 'http://localhost:37522',
@@ -25,6 +27,18 @@ const URLS = {
 };
 
 const SERVICE_ORDER = ['db', 'hub', 'enterprise', 'web'];
+
+export function dockerComposeServices(services = []) {
+  const selected = new Set(services);
+  if (selected.has('web')) {
+    selected.add('db');
+    selected.add('hub');
+    selected.add('enterprise');
+  } else if (selected.has('hub') || selected.has('enterprise')) {
+    selected.add('db');
+  }
+  return SERVICE_ORDER.filter(name => selected.has(name));
+}
 
 function run(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
@@ -72,6 +86,8 @@ export function parseDevArgs(argv = []) {
     noBrowserAgent: false,
     noAgent: true,
     agent: 'none',
+    webPort: undefined,
+    agentPort: undefined,
     version: undefined,
     manifestUrl: undefined,
     help: false,
@@ -106,6 +122,8 @@ export function parseDevArgs(argv = []) {
       options.agent = arg.slice('--agent='.length) || 'codex';
       options.noAgent = false;
     }
+    else if (arg.startsWith('--web-port=')) options.webPort = arg.slice('--web-port='.length).trim() || undefined;
+    else if (arg.startsWith('--agent-port=')) options.agentPort = arg.slice('--agent-port='.length).trim() || undefined;
     else if (arg.startsWith('--version=')) options.version = arg.slice('--version='.length) || undefined;
     else if (arg.startsWith('--manifest=')) options.manifestUrl = arg.slice('--manifest='.length) || undefined;
     else options._.push(arg);
@@ -148,6 +166,14 @@ export function planStart(argv = [], cwd = process.cwd()) {
   }
   const services = selectedServices(options, true);
   const projectDir = resolveProjectDir(cwd);
+  const configuredWebPort = options.webPort ?? process.env.FLOVART_WEB_PORT;
+  const plannedWebUrl = String(configuredWebPort || '') === '0'
+    ? null
+    : configuredWebPort
+      ? `http://localhost:${configuredWebPort}`
+      : options.docker
+        ? `http://localhost:${DOCKER_DEFAULT_PORTS.web}`
+        : URLS.web;
   return {
     command: 'start',
     projectDir,
@@ -159,7 +185,9 @@ export function planStart(argv = [], cwd = process.cwd()) {
     openBrowser: options.open && !options.noOpen && services.includes('web'),
     json: options.json,
     browserAgent: !options.docker && services.includes('web') && !options.noBrowserAgent,
-    urls: Object.fromEntries(services.map(name => [name, URLS[name]])),
+    webPort: options.webPort,
+    agentPort: options.agentPort,
+    urls: Object.fromEntries(services.map(name => [name, name === 'web' ? plannedWebUrl : URLS[name]])),
   };
 }
 
@@ -204,6 +232,8 @@ function printHelp(command = 'start') {
     '  --no-agent      不额外启动 Managed Agent，由 Desktop Runtime 按需管理（默认）',
     '  --plan          只打印启动计划，不真正启动服务',
     '  --source        在源码仓库运行 Vite/Go 开发服务',
+    '  --web-port=0    WebUI 使用随机 loopback 端口；默认端口被占用时也会自动切换',
+    '  --agent-port=0  Browser Agent 使用随机 loopback 端口；默认端口被占用时也会自动切换',
     '  --docker        与 --source 搭配运行 SaaS Compose',
     '  --no-browser-agent  不启动源码 Workflow Browser Agent（仅调试用）',
     '',
@@ -229,11 +259,16 @@ function printPlan(plan, json = false) {
   log(`  Project: ${plan.projectDir}`);
   log(`  Services: ${plan.services.join(', ') || 'none'}`);
   if (plan.urls) {
-    for (const [name, url] of Object.entries(plan.urls)) log(`  ${name}: ${url}`);
+    for (const [name, url] of Object.entries(plan.urls)) {
+      const note = name === 'web' && plan.mode === 'local' && plan.webPort === undefined
+        ? ' (preferred only; actual URL is resolved after startup)'
+        : '';
+      log(`  ${name}: ${url || 'dynamic loopback port (actual URL will be reported after startup)'}${note}`);
+    }
   }
   if (plan.installBeforeStart) log('  Install dependencies before start: yes');
   if (plan.updateBeforeStart) log('  Pull latest before start: yes');
-  if (plan.openBrowser) log(`  Browser: ${URLS.web}`);
+  if (plan.openBrowser) log(`  Browser: ${plan.urls?.web || 'dynamic loopback port (actual URL will be reported after startup)'}`);
 }
 
 function ensureEnvFiles(projectDir) {
@@ -427,6 +462,12 @@ export async function waitForToolkitReady(toolkit, { timeoutMs = 20_000, interva
   };
 }
 
+export function shouldKeepStartedServices(bootstrap) {
+  return bootstrap?.frontend?.status === 'ready'
+    && bootstrap?.agent?.status === 'ready'
+    && bootstrap?.browser?.status === 'pending';
+}
+
 function numericOrNull(value) {
   if (value === undefined || value === null || value === '') return null;
   const number = Number(value);
@@ -438,14 +479,50 @@ async function startDocker(projectDir, plan) {
     err('Docker is required for --docker mode.');
     process.exit(1);
   }
+  const composeServices = dockerComposeServices(plan.services);
+  const ports = await resolveDockerPorts({ ...plan, services: composeServices });
+  const composeEnv = {
+    ...process.env,
+    ...Object.fromEntries(Object.entries(ports).map(([name, port]) => [`FLOVART_${name.toUpperCase()}_PORT`, String(port)])),
+  };
   const args = ['compose', 'up', '--build'];
-  if (plan.detach || plan.services.length === 1 && plan.services[0] === 'db') args.push('-d');
+  // An attached Compose process cannot open or health-check the WebUI until
+  // it exits. Opening the browser therefore implies detached Compose mode.
+  if (plan.detach || plan.openBrowser || plan.services.length === 1 && plan.services[0] === 'db') args.push('-d');
   args.push(...plan.services);
 
-  printPlan(plan);
+  const displayPlan = {
+    ...plan,
+    urls: Object.fromEntries(Object.entries(plan.urls || {}).map(([name, url]) =>
+      name === 'web' && ports.web ? [`${name}`, `http://127.0.0.1:${ports.web}`] : [name, url])),
+  };
+  printPlan(displayPlan);
   log('Starting with Docker Compose...');
-  await run('docker', args, { cwd: projectDir });
-  if (plan.openBrowser) openBrowser(URLS.web);
+  await run('docker', args, { cwd: projectDir, env: composeEnv });
+  if (plan.openBrowser && ports.web) {
+    const webUrl = await waitForWebUi(`http://127.0.0.1:${ports.web}`, { timeoutMs: 45_000 });
+    openBrowser(webUrl);
+  }
+}
+
+export async function resolveDockerPorts(plan = {}, env = process.env) {
+  const requested = {
+    db: env.FLOVART_DB_PORT,
+    hub: env.FLOVART_HUB_PORT,
+    enterprise: env.FLOVART_ENTERPRISE_PORT,
+    web: plan.webPort ?? env.FLOVART_WEB_PORT,
+  };
+  const ports = {};
+  const reserved = new Set();
+  for (const service of dockerComposeServices(plan.services || [])) {
+    const raw = String(requested[service] ?? '').trim();
+    const preferred = raw === '0' ? 0 : Number(raw) || DOCKER_DEFAULT_PORTS[service];
+    let port = await findAvailablePort(preferred);
+    while (reserved.has(port)) port = await findAvailablePort(0);
+    ports[service] = port;
+    reserved.add(port);
+  }
+  return ports;
 }
 
 async function startLocal(projectDir, plan) {
@@ -476,6 +553,8 @@ async function startLocal(projectDir, plan) {
     PORT: process.env.PORT || '11452',
     ENTERPRISE_PORT: process.env.ENTERPRISE_PORT || '11453',
   };
+  if (plan.webPort !== undefined) env.FLOVART_WEB_PORT = String(plan.webPort);
+  if (plan.agentPort !== undefined) env.FLOVART_AGENT_PORT = String(plan.agentPort);
 
   if (!plan.json) {
     printPlan(plan);
@@ -484,8 +563,9 @@ async function startLocal(projectDir, plan) {
 
   let webProcess = null;
   if (plan.services.includes('web')) {
-    const preferredPort = Number(env.FLOVART_WEB_PORT) || Number(new URL(URLS.web).port);
-    const existingWebUrl = await findExistingWebUi({ preferredPort, env });
+    const configuredWebPort = String(env.FLOVART_WEB_PORT || '').trim();
+    const preferredPort = configuredWebPort === '0' ? 0 : Number(configuredWebPort) || Number(new URL(URLS.web).port);
+    const existingWebUrl = preferredPort === 0 ? null : await findExistingWebUi({ preferredPort, env });
     if (existingWebUrl) {
       webProcess = { child: null, url: existingWebUrl, reused: true, getUrl: () => existingWebUrl };
       if (!plan.json) log(`Reusing existing Flovart WebUI: ${existingWebUrl}`);
@@ -518,7 +598,15 @@ async function startLocal(projectDir, plan) {
   }
 
   const bootstrap = await new FlovartBootstrapCoordinator({
-    openBrowser: url => openBrowser(url, { quiet: plan.json }),
+    openBrowser: url => {
+      const pending = readBrowserLaunchState(env);
+      if (isBrowserLaunchPending(pending, { frontendUrl: url, connection: agentConnection })) return false;
+      const opened = openBrowser(url, { quiet: plan.json });
+      if (opened) {
+        try { writeBrowserLaunchState({ frontendUrl: url, connection: agentConnection }, env); } catch {}
+      }
+      return opened;
+    },
   }).start({
     ensureAgent: plan.browserAgent ? async () => {
       if (agentStartupError) throw new Error(agentStartupError);
@@ -526,19 +614,22 @@ async function startLocal(projectDir, plan) {
     } : undefined,
     launchWeb: async () => webProcess,
     open: plan.openBrowser,
-    timeoutMs: 20_000,
+    timeoutMs: 45_000,
   });
   if (bootstrap.frontend.url && webProcess?.child) writeWebDiscovery({ url: bootstrap.frontend.url, pid: webProcess.child.pid }, env);
+  if (bootstrap.ok) clearBrowserLaunchState(env);
+  if (bootstrap.frontend.url && !plan.json) log(`WebUI ready: ${bootstrap.frontend.url}`);
 
   if (plan.json) {
     console.log(JSON.stringify({ ok: bootstrap.ok, command: 'start', mode: plan.mode, detached, ...bootstrap }, null, 2));
   }
 
   if (!bootstrap.ok) {
-    for (const child of [...children].reverse()) {
-      try { child.kill(); } catch {}
+    if (!shouldKeepStartedServices(bootstrap)) {
+      for (const child of [...children].reverse()) stopProcessTree(child);
+      if (webProcess?.child) clearWebDiscovery(webProcess.child.pid, env);
+      clearBrowserLaunchState(env);
     }
-    if (webProcess?.child) clearWebDiscovery(webProcess.child.pid, env);
     if (!plan.json) err(bootstrap.error || 'Flovart 本地服务未能就绪。');
     process.exitCode = 1;
     return;
@@ -555,7 +646,7 @@ async function startLocal(projectDir, plan) {
     if (stopping) return;
     stopping = true;
     for (const c of children) {
-      try { c.kill(); } catch {}
+      stopProcessTree(c);
     }
     if (bootstrap.frontend.url && webProcess?.child) clearWebDiscovery(webProcess.child.pid, env);
     process.exit(0);
@@ -681,9 +772,20 @@ function openBrowser(url, options = {}) {
   try {
     spawn(command, args, { detached: true, stdio: 'ignore', shell: false }).unref();
     if (!options.quiet) log('Opened browser: ' + redactBootstrapUrl(url));
+    return true;
   } catch (e) {
     warn('Could not open browser: ' + (e.message || e));
+    return false;
   }
+}
+
+function stopProcessTree(child) {
+  if (!child?.pid) return;
+  if (process.platform === 'win32') {
+    try { execFileSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }); } catch {}
+    return;
+  }
+  try { child.kill(); } catch {}
 }
 
 async function ensurePostgres() {

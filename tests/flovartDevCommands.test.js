@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createServer as createHttpServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
-import { spawn } from 'node:child_process';
-import { buildBrowserOpenCommand, findAvailablePort, findExistingWebUi, parseDevArgs, planInstall, planStart } from '../tools/flovart/dev-commands.js';
+import { spawn, spawnSync } from 'node:child_process';
+import { buildBrowserOpenCommand, dockerComposeServices, findAvailablePort, findExistingWebUi, parseDevArgs, planInstall, planStart, resolveDockerPorts, shouldKeepStartedServices } from '../tools/flovart/dev-commands.js';
 import { buildTuiCommand, tokenizeTuiLine } from '../tools/flovart/tui.js';
 
 describe('flovart dev startup commands', () => {
@@ -36,12 +36,43 @@ describe('flovart dev startup commands', () => {
       detach: true,
       openBrowser: true,
     });
+    expect(plan.urls.web).toBe('http://localhost:1635');
+  });
+
+  it('prints the planned Docker browser port instead of the source default', () => {
+    const result = spawnSync(process.execPath, [
+      'tools/flovart/cli.js', 'start', '--source', '--docker', '--web', '--open', '--plan',
+    ], { cwd: process.cwd(), encoding: 'utf8', windowsHide: true });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Browser: http://localhost:1635');
+    expect(result.stdout).not.toContain('Browser: http://localhost:37522');
+  });
+
+  it('reflects an explicitly configured Docker WebUI port in JSON plans', () => {
+    const result = spawnSync(process.execPath, [
+      'tools/flovart/cli.js', 'start', '--source', '--docker', '--web', '--open', '--plan', '--json',
+    ], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true,
+      env: { ...process.env, FLOVART_WEB_PORT: '46116' },
+    });
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ urls: { web: 'http://localhost:46116' } });
   });
 
   it('keeps install scoped to requested services', () => {
     expect(planInstall(['--source', '--web'], process.cwd()).services).toEqual(['web']);
     expect(planInstall(['--source', '--backend'], process.cwd()).services).toEqual(['hub', 'enterprise']);
     expect(parseDevArgs(['web', '--plan', '--json'])).toMatchObject({ web: true, plan: true, json: true });
+  });
+
+  it('supports explicit dynamic loopback ports for isolated test runs', () => {
+    expect(parseDevArgs(['--source', '--web-port=0', '--agent-port=0'])).toMatchObject({ webPort: '0', agentPort: '0' });
+    expect(planStart(['--source', '--web', '--web-port=0', '--agent-port=0'], process.cwd())).toMatchObject({ webPort: '0', agentPort: '0', urls: { web: null } });
+    expect(planStart(['--source', '--docker', '--web', '--web-port=0'], process.cwd()).urls.web).toBeNull();
   });
 
   it('does not start a managed coding agent unless explicitly requested', () => {
@@ -68,6 +99,43 @@ describe('flovart dev startup commands', () => {
     }
   });
 
+  it('selects dynamic Docker host ports instead of colliding with unrelated listeners', async () => {
+    const occupied = createNetServer();
+    await new Promise(resolve => occupied.listen(0, '127.0.0.1', resolve));
+    const preferred = occupied.address().port;
+    try {
+      const ports = await resolveDockerPorts({ services: ['web'], webPort: String(preferred) });
+      expect(ports.web).toBeGreaterThan(0);
+      expect(ports.web).not.toBe(preferred);
+    } finally {
+      await new Promise(resolve => occupied.close(resolve));
+    }
+  });
+
+  it('keeps Docker services on distinct host ports when preferences overlap', async () => {
+    const ports = await resolveDockerPorts({ services: ['hub', 'web'] }, {
+      FLOVART_HUB_PORT: '46111',
+      FLOVART_WEB_PORT: '46111',
+    });
+
+    expect(ports.hub).toBe(46111);
+    expect(ports.web).toBeGreaterThan(0);
+    expect(ports.web).not.toBe(ports.hub);
+  });
+
+  it('resolves the full Compose dependency closure for a Web-only request', async () => {
+    expect(dockerComposeServices(['web'])).toEqual(['db', 'hub', 'enterprise', 'web']);
+    const ports = await resolveDockerPorts({ services: ['web'] }, {
+      FLOVART_DB_PORT: '46112',
+      FLOVART_HUB_PORT: '46113',
+      FLOVART_ENTERPRISE_PORT: '46114',
+      FLOVART_WEB_PORT: '46115',
+    });
+
+    expect(Object.keys(ports)).toEqual(['db', 'hub', 'enterprise', 'web']);
+    expect(new Set(Object.values(ports)).size).toBe(4);
+  });
+
   it('reuses a discovered Flovart WebUI before starting a duplicate Vite process', async () => {
     const probe = vi.fn().mockResolvedValue('http://127.0.0.1:6114');
     await expect(findExistingWebUi({
@@ -91,6 +159,19 @@ describe('flovart dev startup commands', () => {
       command: 'rundll32.exe',
       args: ['url.dll,FileProtocolHandler', 'http://127.0.0.1:17373/?agentUrl=http%3A%2F%2F127.0.0.1%3A17373&agentToken=secret#/app'],
     });
+  });
+
+  it('keeps ready services alive when only Browser binding is still pending', () => {
+    expect(shouldKeepStartedServices({
+      frontend: { status: 'ready' },
+      agent: { status: 'ready' },
+      browser: { status: 'pending' },
+    })).toBe(true);
+    expect(shouldKeepStartedServices({
+      frontend: { status: 'ready' },
+      agent: { status: 'offline' },
+      browser: { status: 'pending' },
+    })).toBe(false);
   });
 
   it('lets a JSON start command exit cleanly after reusing an existing WebUI', async () => {

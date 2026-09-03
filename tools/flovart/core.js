@@ -78,9 +78,9 @@ export const HELP_TEXT = [
   'model search --type image --query flux           Search model IDs',
   'status                                          Inspect local frontend, Agent, and visible Workflow readiness',
   'provider.status                                 Inspect provider/model configuration',
-  'provider.begin-setup --provider <id> --purpose image|video|both',
-  'provider.select-model --image-model flovart:<id> --video-model flovart:<id>',
-  'provider.test                                   Check configured provider readiness',
+  'provider.begin-setup ...                       [retired] Configure an AI service in Flovart WebUI',
+  'provider.select-model ...                      [retired] Configure models in Flovart WebUI',
+  'provider.test                                   [retired] Use provider.status or the WebUI connection test',
   'workflow.project.list                           List Workflow projects',
   'workflow.inspect [--project-id <id>]             Inspect a Workflow graph',
   'workflow.selection.get [--project-id <id>]       Read the current Workflow selection',
@@ -97,7 +97,7 @@ export const HELP_TEXT = [
   'skill.hub.list <url>                            Sync the external Skill Hub catalog',
   'web.open [--url <url>]                          Open the Flovart WebUI in the default browser',
   'generate.image --prompt <prompt>                Generate one image',
-  'generate.images-batch --file shots.json         Trigger multiple image generations',
+  'generate.images-batch --file shots.json         [retired] Use the Workflow/Production Runtime surface',
   'generate.video --prompt <prompt> [--source-image-ids id1,id2] [--source-video-ids id3] [--slots-json <json>]',
   'video.status --job-id <id>                      Query video job status',
   'export.project                                  Export project metadata when supported',
@@ -133,9 +133,15 @@ export function createLine(kind, content, meta) {
   return { kind, content, meta };
 }
 
+function secureId(prefix) {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID !== 'function') throw new Error('当前运行环境不支持安全随机标识。');
+  return `${prefix}${cryptoApi.randomUUID()}`;
+}
+
 export function createFlovartSession(initial = {}) {
   return {
-    id: initial.id || `flovart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    id: initial.id || secureId('flovart-'),
     lastTool: initial.lastTool || '',
     isDark: !!initial.isDark,
   };
@@ -464,7 +470,7 @@ export async function executeFlovartCommand(commandName, args = {}, runtime = {}
       ...(command === 'workflow.node.tool' ? normalizeWorkflowNodeToolArgs(commandOptions) : {}),
     };
     return await runtime.workflow.dispatch({
-      id: args.commandId || `cli_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: args.commandId || secureId('cli_'),
       command,
       args: workflowArgs,
       source: 'cli',

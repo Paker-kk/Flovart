@@ -7,7 +7,7 @@ describe('Flovart bootstrap coordinator', () => {
     const inspectAgent = vi.fn()
       .mockResolvedValueOnce({
         state: 'ready',
-        health: { clients: 1, hasWorkflow: true, clientId: 'browser-1', activeWriter: { clientId: 'browser-1' }, activeProjectId: 'project-1', revision: 3 },
+        health: { clients: 0, hasWorkflow: false, clientId: null, activeWriter: null, activeProjectId: null, revision: null },
       })
       .mockResolvedValue({
         state: 'ready',
@@ -35,14 +35,14 @@ describe('Flovart bootstrap coordinator', () => {
     expect(openBrowser).toHaveBeenCalledWith('http://127.0.0.1:43127/?bootstrap=internal#/app');
   });
 
-  it('does not report an old Browser Writer as the page opened by this start command', async () => {
+  it('reuses an already connected Browser Writer without opening another page', async () => {
     const inspectAgent = vi.fn()
-      .mockResolvedValueOnce({ state: 'ready', health: { clients: 1, hasWorkflow: true, clientId: 'old-browser', activeWriter: { clientId: 'old-browser' } } })
-      .mockResolvedValue({ state: 'ready', health: { clients: 1, hasWorkflow: true, clientId: 'old-browser', activeWriter: { clientId: 'old-browser' } } });
+      .mockResolvedValue({ state: 'ready', health: { clients: 1, hasWorkflow: true, clientId: 'old-browser', activeWriter: { clientId: 'old-browser' }, activeProjectId: 'project-1', revision: 4 } });
+    const openBrowser = vi.fn();
     const coordinator = new FlovartBootstrapCoordinator({
       inspectAgent,
       waitForWeb: vi.fn().mockResolvedValue('http://127.0.0.1:43127'),
-      openBrowser: vi.fn(),
+      openBrowser,
       sleep: vi.fn().mockResolvedValue(undefined),
     });
 
@@ -51,7 +51,8 @@ describe('Flovart bootstrap coordinator', () => {
       launchWeb: async () => 'http://127.0.0.1:43127',
       open: true,
       timeoutMs: 0,
-    })).resolves.toMatchObject({ ok: false, browser: { status: 'offline', connected: false } });
+    })).resolves.toMatchObject({ ok: true, browser: { status: 'connected', clientId: 'old-browser' }, browserOpened: false });
+    expect(openBrowser).not.toHaveBeenCalled();
   });
 
   it('reports a concrete browser-unavailable state without claiming ready', async () => {
@@ -66,7 +67,7 @@ describe('Flovart bootstrap coordinator', () => {
       launchWeb: async () => 'http://127.0.0.1:43127',
       open: true,
       timeoutMs: 0,
-    })).resolves.toMatchObject({ ok: false, browser: { status: 'offline', connected: false } });
+    })).resolves.toMatchObject({ ok: false, browser: { status: 'pending', connected: false } });
   });
 
   it('keeps an explicit no-Agent diagnostic start usable as a plain WebUI launch', async () => {

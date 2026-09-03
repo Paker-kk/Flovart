@@ -20,7 +20,7 @@ const WORKSPACE_ONLY = process.env.FLOVART_WORKSPACE_ONLY === '1';
 
 const json = (response, status, body) => {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
-  response.end(JSON.stringify(body));
+  response.end(JSON.stringify(body, (key, value) => key === 'stack' || key === 'cause' ? undefined : value));
 };
 
 const MAX_BODY_BYTES = 36 * 1024 * 1024;
@@ -348,7 +348,7 @@ export function startHttpServer() {
             : error.code === 'RECEIPT_PENDING' ? 202 : 400;
         return json(response, status, { ok: false, error: error.toJSON(), crew: true });
       }
-      return json(response, 500, { ok: false, error: { message: error instanceof Error ? error.message : String(error) } });
+      return json(response, 500, { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Agent 服务处理失败，请重试。' } });
     }
   });
 

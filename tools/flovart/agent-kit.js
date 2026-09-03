@@ -420,7 +420,7 @@ export function diagnoseAgentSetup(input = {}) {
   // executable's `--version` process.
   const hostDiscovery = discoverAgentHosts({ includeVersion: false });
   const nextSteps = Array.from(new Set([
-    'Run npm run flovart:cli -- status --json to verify local file-state runtime.',
+    'Run npm run flovart:cli -- status --json, then start --open if needed to verify the local Runtime and visible Workflow.',
     'Run npm run flovart:cli -- init --target project-skill to install the Flovart Skill.',
     ...seedance2.nextActions,
     'Run flovart start --open and keep the visible Workflow available for provider-backed generation.',

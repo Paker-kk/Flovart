@@ -8,6 +8,17 @@ function browserReady(result) {
     && Boolean(result.health?.hasWorkflow);
 }
 
+function browserSnapshot(result, status = 'connected') {
+  return {
+    status,
+    connected: status === 'connected',
+    clientId: result?.health?.clientId || null,
+    projectId: result?.health?.activeProjectId || null,
+    revision: numericOrNull(result?.health?.revision),
+    activeHostWriter: result?.health?.activeHostWriter || null,
+  };
+}
+
 /**
  * Coordinates only local service/browser readiness. Workflow mutations,
  * provider execution, and agent reasoning remain outside this seam.
@@ -64,26 +75,34 @@ export class FlovartBootstrapCoordinator {
       url.hash = route.startsWith('#') ? route : `#${route}`;
       bootstrapUrl = url.toString();
     }
+    let previousBrowserClientId = null;
+    if (connection) {
+      try {
+        const beforeOpen = await this.inspectAgent(connection, { timeoutMs: 800 });
+        if (browserReady(beforeOpen)) {
+          result.browser = browserSnapshot(beforeOpen);
+          result.browserOpened = false;
+          result.ok = true;
+          return result;
+        }
+        previousBrowserClientId = beforeOpen?.health?.activeWriter?.clientId || beforeOpen?.health?.clientId || null;
+      } catch {
+        // The post-open poll remains authoritative if the pre-open probe races startup.
+      }
+    }
     try {
-      this.openBrowser(bootstrapUrl);
+      const opened = this.openBrowser(bootstrapUrl);
+      result.browserOpened = opened !== false;
     } catch (error) {
       result.error = error instanceof Error ? error.message : String(error);
       result.ok = false;
       return result;
     }
-    result.browserOpened = true;
     if (!connection) {
       result.browser.status = 'offline';
       result.error = result.error || 'Flovart Agent 未启动，已打开 WebUI 但 Browser Workflow 尚未绑定。';
       result.ok = false;
       return result;
-    }
-    let previousBrowserClientId = null;
-    try {
-      const beforeOpen = await this.inspectAgent(connection, { timeoutMs: 800 });
-      previousBrowserClientId = beforeOpen?.health?.activeWriter?.clientId || beforeOpen?.health?.clientId || null;
-    } catch {
-      // The post-open poll remains authoritative if the pre-open probe races startup.
     }
     const browser = await this.waitForBrowser(connection, timeoutMs, previousBrowserClientId);
     result.browser = browser;
@@ -126,7 +145,7 @@ export class FlovartBootstrapCoordinator {
       await this.sleep(250);
     }
     return {
-      status: 'offline',
+      status: 'pending',
       connected: false,
       clientId: last?.health?.clientId || null,
       projectId: last?.health?.activeProjectId || null,

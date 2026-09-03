@@ -13,6 +13,9 @@
     "contracts",
     "core.js",
     "bundle-manager.js",
+    "bootstrap-coordinator.js",
+    "browser-launch-state.js",
+    "crew-command-surface.js",
     "dev-commands.js",
     "agent-surface.js",
     "host-discovery.js",
@@ -36,7 +39,8 @@
     "skill",
     "runtime-client.js",
     "workspace-client.js",
-    "workspace-command-surface.js"
+    "workspace-command-surface.js",
+    "web-discovery.js"
   ],
   "keywords": [
     "flovart",
