@@ -2,9 +2,18 @@
 
 ## Release Candidate → Production Launch
 
-**Status:** `ACTIVE`  
-**Current phase:** `R0/R15/R26 — TRUTH RECONCILIATION & SECURITY AUTOMATION`
+**Status:** `ACTIVE — LOCAL RC EVIDENCE COMPLETE WITH EXPLICIT UNVERIFIED BOUNDARIES`
+**Current phase:** `FINAL RC CERTIFICATION — HOSTED AND EXTERNAL GATES PENDING`
 **Current launch verdict:** `NO-GO` until every autonomous and external certification gate below has evidence.
+
+## Current certification snapshot
+
+- Local source/release candidate: evidence complete for the autonomous local scope.
+- Final exact local candidate: `712031d88a427fb04316e590f74cffef67f435b9`, with a clean-candidate NSIS artifact, test-signed updater feed/sidecar evidence, Chrome-only dynamic-port browser evidence, public `#/app` quick-start documentation, and independently verified CLI package recorded in the RC evidence files.
+- Explicit local boundary: the stock production-configured Tauri/WebView2 package exposes no usable CDP endpoint for exact-package UI observation. A source-identical test-only observability overlay verified the installed Home → first-run AI service → Fake Provider → cost confirmation → T2I path; this is not mislabeled as exact production-package UI evidence. Packaged migration write interruption/recovery is covered by the source-identical acceptance fixture.
+- Hosted GitHub execution, repository security settings and publication: pending owner-authorized external execution.
+- Real Provider billing/cancellation, logged-in Codex/DSH certification and production signing: pending external certification.
+- Keep public support claims at the classifications in `SUPPORT_MATRIX.md`; do not promote experimental or planned paths to Stable.
 
 ## Mission
 

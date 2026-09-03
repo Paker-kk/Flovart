@@ -24,13 +24,13 @@ branch as unprotected.
 | Automated security fixes | `enabled: false` | External owner action required |
 | Dependabot vulnerability alerts | API reported disabled | External owner action required |
 | Code scanning default setup | `not-configured` | External owner action required or confirm advanced workflow coverage |
-| Existing CodeQL alerts | Read-only API audit on 2026-09-02 reported 13 open alerts on older SHA `9a1534b035350152c87d93a5f6e07f7452f3f66f1`: 1 critical SSRF, 9 high and 3 medium. Final local application candidate `3f9bee9306f44da3ea8be9c480ad4e5fc91acf65` fixes the observed sites locally, but has not had a Hosted scan; see `RC_CODEQL_TRIAGE.md` | P0/P1 external security gate: run Hosted CodeQL on the exact candidate and triage the critical DSH proxy finding |
+| Existing CodeQL alerts | Read-only API audit on 2026-09-02 reported 13 open alerts on remote SHA `c60b452719fc3b0ddd32225556fbd86b73b5f299`: 1 critical SSRF, 9 high and 3 medium. Final local application candidate `712031d88a427fb04316e590f74cffef67f435b9` fixes the observed sites locally, but has not had a Hosted scan; see `RC_CODEQL_TRIAGE.md` | P0/P1 external security gate: run Hosted CodeQL on the exact candidate and triage the critical DSH proxy finding |
 | Actions enabled | `true`, allowed actions `all` | Review and restrict for production policy |
 | SHA pinning | `false` | Security policy decision required |
 | `main` branch protection | API reported branch not protected | External owner action required |
 | Repository rulesets | empty | External owner action required if rulesets are desired |
 | Secret scanning / push protection | Secret-scanning API reported scanning disabled | External owner action required |
-| Hosted workflow run for this candidate | Candidate `3f9bee9306f44da3ea8be9c480ad4e5fc91acf65` is not on remote `main` | External gate |
+| Hosted workflow run for this candidate | Candidate `712031d88a427fb04316e590f74cffef67f435b9` is not on remote `main` | External gate |
 | Hosted CI probe on remote `main` | Run `33598287044` at `c60b452719fc3b0ddd32225556fbd86b73b5f299` failed at the older remote Docs contract; its Critical suite 10x job passed | Does not certify the local candidate; publish candidate and rerun |
 | Hosted Security probe on remote `main` | Run `33598299717` at the same SHA passed secret audit and both CodeQL jobs; dependency review was skipped for manual dispatch | Environment evidence only; candidate rerun required |
 

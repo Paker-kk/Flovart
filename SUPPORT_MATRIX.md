@@ -35,6 +35,10 @@
 
 ## Release gates still outside autonomous evidence
 
+- Hosted CodeQL is not yet cleanly certified: the read-only 2026-09-02 API
+  snapshot reports 13 open alerts on the older public `main` SHA, including one
+  critical DSH proxy request-forgery alert; the detached candidate has not been
+  scanned. See `RC_CODEQL_TRIAGE.md`.
 - 真实 Codex 登录和从公开安装包首次启动的完整 transcript；
 - 真实 Provider 账号、价格、扣费、取消和服务条款行为；
 - DSH 真实用户登录（若宣传为稳定能力）；

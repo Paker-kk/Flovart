@@ -4,19 +4,19 @@
 
 | Gate | Result |
 | --- | --- |
-| Candidate application/package source | `3f9bee9306f44da3ea8be9c480ad4e5fc91acf65`, clean detached source worktree |
-| Vitest | `153` files; `1,030` passed, `1` skipped (`1,031` total) |
+| Candidate application/package source | `712031d88a427fb04316e590f74cffef67f435b9`, clean detached source worktree |
+| Vitest | `154` files; `1,035` passed, `1` skipped (`1,036` total) |
 | TypeScript | `npx tsc --noEmit` passed |
 | Web build | `npm run build` passed; 4,306 modules transformed |
 | Browser extension build | passed |
 | DSH build and client loader contract | passed |
-| Rust | `cargo test --manifest-path src-tauri/Cargo.toml --all-targets` passed; 41 tests |
+| Rust | `cargo test --manifest-path src-tauri/Cargo.toml --all-targets -j 1` passed; 41 tests (after Windows linker PDB-limit retry with `RUSTFLAGS=-C debuginfo=0`) |
 | Root npm audit | full and `--omit=dev`: `0 vulnerabilities` |
 | DSH npm audit | `0 vulnerabilities` at moderate severity |
-| Docs/version/red-team/secret checks | passed; docs checked 136 files, secret audit 923 files / 0 findings |
+| Docs/version/red-team/secret checks | candidate source passed with 137 docs; current working tree recheck passed with 138 docs; secret audit 927 files / 0 findings |
 | Critical suite | `FLOVART_CRITICAL_REPEATS=10`: `10/10` |
 | Diff hygiene | `git diff --check` passed |
-| NSIS lifecycle | current v16 package install, launch, graceful close, uninstall passed |
+| NSIS lifecycle | current clean-candidate package install, launch, graceful close, uninstall passed |
 
 The same candidate also passed the focused updater-feed/sidecar verifier
 (`4/4` tests) and the isolated valid test-signed feed check. The verifier is a
@@ -26,6 +26,34 @@ signature verification or production signing certification.
 The exact local package is recorded in `RC_VERSION_TRUTH.md` and
 `RC_INSTALLER_EVIDENCE.md`. The package is bound to the application source
 commit above; no Hosted run exists for this detached source.
+
+## Current v3 clean-candidate certification
+
+The current clean detached source candidate is
+`712031d88a427fb04316e590f74cffef67f435b9`. It was installed with fresh root
+and nested DSH dependencies and passed:
+
+```text
+Vitest: 154 files, 1035 passed, 1 skipped
+TypeScript: pass
+Web build: pass, 4306 modules transformed
+Browser extension: pass
+DSH build/client-loader contract: pass
+Rust all-target tests: 41 passed after cargo clean, -j 1, RUSTFLAGS=-C debuginfo=0
+Critical suite: 10/10, 50 tests per repetition
+Version/docs/red-team/secret checks: pass (docs 137 files; secret 927/0)
+Root and dsh-plugin npm audit: 0 vulnerabilities
+git diff --check: pass
+```
+
+The exact v3 NSIS package is `Flovart_0.3.2_x64-setup.exe`, `12,247,434`
+bytes, SHA-256
+`67FE186BD5AA6221190BE3AA98EC5C5639C1935AC685D28E8FB8489426439E1D`.
+The SPDX-2.3 SBOM contains `663` packages and `1,377` relationships.
+Artifact validation and isolated install/launch/graceful-close/uninstall
+passed. The local build used `tauri.local.conf.json`, so the updater checker
+correctly reports the expected absence of `latest.json`; test-signed updater
+feed evidence is recorded separately and production signing remains external.
 
 ## Post-help-surface source recheck
 
@@ -474,3 +502,188 @@ application bundle, but the final package was rebuilt from this exact SHA.
 
 The candidate is still unpushed, so no Hosted CI, CodeQL or provenance run is
 attached.
+
+## Current working-tree regression after browser launcher guidance cleanup
+
+This section is not a new clean candidate or Hosted certification. It records
+the current dirty worktree recheck after the launcher/Skill documentation fix:
+
+```text
+full Vitest: 154 files, 1035 passed, 1 skipped
+TypeScript: pass
+Web build: pass, 4306 modules transformed
+Browser extension: pass
+DSH build/client-loader contract: pass
+Rust all-target tests: 41 passed
+critical suite: 10/10
+docs contract: 136 files
+version check: 0.3.2 / avabbbb/Flovart
+release red-team: pass
+secret audit: 925 files / 0 findings
+root and dsh-plugin npm audit: 0 vulnerabilities
+git diff --check: pass
+```
+
+The exact source-browser regression used Chrome for Testing with dynamic
+loopback ports and observed plain-origin `clients=0 / hasWorkflow=false`, then
+bootstrap-origin `clients=1 / hasWorkflow=true`, connected UI status and zero
+console/page errors. A separate preferred-port collision test changed the
+WebUI port automatically and left the unrelated listener untouched. No Edge
+window was used by these tests.
+
+## Current detached clean-candidate recheck after browser guidance cleanup
+
+The current visible worktree was snapshotted without `node_modules`, build
+outputs, or ignored signing material into detached candidate
+`66276e58227d71fc37772ce280fbc518b253794d` at
+`C:\tmp\flovart-rc-current-clean-20260902`. Clean dependency installation,
+serial full tests, release build, and post-build worktree cleanliness were
+verified from that candidate.
+
+```text
+Vitest: 154 files; 1035 passed, 1 skipped
+TypeScript: passed
+Web build: 4306 modules transformed
+Browser extension build: passed
+DSH build/client-loader: passed
+Rust all-targets: 41 passed after clean single-job rebuild
+Critical suite: 10/10 (9 files, 50 tests each)
+Version/docs/red-team/secret/dependency/diff checks: passed
+```
+
+The candidate's local NSIS artifact is
+`Flovart_0.3.2_x64-setup.exe`, `12,246,365` bytes, SHA-256
+`EC3BF0EEA4CBB6891E085A47660DBB1FE90B3206EFE4ECDE1DC9D66E8C778412`.
+The checksum and SPDX-2.3 package-lock SBOM checker passed; the SBOM contains
+663 packages and 1,377 relationships. The exact package passed isolated
+silent install, launch, graceful close, uninstall and install-root removal.
+
+The first parallel run was recorded as a resource-pressure failure rather
+than hidden: Vitest had two 5-second timeouts and Cargo hit Windows mmap
+`os error 1455`. The affected Vitest files passed alone, the serial full
+Vitest rerun passed, and the clean single-job Rust rebuild passed. Future
+Windows RC gates should not compile the full Rust target concurrently with
+the browser/test process.
+
+The exact candidate was also checked with the Chrome for Testing executable
+`C:\Users\ava\AppData\Local\ms-playwright\chromium-1234\chrome-win64\chrome.exe`,
+not the OS-default Edge launcher. Dynamic ports `1157/2008` established the
+same plain-origin versus one-time bootstrap distinction, with zero page or
+console errors; the preferred `37522` collision fallback selected a free port
+and preserved an unrelated blocker. No test listener remained after cleanup.
+
+No Hosted run is attached to this detached candidate. Production signing,
+Hosted CodeQL/provenance, real Provider and authenticated Codex certification
+remain external.
+
+## Current-worktree Vitest regression closure
+
+One current-worktree full-suite run briefly exposed `fetch failed: bad port` in
+`tests/fakeProviderServer.test.js`. The test then passed in isolation, in
+`30/30` repeated jsdom/Vitest process runs, and in `100/100` repeated
+jsdom/Vitest process runs. A direct Node HTTP loop also passed `100/100`; the
+temporary failure diagnostic was removed afterward. The next full current
+worktree run passed with `154` files, `1,035` passed tests and `1` skipped test
+(`1,036` total, exit `0`). No application code was changed for this
+observation, and it is not counted as a hidden retry-based pass.
+
+The current working-tree documentation contract also passed with `138` files;
+the exact detached application/package candidate remains the earlier
+`111db63d4261cd81cf7f5cadd340f1044cea32e8` source anchor with its separately
+recorded `136`-document candidate check. The local RC remains unpushed,
+unsigned, and without real Provider/Codex credentials.
+
+After that full-suite run, the current working tree also passed the final
+critical repeat (`10/10`, 9 files and 50 tests per repetition), TypeScript,
+Web build (`4,306` modules), Browser extension build, and DSH build/client
+loader contract. Root and nested DSH audits remained at zero vulnerabilities;
+the current updater-feed and NSIS artifact verifiers both returned `ok: true`.
+
+## Latest exact candidate after public Quick Start route closure
+
+The exact clean candidate is
+`111db63d4261cd81cf7f5cadd340f1044cea32e8`. The public Quick Start documents
+now describe the canonical `#/app` Workflow route without teaching the old
+fixed `37522` URL; the fresh-user smoke assertion validates the route and
+startup contract instead. The exact candidate passed the local recheck:
+
+```text
+Vitest: 154 files, 1035 passed, 1 skipped
+TypeScript: pass
+Web build: pass, 4306 modules transformed
+Browser extension: pass
+DSH build/client-loader contract: pass
+Rust all-target tests: 41 passed after cargo clean, -j 1, RUSTFLAGS=-C debuginfo=0
+Critical suite: 10/10, 50 tests per repetition
+Version/docs/red-team/secret checks: pass (docs 136 files; secret 925/0)
+root and dsh-plugin npm audit: 0 vulnerabilities
+git diff --check: pass
+```
+
+The exact NSIS package is `Flovart_0.3.2_x64-setup.exe`, 12,248,572 bytes,
+SHA-256
+`0E8753064D4C9150C67D632396E158EC614945AACE663F47167688C2DB8A1C3F`.
+Artifact/SBOM verification and isolated install/launch/close/uninstall passed.
+The first-user fake-provider evidence for this SHA used Chrome for Testing,
+not Edge, and is recorded in `C:\tmp\flovart-c14-first-user-evidence.json`.
+
+## Current-worktree recheck after browser and release-environment fixes
+
+The current worktree rerun added the Docker browser-plan output regression and
+aligned the Dockerfile base with the repository Node requirement.
+
+```text
+focused dev-command suite: 20/20
+full Vitest: 154 files, 1040 passed, 1 skipped
+TypeScript: pass
+Web build: pass, 4306 modules transformed
+Browser extension build: pass
+DSH build/client-loader contract: pass
+Rust all-targets: 41 passed
+critical suite: 10/10 (9 files, 50 tests each)
+root dependency audit: 0 vulnerabilities
+DSH dependency audit with official registry: 0 vulnerabilities
+docs/version/red-team/secret checks: pass
+artifact + SPDX checker: pass
+test-signed updater feed checker: pass
+git diff --check: pass
+```
+
+The Chrome-only browser smoke also passed after the recheck; its exact
+connection evidence is in `RC_BROWSER_LAUNCH_EVIDENCE.md`. Docker image build
+and Hosted GitHub execution remain unavailable in this local environment.
+
+## Final current-worktree certification recheck
+
+After the latest test additions and evidence updates:
+
+```text
+focused dev-command suite: 20/20
+full Vitest: 154 files, 1040 passed, 1 skipped
+critical suite: 10/10 (42.6s; 9 files, 50 tests each)
+Chrome for Testing browser smoke: pass
+docs contract: 139 files checked
+version/red-team/secret/dependency checks: pass
+TypeScript/Web/extension/DSH/Rust checks: pass
+Compose default and overridden port configs: pass
+git diff --check: pass (line-ending warnings only)
+```
+
+The candidate remains the uncommitted local worktree at `9be74642531ab8186ebcbce80829d68f575148a7`; this evidence is not a Hosted GitHub
+workflow result.
+
+## Clean candidate reproducibility check
+
+The current working tree was copied into an isolated clean worktree and
+committed locally as `7bf531cf3e1fe02ccf68f38e38c5b97dc04f0306`. Fresh root and
+DSH dependency installation completed before the checks. The clean candidate
+passed full Vitest (`154` files, `1040` passed, `1` skipped), TypeScript, Web,
+extension, DSH, Rust all-targets (`41` tests), critical `10/10`, docs/version/
+red-team/secret checks and both official-registry dependency audits. The
+standalone Chrome smoke passed in isolation with dynamic ports and
+`clients=1 / hasWorkflow=true`. A concurrent browser run under simultaneous
+full test/build CPU load timed out at navigation; it was rerun alone and
+passed, and remains recorded as an environment-contention observation.
+
+The candidate remains local-only and unpushed; no Hosted workflow or
+production signing evidence is attached.

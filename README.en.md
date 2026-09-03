@@ -141,10 +141,14 @@ npx flovart-cli start --open
 git clone https://github.com/avabbbb/Flovart.git
 cd Flovart
 npm install
-npm run dev
+npm run flovart:cli -- start --source --web --open
 ```
 
-Open <http://localhost:37522> and configure your own model-service credentials in Settings.
+The launcher prepares the WebUI and local Browser Agent together, then opens the main Workflow with a one-time bootstrap handoff. Do not paste `37522` into the address bar and expect Agent binding; the direct URL is only the ordinary WebUI. If no AI service is configured, click "Later" to enter an editable Canvas; click "Add AI service" when you are ready to generate.
+
+In source mode, `37522` is only the preferred port. If it is occupied, Flovart automatically selects an available loopback port and reports the actual URL. For an isolated test run, use `npx flovart-cli start --source --web --web-port=0 --agent-port=0 --no-open --json`.
+
+Do not use `--open` for automated browser acceptance because it delegates to the Windows default browser. Run `npm run test:browser:chrome` instead; it uses Playwright's Chrome for Testing executable, an isolated profile, dynamic ports, and a one-time bootstrap URL, then cleans up the test processes.
 
 ### Inspect the Workflow CLI
 

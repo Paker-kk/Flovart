@@ -9,7 +9,7 @@ title: 后续待办
 - **总目标**：⬜ 按根目录 `LAUNCH_GOAL.md` 从 R0 Release Truth Audit 持续执行到 R31 独立 Red Team；只有 Autonomous DoD、External Certification、`P0 = 0`、`P1 = 0` 同时满足才允许 `LAUNCH VERDICT: GO`。
 - **R0 Release Truth**：🟨 `RELEASE_TRUTH_MATRIX.md` 已区分当前工作树、历史基线、公开 main 与外部门禁；本地 Autonomous RC 为 PASS，公开 main、真实账号、生产签名和正式发布仍保持 `NO-GO`。
 - **最高优先级风险**：🟨 First Run → First Safe Generation 已用 Fake Provider recorder 证明伪造 `confirmed:true` 仍返回 `CONFIRMATION_REQUIRED`、Gate 前无 Provider 请求，并覆盖限流、重试、幂等重放和视频刷新不重复提交；完整的双击/重启 exactly-once 矩阵仍待发布门禁阶段补齐。
-- **Release Engineering**：🟨 已建立 docs-contract guard、三份 Skill parity、CLI help/red-team、tag release gate、draft-first publication、NSIS clean install、updater test signature、checksums、SBOM/provenance workflow、CodeQL/dependency/secret automation；真实生产 key、N→N+1 安装升级、Windows Authenticode、hosted workflow 首轮结果和 GitHub Release publication 仍是外部发行门禁。
+- **Release Engineering**：🟨 已建立 docs-contract guard、三份 Skill parity、CLI help/red-team、tag release gate、draft-first publication、NSIS clean install、test-signed N→N+1 安装升级（含隔离项目容器保留）、checksums、SBOM/provenance workflow、CodeQL/dependency/secret automation；生产 key、Windows Authenticode、跨 schema/中断迁移、hosted workflow 首轮结果和 GitHub Release publication 仍是外部发行门禁。
 - **产品可靠性**：🟨 First Run、BYOK、T2I/I2I/T2V/I2V Fake HTTP wire、费用 Gate、限流/重试/幂等、视频刷新恢复、migration、persistence soak、500-node/undo-redo、Plugin failure containment、offline、diagnostics、performance 和 accessibility 已有 RC 证据；真实 Provider/Codex/发行态升级仍待外部确认。
 - **公开声明**：⬜ Table、Plugin lifecycle、Codex/DSH/Pi、Provider 与安装器只能按真实 certification 标记 Supported；未通过项降级为 Experimental、Developer Preview、Blocked 或 Planned。
 
@@ -124,7 +124,6 @@ Table 是 Workflow 之外的第二个正式创作工作区，不是电子表格�
 
 ## 社区、企业与分发
 
-- **生产依赖安全收口**：⬜ `npm audit --registry=https://registry.npmjs.org --omit=dev` 当前报告 26 个生产依赖告警（1 critical、12 high、13 moderate）。先按实际可达路径处置 `@google/genai / @huggingface/transformers → protobufjs`、直接依赖 `react-router` / `nanoid`，再评估 Excalidraw 与 Transformers 无直接修复链；不得直接运行破坏性 `npm audit fix --force`。
 - **Desktop 内置 Agent Toolkit**：⬜ Desktop 自动启动或复用 Flovart 自有 Runtime、WebUI 与 Production Crew，WebUI 无需手填 Token；正式安装包仍需内置签名 Crew 资源和固定 Node Runtime。外部 Harness 独立安装、登录与运行，Flovart 不接管其进程。
 - **macOS/Linux Agent Toolkit 发布**：⬜ Node CLI、Workspace Adapter 与 POSIX launcher 已跨平台；正式 tag 流程仍需同时构建、签名并合并 `darwin-*` / `linux-*` Toolkit manifest，不能只发布 Windows artifact 后宣称 `flovart install/start` 全平台可用。
 - **UGC 后端**：⬜ 实现 CommunityWorkflow 列表、筛选、搜索、上传、详情、点赞与 fork 计数，并接入真实用户和 R2 媒体预览。

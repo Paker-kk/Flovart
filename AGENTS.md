@@ -104,3 +104,4 @@
 - 当前工作区项目和“我的素材”主要保存在浏览器本地，不要在文档中误写成已支持云同步。
 - 当前 AI API Key 存在浏览器本地，并由前端直接请求 OpenAI 兼容接口；涉及安全说明时要写清楚。
 - Docker 静态资源路径目前仍是待办项，文档中不要过度承诺生产部署已经完全验证。
+- 浏览器自动化验收统一使用 Playwright 提供的 Chrome for Testing 可执行文件，测试启动必须使用 `--no-open --web-port=0 --agent-port=0` 或等价的隔离动态端口；不得调用 Windows 默认浏览器打开 Edge，也不得把 `37522` / `17373` 当作固定真实地址。Agent binding 必须通过一次性 bootstrap URL 建立，普通 loopback origin 只代表未绑定的 WebUI。

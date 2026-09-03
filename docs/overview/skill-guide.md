@@ -20,7 +20,7 @@
 | Production Skill | Harness 可采用、Production Crew 可执行的制作方法 |
 | VOX Skill | 一个具体 Production Skill |
 
-供 Codex、DeepSeek Harness、Claude Code、OpenCode、Pi 使用的 `SKILL.md` 都属于 Operation Skill。它只指导 Harness 的模型工具调用公开 CLI；Flovart 不向 Coding Agent 暴露 MCP Server。Operation Skill 与 Production Skill 都不保存 API Key，也不直接请求 Provider；实际执行、费用和产物仍由 Flovart Runtime 管理。带代码的宿主插件或 Toolkit Plugin 是第三类扩展，不属于 Skill，必须单独安装和授权。
+Codex、Claude Code 和 OpenCode 使用的 `SKILL.md` 属于 Operation Skill；CodeBuddy Code 与 Pi 可按同一稳定 CLI contract 兼容，DeepSeek Harness 则通过显式 Plugin/Profile projection 接入。Operation Skill 只指导 Harness 调用公开 CLI；Flovart 不向 Coding Agent 暴露 MCP Server。Operation Skill 与 Production Skill 都不保存 API Key，也不直接请求 Provider；实际执行、费用和产物仍由 Flovart Runtime 管理。带代码的宿主插件或 Toolkit Plugin 是第三类扩展，不属于 Skill，必须单独安装和授权。
 
 ## 最低成本的使用方式
 
@@ -124,7 +124,7 @@ npx flovart-cli workspace.status --json
 npx flovart-cli workflow.inspect --json
 ```
 
-调用写命令前先读它的当前 Schema：
+只有在兼容命令陌生或出现契约不匹配时，才读取当前 Schema：
 
 ```bash
 npx flovart-cli command.schema --command production.dry-run --json
@@ -173,7 +173,7 @@ npm run flovart:cli -- <command> --json
 
 - 当前首页提供一个真实内置示例：`community.vox-director`。
 - 第三方 Skill 的安装、签名、权限、发布与撤销仍在建设中。
-- Codex、DeepSeek Harness、Claude Code、OpenCode、Pi 的模型工具基线都是 Operation Skill + CLI；没有 Coding Agent MCP Server。Codex 与 DeepSeek Harness 的深度 Session/事件连接优先实施，DeepSeek 另有完整嵌入 Profile 目标；这些增强不影响其他三者的完整 CLI 支持。
+- Codex、Claude Code 和 OpenCode 的模型工具基线是 Operation Skill + CLI；CodeBuddy Code 与 Pi 是兼容目标，DeepSeek Harness 另有显式 Plugin/Profile projection。所有路径都不使用 Coding Agent MCP Server。Codex 的真实登录认证、DSH 的完整嵌入 Profile 以及其它 Host 的长期兼容性仍需按 [Support Matrix](../../SUPPORT_MATRIX.md) 单独验收。
 - 当前 Desktop 的旧内置主 Agent 入口仍待迁成 Production Crew 控制面；请优先在外部 Coding Agent 中发起主任务。
 - Runtime Artifact 到对应计划节点的自动挂载仍在完善，不能仅凭计划节点判断成片已完成。
 

@@ -2064,3 +2064,448 @@ no generated Skill and no copied dependencies: `npm ci --ignore-scripts` plus
 `npm run docs:check` passed (`135 files`). This confirms the local checker fix
 does not depend on ignored packaging output. Hosted certification of the exact
 candidate remains pending because it has not been published.
+
+## Browser launcher and port isolation follow-up
+
+The latest concrete runtime issue was repeated Windows-default-browser pages
+opening at `127.0.0.1:37522` without a Browser binding. The cause is that a
+plain WebUI origin is not sufficient for a fresh Agent session; it needs the
+one-time bootstrap handoff. The source start path now keeps `37522` and
+`17373` as preferences only, supports `--web-port=0 --agent-port=0` for an
+isolated run, and automatically chooses free loopback ports when the
+preferred WebUI port is occupied. `web.open` also adds the bootstrap internally
+when a ready local Agent is available while returning only the sanitized WebUI
+origin.
+
+Evidence from the isolated Chrome for Testing smoke on 2026-09-02:
+
+```text
+plain origin: clients=0, hasWorkflow=false
+bootstrap origin: clients=1, hasWorkflow=true
+browser: C:\Users\ava\AppData\Local\ms-playwright\chromium-1234\chrome-win64\chrome.exe
+dynamic WebUI/Agent examples: 5204 / 13772
+preferred-port fallback: 37522 occupied -> WebUI 12326, unrelated blocker preserved
+console errors: 0
+```
+
+The test used temporary Agent config/discovery paths and cleaned its exact
+processes afterward. The user's `C:\Users\ava\.flovart\agent.json` origin
+was restored to `http://tauri.localhost`; no token was printed or persisted in
+the test evidence. Focused startup/docs/Skill tests are green (`5` files,
+`34` tests); the full suite is green after this final launcher change.
+
+## Current working-tree release regression after launcher guidance cleanup
+
+The current worktree remains intentionally dirty and is not being presented as
+the published candidate. After removing the remaining guidance that could
+start only a plain, unbound WebUI, the local release gates were rerun:
+
+```text
+version: 0.3.2 / avabbbb/Flovart — pass
+docs contract: 136 files — pass
+release red-team: pass, failures=[]
+secret audit: 925 files, 0 findings — pass
+focused Skill/startup suite: 2 files, 19 tests — pass
+full Vitest: 154 files, 1035 passed, 1 skipped — pass
+TypeScript: pass
+Web build: 4306 modules — pass (existing chunk/import warnings only)
+Browser extension build: pass
+DSH build and client-loader contract: pass
+Rust all-target tests: 41 — pass
+critical suite: 10/10 — pass
+```
+
+The no-Edge browser regression was rerun through the Playwright skill using
+Chrome for Testing at
+`C:\Users\ava\AppData\Local\ms-playwright\chromium-1234\chrome-win64\chrome.exe`.
+With isolated random ports it observed a plain origin with
+`clients=0 / hasWorkflow=false`, then the one-time bootstrap origin with
+`clients=1 / hasWorkflow=true`, page title `Flovart`, connected status visible,
+and zero console/page errors. A separate run occupied preferred port `37522`
+and verified automatic fallback to an available port while preserving the
+unrelated process and opening no browser window. The exact test processes were
+cleaned and no listener remained on `37522` or `17373`.
+
+The next step remains release evidence reconciliation and owner-approved
+Hosted execution; no push, tag, release, GitHub setting change, Edge launch,
+or production signing-key read occurred.
+
+## External gate snapshot rechecked
+
+Read-only GitHub checks still show `origin/main` at
+`c60b452719fc3b0ddd32225556fbd86b73b5f299`, with no `v0.3.2` tag and only the
+public `v0.2.0-test` release. The latest CI run
+`33598287044` is for that older remote SHA and failed its stale public-doc
+contract; the separate critical job passed. Security run `33598299717` passed
+its tracked-secret and CodeQL jobs, but the exact local candidate has no Hosted
+run. The repository API still reports Secret Scanning/Push Protection disabled,
+`main` unprotected, and 13 open CodeQL alerts on the remote snapshot.
+
+`codex login status` remains `Not logged in`. These are unchanged external
+gates, not local test failures; no remote state was modified.
+
+## Local RC specialization recheck
+
+The post-cleanup focused RC suites also passed on the current worktree:
+
+```text
+Canvas/migration: 2 files, 9 tests
+Provider/Fake HTTP: 3 files, 21 tests
+Offline/security/diagnostics: 4 files, 6 tests
+Resource/plugin contracts: 2 files, 7 tests
+Agent session/bootstrap: 4 files, 29 tests
+root npm audit: 0 vulnerabilities
+dsh-plugin npm audit: 0 vulnerabilities
+```
+
+These are local evidence only. The exact clean release candidate still needs
+to be rebuilt from a clean commit after the final launcher-guidance change;
+the remote candidate run, production signing, real Provider billing and
+authenticated Codex remain external.
+
+## Skill runtime-version parity follow-up
+
+The three source Skill projections and generated packaged projection were
+aligned from the stale Node.js `20.10` wording to the actual package minimum
+Node.js `22.19.0`. `scripts/check-docs-contract.mjs` now derives that minimum
+from the root package engine and rejects projection drift. The updated docs
+contract, release red-team, and focused docs/Skill suite (`2` files, `13`
+tests) pass.
+
+## Clean candidate reproducibility and Chrome-only release recheck
+
+The visible current worktree was snapshotted into the disposable detached
+worktree `C:\tmp\flovart-rc-current-clean-20260902` and committed as
+`66276e58227d71fc37772ce280fbc518b253794d`. The main worktree remains dirty
+by design; no reset, push, tag, release, or remote setting change was made.
+The clean candidate installed root and DSH dependencies with `npm ci
+--ignore-scripts` and remained clean after packaging/build outputs.
+
+The first all-in-parallel attempt produced two resource-pressure failures:
+two Vitest files reached their 5-second timeout while Rust was compiling, and
+Cargo hit Windows `os error 1455` while mmap-ing rlibs. This was not accepted
+as a pass or ignored as a flaky test. The two failed Vitest files passed alone,
+the full serial Vitest rerun passed, and a fresh `cargo clean` followed by
+`CARGO_BUILD_JOBS=1 cargo test --manifest-path src-tauri/Cargo.toml
+--all-targets -j 1` passed all 41 Rust tests.
+
+Current clean-candidate gates:
+
+```text
+version: 0.3.2 / avabbbb/Flovart — pass
+docs: 136 files — pass (after npm pack projection)
+release red-team: pass, generated Skill aligned
+secret audit: 925 files / 0 findings — pass
+root and DSH npm audit: 0 vulnerabilities — pass
+Vitest: 154 files, 1035 passed, 1 skipped — pass
+TypeScript: pass
+Web build: 4306 modules — pass
+Browser extension build: pass
+DSH build and client-loader contract: pass
+Rust all-target tests: 41 — pass (clean single-job rebuild)
+critical suite: 10/10, 50 tests per repetition — pass
+git diff --check: pass
+```
+
+The exact clean candidate also produced a local unsigned Windows x64 NSIS
+package:
+
+```text
+Flovart_0.3.2_x64-setup.exe
+bytes: 12246365
+sha256: EC3BF0EEA4CBB6891E085A47660DBB1FE90B3206EFE4ECDE1DC9D66E8C778412
+```
+
+Checksum plus local SPDX-2.3 package-lock SBOM verification passed (663
+packages, 1377 relationships). The exact package passed silent install,
+real executable launch, graceful close, silent uninstall, and install-root
+removal. It is local unsigned evidence only; production updater signing,
+Authenticode, Hosted provenance, real Provider, and authenticated Codex
+remain external gates.
+
+The browser smoke was rerun against this clean candidate with the Playwright
+skill and Chrome for Testing, never Edge. It used dynamic WebUI/Agent ports
+`1157/2008`: the plain origin reported `clients=0 / hasWorkflow=false`, the
+one-time bootstrap origin reported `clients=1 / hasWorkflow=true`, the page
+showed `Flovart` and connected status, and console/page errors were zero. The
+preferred-port collision smoke also preserved the unrelated listener and
+selected a free WebUI port. Exact test processes and listeners were cleaned
+afterward; no listener remained on `37522` or `17373`.
+
+## Latest exact candidate after public Quick Start route closure
+
+The first-user Chrome smoke initially failed on a stale test assertion that
+expected the old literal `http://localhost:37522/#/app` documentation string.
+The product path was not failing: the current launcher already chooses a
+dynamic loopback port. The public Chinese and English Quick Start documents
+were updated to state the canonical `#/app` Workflow route without teaching a
+fixed port, and the smoke assertion was changed to validate the route contract
+and `start --source --web --open` command instead.
+
+The visible worktree was then snapshotted into the clean detached candidate
+`C:\tmp\flovart-rc-current-clean-20260902-v2` and committed as
+`111db63d4261cd81cf7f5cadd340f1044cea32e8`. The candidate remained clean and
+unpushed/untagged. A new exact NSIS build from this SHA completed with
+`npm run tauri:build` using `src-tauri/tauri.local.conf.json`:
+
+```text
+Flovart_0.3.2_x64-setup.exe
+bytes: 12248572
+sha256: 0E8753064D4C9150C67D632396E158EC614945AACE663F47167688C2DB8A1C3F
+```
+
+The staged artifact directory is
+`C:\tmp\flovart-rc-artifacts-current-20260902-v2`. The checksum/SPDX checker
+passed with zero errors; the SBOM is SPDX-2.3 with 663 packages and 1,377
+relationships. The isolated NSIS smoke returned install exit `0`, observed the
+real `flovart.exe`, graceful close, uninstall exit `0`, and no remaining
+temporary install root.
+
+The exact candidate recheck passed:
+
+```text
+Vitest: 154 files, 1035 passed, 1 skipped
+TypeScript: pass
+Web build: pass, 4306 modules transformed
+Browser extension: pass
+DSH build/client-loader contract: pass
+Rust all-target tests: 41 passed after cargo clean, -j 1, RUSTFLAGS=-C debuginfo=0
+Critical suite: 10/10, 50 tests per repetition
+Version/docs/red-team/secret checks: pass (docs 136 files; secret 925/0)
+root and dsh-plugin npm audit: 0 vulnerabilities
+git diff --check: pass
+```
+
+The real visible first-user smoke ran with Chrome for Testing at
+`C:\Users\ava\AppData\Local\ms-playwright\chromium-1234\chrome-win64\chrome.exe`,
+not Edge, using isolated ports `18757` (WebUI) and `18758` (Fake Provider).
+It completed fresh `/#/app` launch, editable unconfigured Canvas, image-node
+prompt entry, Base URL/API Key connection, model discovery, product-language
+cost confirmation, and one displayed fake image. The recorder observed one
+`POST /v1/images/generations`, zero page/console errors, and no API key in the
+browser or recorder. Evidence is
+`C:\tmp\flovart-c14-first-user-evidence.json`; exact test listeners were
+cleaned afterward.
+
+The remaining release state is unchanged: no Hosted run is attached to this
+detached SHA; production signing, hosted provenance/security settings, real
+Provider billing/quality, and authenticated Codex certification remain
+external gates. No Edge window was used for this validation and no listener
+remained on `37522` or `17373`.
+
+## Chrome-only launcher recheck from current worktree
+
+After the user reported repeated unreachable Edge windows and collisions on
+`127.0.0.1:37522`, the browser acceptance method was rerun from the current
+worktree through the Playwright skill. Dev-server detection found no existing
+server. The harness used Chrome for Testing at
+`C:\Users\ava\AppData\Local\ms-playwright\chromium-1234\chrome-win64\chrome.exe`,
+never the Windows default browser, and started Flovart with
+`--no-open --web-port=0 --agent-port=0`.
+
+The run assigned WebUI port `10588` and Agent port `10613`. The plain
+`/#/app` origin remained deliberately unbound (`clients=0`,
+`hasWorkflow=false`); the one-time bootstrap URL then established the
+Browser Writer (`clients=1`, `hasWorkflow=true`). The page title was `Flovart`,
+the connected indicator was visible, and console/page errors were zero.
+The browser and exact launcher-owned process trees were cleaned afterward;
+ports `37522`, `17373`, `10588` and `10613` had no listeners, and no Edge
+process was created by this run. Full details are in
+`RC_BROWSER_LAUNCH_EVIDENCE.md`.
+
+This closes the test-method issue, not the external release gates. Normal
+user-facing `--open` still follows the OS default browser; automated tests are
+now explicitly Chrome-only and dynamic-port-only.
+
+## Chrome memory/performance probe
+
+The same isolated Chrome-for-Testing method was used for a 30-cycle real page
+reload probe with `--web-port=0 --no-open --no-browser-agent`. The dynamic
+WebUI port was `3795`; no Edge process or fixed `37522`/`17373` listener was
+used. After an explicit page GC when available, the active page heap settled
+near `40 MiB` from cycle 6 through cycle 30, with a temporary `47.2 MiB` peak
+and `38.3 MiB` final value. No application-level linear page-heap growth or
+page/console error was observed. The full Chrome process tree warmed from
+`530.1 MiB` to a `741.0 MiB` peak and ended at `723.6 MiB`, so that figure is
+kept as a browser/workstation baseline rather than misclassified as a Flovart
+retained-object leak. Full measurements are in `RC_PERFORMANCE_EVIDENCE.md`.
+
+## Browser bind/unbind soak closure
+
+The Chrome-only harness then completed 50 isolated Browser bind/unbind cycles
+with dynamic WebUI `10031` and Agent `4287` ports. All 50 bootstrap bindings
+reached `clients > 0 / hasWorkflow=true`, all 50 context closes returned the
+Agent to `clients=0`, page-title failures were zero, and console-error cycles
+were zero. Bind median was `1,122 ms`, steady-state p95 `1,408 ms`; cycles 1
+and 2 were explicitly retained as cold-start outliers at `23,287 ms` and
+`15,317 ms`. The final health state was disconnected with no pending client,
+and all test processes/listeners were cleaned. This closes the local R30
+Browser bind/unbind requirement while preserving the cold-start observation.
+
+## Source launcher soak closure
+
+To cover the launcher side of R30 without opening any system browser, a
+separate loop started and stopped the source WebUI 50 times with
+`--web-port=0 --no-browser-agent --no-open --json`. Every cycle passed a real
+`data-flovart-webui="1"` HTTP check, used a unique dynamic port, and cleaned
+its process tree. Startup time was median `2,685 ms`, p95 `2,899 ms`, worst
+`3,120 ms`; failures were `0`. This is source WebUI/launcher evidence, not a
+claim about Tauri installed-app cold start. No Edge window was created.
+
+## Repeated installer lifecycle closure
+
+The staged local NSIS package also passed 10 isolated install/uninstall cycles.
+Each cycle used a unique validated temporary root, returned installer and
+uninstaller exit `0`, and removed the root; median elapsed time was `3,383 ms`,
+p95 `3,421 ms`, worst `3,637 ms`. The installed app was not launched during
+this repetition, so it adds installer mechanics evidence without touching the
+user's app-data profile. The existing full install/launch/uninstall and
+test-signed updater evidence remain separate.
+
+## Desktop launch baseline closure
+
+The latest staged NSIS package was launched 20 times by a PowerShell harness
+with `APPDATA`, `LOCALAPPDATA`, `USERPROFILE`, `FLOVART_RUNTIME_DISCOVERY`,
+`FLOVART_AGENT_CONFIG` and `WEBVIEW2_USER_DATA_FOLDER` directed to validated
+temporary paths. Ten independent profiles represented cold starts and ten
+same-profile relaunches represented warm starts. All 20 reached a visible
+main window and closed gracefully. Cold median/p95/worst was
+`117/123/126 ms`; warm was `113/121/128 ms`. The measurement boundary is main
+window readiness, not Canvas ready or Web Vitals; no browser was opened and no
+Edge process was involved.
+
+## Current-worktree Vitest regression closure
+
+One current-worktree full-suite run briefly exposed `fetch failed: bad port` in
+`tests/fakeProviderServer.test.js`. The test then passed in isolation, in
+`30/30` repeated jsdom/Vitest process runs, and in `100/100` repeated
+jsdom/Vitest process runs. A direct Node HTTP loop also passed `100/100`; the
+temporary failure diagnostic was removed afterward. The next full current
+worktree run passed with `154` files, `1,035` passed tests and `1` skipped test
+(`1,036` total, exit `0`). No application code was changed for this
+observation, and it is not counted as a hidden retry-based pass.
+
+The current working-tree documentation contract also passed with `138` files;
+the exact detached application/package candidate remains the earlier
+`111db63d4261cd81cf7f5cadd340f1044cea32e8` source anchor with its separately
+recorded `136`-document candidate check. The local RC remains unpushed,
+unsigned, and without real Provider/Codex credentials.
+
+The final current-worktree critical repeat then passed `10/10` (9 files and 50
+tests per repetition). TypeScript, the Web build (`4,306` modules), Browser
+extension build, DSH build/client-loader contract, root and nested DSH audits,
+and the staged NSIS/updater artifact verifiers also passed. No application
+source changed during this final regression closure.
+
+## Current v3 clean candidate and exact NSIS evidence
+
+The final local clean candidate was snapshotted at
+`712031d88a427fb04316e590f74cffef67f435b9`, after the current release and
+evidence files were reconciled. Fresh root and DSH `npm ci --ignore-scripts`
+completed with zero vulnerabilities. The candidate passed the full Vitest
+suite (`154` files; `1,035` passed and `1` skipped), the critical suite `10/10`,
+TypeScript, Web (`4,306` modules), extension, DSH and Rust all-target tests
+(`41` Rust tests), version/docs/red-team/secret checks and `git diff --check`.
+The candidate docs contract counted `137` documents; the current working tree
+recheck counted `138` after evidence-only additions.
+
+The exact v3 NSIS package is
+`Flovart_0.3.2_x64-setup.exe`, `12,247,434` bytes, SHA-256
+`67FE186BD5AA6221190BE3AA98EC5C5639C1935AC685D28E8FB8489426439E1D`, staged
+at `C:\tmp\flovart-rc-artifacts-current-20260902-v3`. It has an SPDX-2.3
+SBOM with `663` packages and `1,377` relationships. Artifact validation and
+isolated install/real launch/graceful close/uninstall passed. The local Tauri
+overlay intentionally omits updater `latest.json`, so its updater checker is
+not a pass; the separately recorded test-signed N→N+1 feed remains the local
+update-chain evidence, while production signing and Hosted execution remain
+external.
+
+## RC0 residual browser-process cleanup
+
+The final baseline audit found five stale Playwright runner trees from the
+previous automated acceptance pass. Each root was explicitly identified by
+the command line `run.js ... playwright-test-today-task.js` and its child
+Chrome used a dedicated `playwright_chromiumdev_profile-*` directory. Only
+those five verified test trees were terminated; user Chrome, OMP Chrome and
+system Edge were not targeted. The post-cleanup check reports:
+
+```text
+test Chrome processes: 0
+test runner processes: 0
+Flovart-related Edge processes: 0
+listeners on 37522/17373: 0
+```
+
+## Browser launch correction and Docker port isolation
+
+The user-visible failure was traced to two separate paths. Automated acceptance
+was previously allowed to call the Windows default URL handler, which opened
+Edge and could leave a plain, unbound WebUI tab. The Docker `--open` path also
+used the source preference `37522` even though Compose publishes the Web
+container on `1635`; that URL was genuinely wrong for Docker mode.
+
+The current working tree now provides `npm run test:browser:chrome`. It starts
+the source launcher with `--no-open --web-port=0 --agent-port=0`, uses
+Playwright's Chrome for Testing executable and an isolated persistent profile,
+builds the one-time bootstrap URL in the test harness, and terminates only its
+own process tree. The latest run passed with Chrome for Testing
+`chromium-1223`, WebUI `http://127.0.0.1:10482`, Agent
+`http://127.0.0.1:3842`, `clients=1`, `hasWorkflow=true`, a scrubbed final URL,
+and zero console/page errors. After cleanup, no listener remained on
+`37522`, `17373`, `1635`, `10482` or `3842`, and no Flovart-related Edge process
+remained.
+
+Docker Compose now accepts `FLOVART_DB_PORT`, `FLOVART_HUB_PORT`,
+`FLOVART_ENTERPRISE_PORT` and `FLOVART_WEB_PORT`. `flovart start --source
+--docker --open` selects an available host port for every selected service,
+waits for the actual WebUI URL, and only then opens it. `docker compose config`
+passed with both default and overridden host ports; the focused dev-command
+suite passed `19/19`, including the rendered Docker browser URL, overlapping
+service-port allocation, and Web dependency-closure allocation.
+
+## RC environment alignment recheck
+
+The root `package.json` and CLI require Node `>=22.19.0`; the Dockerfile had
+been the remaining Node 20 exception. It now uses `node:22-alpine`, and the
+release identity check plus default/overridden Compose configuration still
+pass. Docker image build itself was not run because Docker is unavailable in
+this Windows environment.
+
+After that change, `npm run test:browser:chrome` passed again with Chrome for
+Testing `chromium-1223`, dynamic WebUI `3594`, dynamic Agent `4099`,
+`clients=1`, `hasWorkflow=true`, clean final URL, and zero console/page errors.
+No fixed listener remained on `37522`, `17373` or `1635`, and no Edge process
+was created.
+
+The post-fix full local gate completed with `154` Vitest files, `1,039`
+passing tests and `1` skipped test; TypeScript, Web, extension, DSH and Rust
+checks remained green. The new port-closure and Docker-plan regressions are
+included in that count.
+
+The final current-worktree recheck completed with `154` Vitest files, `1,040`
+passing tests and `1` skipped test; the focused dev-command suite is `20/20`.
+The latest Chrome for Testing smoke used WebUI `11290` and Agent `11291`,
+reported `clients=1 / hasWorkflow=true`, zero console/page errors, and left no
+listener on the preferred or dynamic test ports.
+
+## Current clean candidate certification snapshot
+
+The current working tree was isolated into clean candidate
+`7bf531cf3e1fe02ccf68f38e38c5b97dc04f0306`; the main worktree remains
+untouched and dirty as before. Fresh root and DSH installs passed. Candidate
+checks passed: full Vitest `154 files / 1040 passed / 1 skipped`, clean
+TypeScript, Web, extension and DSH builds, critical `10/10` (`9` files and
+`50` tests per repetition), docs/version/red-team/secret/dependency checks,
+and Chrome for Testing smoke (`clients=1`, `hasWorkflow=true`, zero page and
+console errors). A concurrent clean Chrome run timed out under simultaneous
+full test/build CPU load; the isolated rerun passed, so it is recorded as an
+execution-environment contention observation rather than hidden.
+
+The same candidate built a real unsigned Windows x64 NSIS package:
+`Flovart_0.3.2_x64-setup.exe`, `12,247,854` bytes,
+SHA-256 `A36EE61CF7CBA75948D1B8D6278E1814E40113B9962AE7A91684C2F0F86C5ACF`.
+The SPDX-2.3 SBOM contains `663` packages and `1,377` relationships; artifact
+validation and install/launch/graceful-close/uninstall passed. Clean candidate
+Rust compilation completed through Tauri packaging, and the standalone clean
+Rust test gate passed after the package build. No production signing or
+external account was used.

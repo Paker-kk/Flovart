@@ -155,6 +155,8 @@ npx flovart-cli start --source --all --open
 
 也可用 `docker compose up --build` 启动 Web / Hub / Enterprise / PostgreSQL 容器。Docker 静态资源生产路径仍在验证，当前更适合本地联调与私有部署预演。
 
+自动化浏览器验收请运行 `npm run test:browser:chrome`，不要使用 `--open` 触发 Windows 默认浏览器；该 smoke 会使用 Chrome for Testing 和动态 loopback 端口。
+
 ### 检查 Workflow CLI
 
 ```bash

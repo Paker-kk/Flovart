@@ -8,23 +8,24 @@ Five deployment options — pick the one that fits you:
 git clone https://github.com/avabbbb/Flovart.git
 cd Flovart
 npm install
-npm run dev
+npm run flovart:cli -- start --source --web --open
 ```
 
-Open http://localhost:37522 and enter your service credentials in Settings.
+The launcher prepares the WebUI and local Browser Agent together, then opens the main Workflow route `#/app` with a one-time bootstrap handoff. Do not paste `37522` into the address bar and expect Agent binding; the direct URL is only the ordinary WebUI. If no AI service is configured, click "Later" to enter an editable Canvas; click "Add AI service" when you are ready to generate.
+
+In source mode, `37522` is only the preferred port. If it is occupied, Flovart automatically selects an available loopback port and reports the actual URL. For an isolated test run, use `npx flovart-cli start --source --web --web-port=0 --agent-port=0 --no-open --json`.
+
+Do not use `--open` for automated browser acceptance because it delegates to the Windows default browser. Run `npm run test:browser:chrome` instead; it uses Playwright's Chrome for Testing executable, an isolated profile, dynamic ports, and a one-time bootstrap URL, then cleans up the test processes.
 
 > We recommend [Google AI Studio](https://aistudio.google.com/apikey) to get free Gemini credentials.
 
 ## Option 2: Direct the Production Crew via an External Agent / CLI
 
-Current evidence is split by integration depth: Codex CLI/Browser is the professional golden path; Claude Code and OpenCode have completed CLI tracers; DeepSeek Harness keeps an explicit Plugin/Profile projection; CodeBuddy Code and Pi are compatibility targets through the stable Skill + CLI contract. WorkBuddy is a separate mainstream office AI workspace, not CodeBuddy Code, and is outside the current Director Binding. Flovart exposes no MCP server to coding agents and requires no Chrome DevTools Protocol, browser scraping, or file queue.
-
-> The role reversal is still being migrated: Desktop currently retains the older built-in-main-agent entry and its internal MCP transport. Do not configure that legacy transport as a new external integration. Use only commands marked `available` by `command.list`, and do not treat the old UI as proof that the target architecture has shipped.
+The current external-director path is Codex CLI/Browser, Claude Code, and OpenCode CLI. They use the same local CLI through the Operation Skill. DeepSeek Harness keeps an explicit Plugin/Profile projection; CodeBuddy Code and Pi are compatible through the stable contract. WorkBuddy is a separate mainstream office AI workspace, not CodeBuddy Code, and is outside the current Director Binding. Flovart's formal Coding Agent surface is Skill + CLI; users do not need to configure MCP, browser scraping, or a file queue.
 
 ```bash
 npm run flovart:cli -- status --json
 npm run flovart:cli -- start --open --json  # only when status is not ready
-npm run flovart:cli -- workspace.status --json
 npm run flovart:cli -- workflow.inspect --json
 ```
 
@@ -32,19 +33,17 @@ npm run flovart:cli -- workflow.inspect --json
 
 - **The external harness is the director**: it owns the canonical conversation, overall plan, and cross-task scheduling; closing Flovart must not terminate it.
 - **Workspace Operator is the only built-in execution agent**: it calls typed, reversible tools only inside a bounded intent. Production Crew is merely the group name for the Operator, Runtime, workers, and tools—not another agent.
-- **One command registry**: normal work uses the stable Agent surface; read `command.list` / `command.schema` only for bootstrap, compatibility diagnosis, or debugging, and call only commands marked `available`.
-- **One visible-Workflow authority**: require `workspace.status` to be `ready`, then verify every mutation with `workflow.inspect`. Never fall back to the old Canvas, shadow state, CDP, private HTTP, or a file queue.
+- **Stable Agent surface**: normal work uses only `status`, `workflow.inspect`, `workflow.selection.get`, `workflow.apply`, and `workflow.node.run`; read `command.list` / `command.schema` only for bootstrap, compatibility diagnosis, or debugging.
+- **One visible-Workflow authority**: confirm `status` and the target Workflow are ready, then verify every mutation with `workflow.inspect`. All writes go through the current Browser Workflow authority.
 - **Secret boundary**: Provider secrets stay in Flovart's controlled boundary. The CLI and external harness never read, print, or store raw secrets.
 
 ### Example Commands
 
 ```bash
-npm run flovart:cli -- workflow.project.list --json
-npm run flovart:cli -- workflow.node.create --id shot-01 --type text --title "Shot 01" --x 120 --y 160 --metadata-json '{"content":"Opening shot notes"}' --idempotency-key create-shot-01-v1 --json
 npm run flovart:cli -- workflow.inspect --json
 ```
 
-The command registry is readable offline. Visible-node commands require Flovart Desktop to be running, the target Workflow to be open, and the Workspace Adapter to report ready. See the [Agent architecture package](../design/agent/README.md) for the full boundary.
+External agents use `workflow.apply` or `workflow.node.run` for writes and then re-read `workflow.inspect`. The command registry is readable offline; visible Workflow operations require Flovart Desktop to be running and the target Workflow to be open. See the [Agent architecture package](../design/agent/README.md) for the full boundary.
 
 The target DeepSeek Harness experience installs a dedicated Flovart Profile/Plugin into the Harness shell. A fixed Flovart Dock opens the complete Workflow, Table, and Agent Production Control surface in the central workspace; lightweight overlays handle approvals/status/artifacts, the right-side Agent Bridge manages connections and single-director handoff, and a standalone Flovart window remains available. The Host Plugin still derives and executes model tools from the CLI registry; its Client Plugin uses a scoped local channel only for UI, events, and recovery. This Profile is still a design/migration target, so the current path remains Operation Skill + CLI + the standalone Flovart workspace.
 
@@ -52,10 +51,10 @@ The target DeepSeek Harness experience installs a dedicated Flovart Profile/Plug
 
 Flovart is continuously advancing **OpenAI-compatible** third-party endpoint adaptation (e.g., relay stations, enterprise intranet gateways). You can select **Custom Provider** in Settings and connect it as follows:
 
-1. **Base URL** — Enter your endpoint address (e.g., `https://api.example.com/v1/chat/completions`; Flovart trims it to `/v1` automatically).
-2. **Service credentials** — Enter your access credentials.
-3. **Model name** — Select or enter a model returned by the current provider (for example, `gemini-3.1-flash-image` or `gpt-image-2`).
-4. **Capability declaration** — Check the capabilities your credential supports (image / video / text); custom models are categorized into the dropdown accordingly.
+1. **Service address** — Enter your endpoint address (for example, `https://api.example.com/v1`; Flovart normalizes compatible paths automatically).
+2. **API Key** — Enter the credential for this AI service.
+3. **Model** — Flovart discovers models automatically when the service exposes `/models`; if discovery is unavailable, enter a model manually.
+4. **Capability declaration** — Configure capabilities only in Advanced settings when automatic inference is not enough.
 
 > **Note on adaptation**: Third-party compatibility rules are still iterating. You are welcome to help improve the adaptation rules and samples so more model services can integrate reliably.
 

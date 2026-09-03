@@ -2,10 +2,16 @@
 
 ## Unreleased
 
-- **Release Candidate Hardening**：加入 Windows 发布产物 checksum、SPDX SBOM、tag-only provenance attestation、CI 全量门禁与关键套件 10x 循环；补齐迁移/持久化/Canvas stress、插件故障 containment、离线提示、脱敏诊断、支持矩阵和 release red-team 证据。真实 Provider、Codex 登录、生产 updater key、Authenticode 与 N→N+1 发行升级仍为外部门禁。
+- **Release Candidate Hardening**：加入 Windows 发布产物 checksum、安装包内容校验、SPDX SBOM、tag-only provenance attestation、CI 全量门禁与关键套件 10x 循环；补齐迁移/持久化/Canvas stress、插件故障 containment、离线提示、脱敏诊断、支持矩阵和 release red-team 证据，并让 Skill projection 的 Node.js 最低版本由 docs contract 与 package engine 自动对齐；本机 test-signed N→N+1 更新及隔离项目保留已通过。真实 Provider、Codex 登录、生产 updater key、Authenticode、跨 schema/中断迁移与正式发布仍为外部门禁。
+- **Updater 产物校验**：稳定 tag 发布路径现在在 draft-first 流程中强制收集 `latest.json` 与 `.sig` sidecar，并校验版本化 HTTPS URL、产物存在性及签名文本一致；本机 test-signed feed 已通过，生产签名和 Hosted 发布仍为外部门禁。
+- **CLI 分发修复**：补齐 `flovart-cli` npm 包的运行时模块白名单，并增加包清单可达性回归，避免安装后的 CLI 缺少 `bootstrap-coordinator`、Crew 或 Web discovery 模块。
+- **桌面生成兼容性**：修复 Tauri/WebView2 对 `data:` 图片结果的处理，生成结果不再因 CSP 禁止 `fetch(data:...)` 而停在 `Failed to fetch`；保留普通远程媒体 URL 的下载路径。
+- **Release 依赖安全**：移除当前源码未使用的高风险生产依赖，更新同主版本的 `nanoid`、`react-router`、`protobufjs`、`fast-uri`、`ip-address`、`ws` 与构建工具链，并把官方 npm registry 的完整依赖审计加入 Hosted security gate。
+- **CodeQL 告警收口**：将选题研究产物键改为 4096 字符上限的无正则字符扫描，并增加恶意超长幂等键回归；旧 `main` 的远端告警仍需在候选 SHA 上由 Hosted CodeQL 重跑确认。
 - **First Run → First Safe Generation**：首启可先进入 Canvas；AI 服务采用“服务地址 + API Key”渐进配置并自动发现模型，PromptBar/Graph/`@` 引用贯通真实 Fake Provider HTTP，外部生成经过费用确认与不可伪造的人工授权，补齐限流、超时、重试、幂等和刷新恢复验收。
 - **Agent Surface Simplification**：新增 Host Registry 与 PATH-only Host discovery，拆分 Agent Identity、IDE Host、Distribution Target、Runtime Surface 和 Director Runtime Binding；`init --target` 安装 Skill projection，内置 Agent 工具收敛为 `status`、`workflow.inspect`、`workflow.selection.get`、`workflow.apply`、`workflow.node.run`，WorkBuddy 暂不进入 Director Binding。
 - **External Agent Golden Path**：补齐动态端口启动、Windows 安全 URL 启动、Browser Workflow bootstrap/recovery、Active Writer、Launcher 一次性 Writer 激活与 stale-page 等待、Host Picker 显式 Skill Projection prepare 与 Codex/Generic CLI Skill projection；真实 DSH RC8 profile/bundle 已完成本地 install/boot/隔离 Workspace tracer，Claude Code/OpenCode 外部 CLI tracer 已通过，打包 Managed Agent 已验证调用方项目根与 Host discovery，DSH CLI 结构化参数已改为 JSON，并移除 Dock 中伪造 Director Session 的自动绑定路径；另以本地无 Provider 的 `image.crop@1` fixture 验证真实 Browser `workflow.node.run` 成功闭环，并修复 granular `workflow.node.tool` CLI 的 typed flag 归一化；Codex 登录态与用户确认仍保留为 pending-test。
+- **Browser 启动与端口隔离**：源码启动的 `37522/17373` 现在只作为首选端口；冲突时自动切换 loopback 端口，并支持 `--web-port=0 --agent-port=0` 隔离测试。`web.open` 在发现就绪 Agent 时自动使用一次性 bootstrap，同时保持返回值脱敏；Skill 不再把单独的 `npm run dev` 误导为 Agent 启动方式。真实 Chrome for Testing 已验证普通 origin 不绑定、bootstrap 后 `clients=1 / hasWorkflow=true`，测试不再调用 Windows 默认 Edge。
 - **Workflow 输入解析**：新增统一的资源引用与 Graph 输入解析路径，已连接媒体不再依赖 PromptBar `@` 才能进入生成请求，并保留 Artifact 身份与现有显式引用筛选。
 - **PromptBar 引用契约**：PromptBar 通过 provider-neutral `PromptIntent` 表达提示词与引用；Graph、`@`、Asset、Runtime Artifact 统一进入 Canonical Generation Input，Provider 角色/能力不匹配在请求前明确失败，产品模型策略移出 UI 组件。
 - **Agent Canvas Contract（G3）**：稳定 Workflow surface 收敛为 `workflow.inspect`、`workflow.selection.get`、`workflow.apply` 与 `workflow.node.run`；选择读取脱敏且不改 revision，旧 granular commands 仅作为统一 operations 的兼容适配，Browser-bound Agent 不再隐式回落 Native。
