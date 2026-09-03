@@ -47,8 +47,9 @@ const asRecord = (value: unknown): Record<string, unknown> | null => (
 )
 
 const makeId = () => {
-  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
-  return `dsh-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  const cryptoApi = globalThis.crypto
+  if (typeof cryptoApi?.randomUUID !== 'function') throw new Error('当前运行环境不支持安全随机标识。')
+  return cryptoApi.randomUUID()
 }
 
 function errorMessage(value: unknown, fallback: string): string {

@@ -14,21 +14,33 @@ const ROUTES = new Map<string, ReadonlySet<string>>([
   ['/director/status', new Set(['GET'])],
 ])
 const MAX_BODY_BYTES = 36 * 1024 * 1024
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]'])
 
 function json(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
   })
-  response.end(JSON.stringify(body))
+  response.end(JSON.stringify(body, (key, value) => key === 'stack' || key === 'cause' ? undefined : value))
 }
 
 function workspaceOrigin(value: string): URL {
-  const target = new URL(value)
-  if (target.protocol !== 'http:' || !LOOPBACK_HOSTS.has(target.hostname) || target.username || target.password) {
-    throw new Error('Workspace Operator 必须使用无凭据的本机 http 地址。')
+  const configured = new URL(value)
+  if (
+    configured.protocol !== 'http:' ||
+    configured.hostname !== '127.0.0.1' ||
+    !configured.port ||
+    configured.pathname !== '/' ||
+    configured.search ||
+    configured.hash ||
+    configured.username ||
+    configured.password
+  ) throw new Error('Workspace Operator 必须使用带显式端口的 127.0.0.1 http 地址。')
+  const port = Number(configured.port)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('Workspace Operator 端口无效。')
   }
+  const target = new URL('http://127.0.0.1:1')
+  target.port = String(port)
   return target
 }
 
@@ -37,7 +49,35 @@ export function resolveWorkspaceProxyTarget(workspaceUrl: string, requestUrl: st
   if (incoming.pathname !== WORKSPACE_PROXY_PATH && !incoming.pathname.startsWith(`${WORKSPACE_PROXY_PATH}/`)) return null
   const path = incoming.pathname.slice(WORKSPACE_PROXY_PATH.length) || '/'
   if (!ROUTES.get(path)?.has(method.toUpperCase())) return null
-  return new URL(`${path}${incoming.search}`, `${workspaceOrigin(workspaceUrl).origin}/`)
+  const target = workspaceOrigin(workspaceUrl)
+  target.search = ''
+  switch (path) {
+    case '/health':
+      target.pathname = '/health'
+      break
+    case '/workflow/native/register':
+      target.pathname = '/workflow/native/register'
+      break
+    case '/api/tools':
+      target.pathname = '/api/tools'
+      break
+    case '/director/bind':
+      target.pathname = '/director/bind'
+      break
+    case '/director/handoff':
+      target.pathname = '/director/handoff'
+      break
+    case '/director/status':
+      target.pathname = '/director/status'
+      for (const key of ['agentIdentity', 'host', 'sessionId', 'projectId']) {
+        const value = incoming.searchParams.get(key)
+        if (value !== null) target.searchParams.set(key, value)
+      }
+      break
+    default:
+      return null
+  }
+  return target
 }
 
 async function readBody(request: IncomingMessage): Promise<Buffer | undefined> {
@@ -65,8 +105,8 @@ export function createWorkspaceProxyHandler(
     let target: URL | null
     try {
       target = resolveWorkspaceProxyTarget(config.workspaceUrl, request.url || '/', request.method || 'GET')
-    } catch (error) {
-      json(response, 503, { ok: false, error: { message: error instanceof Error ? error.message : String(error) } })
+    } catch {
+      json(response, 503, { ok: false, error: { message: 'Workspace Operator 地址不可用。' } })
       return
     }
     if (!target) {
@@ -92,8 +132,8 @@ export function createWorkspaceProxyHandler(
         'cache-control': 'no-store',
       })
       response.end(payload)
-    } catch (error) {
-      json(response, 502, { ok: false, error: { message: `无法连接本机 Workspace Operator：${error instanceof Error ? error.message : String(error)}` } })
+    } catch {
+      json(response, 502, { ok: false, error: { message: '无法连接本机 Workspace Operator。' } })
     }
   }
 }

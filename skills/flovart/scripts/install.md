@@ -6,11 +6,11 @@ Flovart CLI is local to this repository.
 
 ```bash
 npm install
-npm run dev
+npm run flovart:cli -- start --source --web --open
 npm run flovart:cli -- status --json
 ```
 
-The Vite dev server uses port `37522`. Provider-backed commands require the browser app to stay open because API keys remain in browser storage.
+启动器会同时准备 WebUI 和 Browser Agent，并用一次性 bootstrap 打开 Workflow。`37522` 只是首选 WebUI 端口；被占用时会自动切换到可用的 loopback 端口。不要单独运行 `npm run dev` 后把普通地址当成已绑定的 Agent 页面；Provider-backed commands require the browser app to stay open because API keys remain in browser storage.
 
 ## Agent Host Init
 
@@ -20,7 +20,7 @@ Flovart exposes no MCP server to coding agents; the CLI is the only agent-facing
 npm run flovart:cli -- init --target project-skill --json
 ```
 
-The current init contract is reported by:
+遇到安装契约不一致或需要诊断旧版本时，才读取当前 `init` schema：
 
 ```bash
 npm run flovart:cli -- command.schema --command init --json
@@ -45,7 +45,7 @@ npm run flovart:cli -- provider.begin-setup --purpose both --json
 
 ## Update Rule
 
-If command documentation and CLI output conflict, treat these as authoritative:
+If command documentation and CLI output conflict, use the registry only for bootstrap/compatibility/diagnostic discovery; normal Agent work follows `status` and the stable Workflow surface:
 
 ```bash
 npm run flovart:cli -- command.list --json

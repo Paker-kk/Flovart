@@ -159,7 +159,10 @@ const App: React.FC = () => {
 
     const t = useCallback((key: string, ...args: any[]): any => {
         const dict = translations[language] || translations.en;
-        const value = dict[key];
+        const value = key.split('.').reduce<unknown>((current, part) => {
+            if (!current || typeof current !== 'object' || !(part in current)) return undefined;
+            return (current as Record<string, unknown>)[part];
+        }, dict as unknown);
         if (typeof value === 'function') return value(...args);
         return value ?? key;
     }, [language]);

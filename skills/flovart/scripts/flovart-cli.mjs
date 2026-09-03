@@ -7,8 +7,8 @@
 //
 // 用法（在 Flovart 仓库根目录）：
 //   node skills/flovart/scripts/flovart-cli.mjs status --json
-//   node skills/flovart/scripts/flovart-cli.mjs canvas.add-image --url https://... --x 100 --y 100
-//   node skills/flovart/scripts/flovart-cli.mjs inspect --json
+//   node skills/flovart/scripts/flovart-cli.mjs workflow.inspect --project-id <id>
+//   node skills/flovart/scripts/flovart-cli.mjs workflow.selection.get --project-id <id>
 //
 // 等价于：
 //   npm run flovart:cli -- status --json

@@ -21,4 +21,12 @@ If provider setup is missing, open the browser setup flow:
 npm run flovart:cli -- provider.begin-setup --purpose both --json
 ```
 
-Never edit provider payloads, route bindings, or secrets through invented agent commands. Confirm every generation argument with `command.schema`.
+Never edit provider payloads, route bindings, or secrets through invented agent
+commands. Use the stable Workflow surface for normal generation; consult
+`command.schema` only when a compatibility command is unfamiliar or a
+contract mismatch needs diagnosis.
+# Legacy command schemas
+
+The schemas in this file are retained for compatibility and diagnostics only.
+Normal Agent work uses the stable `status`, `workflow.inspect`,
+`workflow.selection.get`, `workflow.apply`, and `workflow.node.run` surface.

@@ -41,13 +41,14 @@ type DefineToolFn = typeof DefineTool
 
 let toolsApi: DefineToolFn | undefined
 let toolsApiFailed = false
+const DSH_TOOLS_PACKAGE = '@deepseek-ai/dsh-tools'
 
 /** Load the dsh-tools API once; failures degrade to CLI-only instead of throwing. */
 async function ensureToolsApi(): Promise<DefineToolFn | undefined> {
   if (toolsApi !== undefined) return toolsApi
   if (toolsApiFailed) return undefined
   try {
-    toolsApi = (await import('@deepseek-ai/dsh-tools')).defineTool
+    toolsApi = (await import(/* @vite-ignore */ DSH_TOOLS_PACKAGE)).defineTool
     return toolsApi
   } catch (error) {
     toolsApiFailed = true

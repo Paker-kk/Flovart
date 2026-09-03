@@ -61,14 +61,14 @@ if (roleIdMatch && !roleIdMatch[1].includes(`'${id}'`)) {
 }
 
 // Insert new role before the closing ]; of PRESET_ROLES
-const escapedPrompt = systemPrompt.replace(/`/g, '\\`').replace(/\$/g, '\\$');
+const quote = value => JSON.stringify(String(value));
 const roleBlock = `    {
-        id: '${id}',
-        name: '${name}',
-        emoji: '${emoji}',
-        color: '${color}',
-        description: '${description}',
-        systemPrompt: \`${escapedPrompt}\`,
+        id: ${quote(id)},
+        name: ${quote(name)},
+        emoji: ${quote(emoji)},
+        color: ${quote(color)},
+        description: ${quote(description)},
+        systemPrompt: ${quote(systemPrompt)},
     },`;
 
 // Find the last role entry (quality_reviewer) closing brace and insert after

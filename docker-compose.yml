@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: flovart
     ports:
-      - "5433:5432"
+      - "${FLOVART_DB_PORT:-5433}:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
@@ -24,7 +24,7 @@ services:
       JWT_EXP_HOURS: "168"
       CORS_ALLOW: "*"
     ports:
-      - "11452:11452"
+      - "${FLOVART_HUB_PORT:-11452}:11452"
     depends_on:
       db:
         condition: service_healthy
@@ -37,7 +37,7 @@ services:
       JWT_SECRET: "flovart-dev-secret-change-in-production"
       CORS_ALLOW: "*"
     ports:
-      - "11453:11453"
+      - "${FLOVART_ENTERPRISE_PORT:-11453}:11453"
     depends_on:
       db:
         condition: service_healthy
@@ -45,11 +45,11 @@ services:
   web:
     build: .
     ports:
-      - "1635:1635"
+      - "${FLOVART_WEB_PORT:-1635}:1635"
     environment:
       CHOKIDAR_USEPOLLING: "true"
-      VITE_HUB_BASE_URL: "http://localhost:11452/api/v1"
-      VITE_ENTERPRISE_BASE_URL: "http://localhost:11453/api/v1/enterprise"
+      VITE_HUB_BASE_URL: "http://localhost:${FLOVART_HUB_PORT:-11452}/api/v1"
+      VITE_ENTERPRISE_BASE_URL: "http://localhost:${FLOVART_ENTERPRISE_PORT:-11453}/api/v1/enterprise"
     volumes:
       - .:/app
       - /app/node_modules

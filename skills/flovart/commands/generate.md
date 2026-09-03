@@ -9,7 +9,8 @@ npm run flovart:cli -- provider.status --json
 npm run flovart:cli -- provider.test --purpose both --json
 ```
 
-Always inspect the current schema before submitting:
+Only inspect a schema when a compatibility command is unfamiliar or the
+registry reports a contract mismatch:
 
 ```bash
 npm run flovart:cli -- command.schema --command generate.image --json

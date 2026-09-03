@@ -92,7 +92,11 @@ the CLI owns local Agent startup and bootstrap handoff. Do not read
 `~/.flovart/agent.json`, copy a token, guess a port, or build a private browser
 URL in the Skill.
 
-The CLI can open the running Flovart WebUI in the OS default browser (Windows system URL handler, macOS `open`, Linux `xdg-open`; it probes known local endpoints first). The Windows launcher passes the complete bootstrap URI without routing it through a shell.
+If startup reports a pending Browser binding, poll `status --json` for the
+same attempt instead of issuing another `start --open`; repeated starts are
+not a recovery strategy.
+
+The CLI can open the running Flovart WebUI in the OS default browser (Windows system URL handler, macOS `open`, Linux `xdg-open`; it probes known local endpoints first). When a ready local Browser Agent is available, `web.open` internally adds the one-time bootstrap handoff; the returned CLI result remains the sanitized WebUI origin. The Windows launcher passes the complete bootstrap URI without routing it through a shell. During automated validation on Windows, use `start --no-open --web-port=0 --agent-port=0` with the isolated Chrome-for-Testing profile instead of opening the OS-default browser.
 
 ```bash
 npx flovart-cli web.open --json
@@ -100,11 +104,11 @@ npx flovart-cli web.open --json
 npx flovart-cli web.open --url http://127.0.0.1:37521 --json
 ```
 
-`web.open` answers `NO_WEBUI` when nothing is listening; start services with `npx flovart-cli start --open` or `npm run dev` first. Use this before guiding a user to look at their Workflow.
+`web.open` answers `NO_WEBUI` when nothing is listening; start the WebUI and Browser Agent together with `npx flovart-cli start --source --web --open` (or `npx flovart-cli start --open` for an installed Toolkit). Do not start only `npm run dev` when Agent binding is required: that command serves the plain WebUI origin without the one-time bootstrap handoff.
 
 ## Shell and operating system
 
-The CLI is Node.js, not PowerShell-specific. Use Node.js 20.10 or newer:
+The CLI is Node.js, not PowerShell-specific. Use Node.js 22.19.0 or newer:
 
 - Windows PowerShell: run the commands as written.
 - macOS zsh/bash: run the same `npx flovart-cli` commands; the Agent config is `~/.flovart/agent.json`.

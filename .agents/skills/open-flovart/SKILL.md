@@ -29,6 +29,9 @@ data.browserConnected = true
 If the local system is not ready, ask the CLI to start the local Runtime and
 open the visible Workflow:
 
+For an automated browser acceptance run, skip the command below and use
+`npm run test:browser:chrome`; only a manual user request should use `--open`.
+
 ```bash
 npx flovart-cli start --open --json
 ```
@@ -42,6 +45,26 @@ handoff, and the browser opening. The browser owns the visible Workflow state.
 Poll the status command again after startup until it is ready or the command
 reports a concrete failure. Do not wait forever. Report `frontend`, `agent`,
 and `browser` states when it remains unavailable.
+
+For automated validation, do not use `--open`: it delegates to the Windows
+default URL handler and may open an unrelated browser window. Use the
+repository Chrome smoke harness instead:
+
+```bash
+npm run test:browser:chrome
+```
+
+The harness starts the source WebUI and Browser Agent with
+`--no-open --web-port=0 --agent-port=0`, launches Playwright's Chrome for
+Testing executable, and navigates to the one-time bootstrap URL itself. A
+manual user request to open Flovart may still use `--open`.
+
+If `start --open --json` reports a pending Browser binding or times out after
+opening the page, do not immediately run `start` again. Poll `status --json`
+for the same bootstrap attempt; the local services stay alive while the page
+finishes loading, and the launcher suppresses duplicate browser opens. Only
+start again after the services are confirmed offline or the user explicitly
+requests a fresh page.
 
 ## Handoff to Workflow operations
 
