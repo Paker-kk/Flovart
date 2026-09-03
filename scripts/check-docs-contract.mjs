@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CANONICAL_COMMAND_REGISTRY } from '../tools/flovart/registry.js';
@@ -14,13 +15,17 @@ const stableAgentSurface = [
 
 const skillProjectionPaths = [
   '.agents/skills/flovart/SKILL.md',
-  'tools/flovart/skill/SKILL.md',
+  '.claude/skills/flovart/SKILL.md',
   'skills/flovart/SKILL.md',
 ];
+const generatedSkillProjectionPath = 'tools/flovart/skill/SKILL.md';
+const packageJson = JSON.parse(fs.readFileSync(path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), 'package.json'), 'utf8'));
+const minimumNodeVersion = String(packageJson.engines?.node || '').match(/\d+\.\d+\.\d+/)?.[0] || '';
 
-const releaseDocPaths = [
+const requiredDocPaths = [
   'README.md',
   'README.en.md',
+  '安装指引.md',
   'docs/overview/quick-start.md',
   'docs/overview/quick-start.en.md',
   'docs/overview/skill-guide.md',
@@ -28,15 +33,24 @@ const releaseDocPaths = [
   'docs/content/docs/overview/features.en.mdx',
   'docs/design/agent/README.md',
   '.agents/skills/flovart/SKILL.md',
-  'tools/flovart/skill/SKILL.md',
+  '.claude/skills/flovart/SKILL.md',
   'skills/flovart/SKILL.md',
   'skills/flovart/scripts/install.md',
 ];
 
-const compatibilityMarker = /legacy|compatib|diagnos|debug|兼容|诊断|调试|旧路径|迁移|仅用于|only for/i;
+const compatibilityMarker = /legacy|compatib|diagnos|debug|deprecated|historical|retired|removed|曾|历史|兼容|诊断|调试|旧路径|迁移|仅用于|不再|删除|替换|only for/i;
 const pseudoCliCommands = new Set(['install', 'start', 'update']);
 const commandInvocation = /(?:npx\s+flovart-cli|npm\s+run\s+flovart:cli\s+--|flovart-cli)\s+([a-z][a-z0-9]*(?:[.-][a-z0-9]+)*)/gi;
 const schemaCommand = /--command\s+([a-z][a-z0-9]*(?:[.-][a-z0-9]+)*)/gi;
+const publicDocPath = /^(?:README(?:\.en)?\.md|安装指引\.md|docs\/overview\/|docs\/content\/docs\/)/i;
+const installerVersion = /Flovart[_ -](\d+\.\d+\.\d+)_x64-setup\.exe/gi;
+const tagVersion = /\bgit tag v(\d+\.\d+\.\d+)\b/gi;
+const retiredPublicPathPatterns = [
+  [/\bcanvas\.inspect\b/i, 'canvas.inspect'],
+  [/\.flovart[\\/]command-queue\.json/i, 'file command queue'],
+  [/\bfile-state\s+runtime\b/i, 'file-state runtime'],
+  [/\binit\s+--host\b/i, 'init --host'],
+];
 
 function commandDocs(rootDir) {
   const directory = path.join(rootDir, 'skills/flovart/commands');
@@ -45,6 +59,17 @@ function commandDocs(rootDir) {
     .filter(name => name.endsWith('.md'))
     .sort()
     .map(name => path.join('skills/flovart/commands', name));
+}
+
+function gitVisibleDocPaths(rootDir) {
+  let paths;
+  try {
+    paths = execFileSync('git', ['ls-files', '-co', '--exclude-standard', '-z'], { cwd: rootDir })
+      .toString().split('\0').filter(Boolean);
+  } catch {
+    paths = [];
+  }
+  return paths.filter(relativePath => /\.(?:md|mdx)$/i.test(relativePath));
 }
 
 function readDocs(rootDir, relativePaths, errors) {
@@ -67,7 +92,14 @@ function mentionedCommands(text) {
 
 export function checkDocsContract({ rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..') } = {}) {
   const errors = [];
-  const docs = readDocs(rootDir, [...releaseDocPaths, ...commandDocs(rootDir)], errors);
+  const currentVersion = fs.readFileSync(path.join(rootDir, 'VERSION'), 'utf8').trim();
+  const discoveredDocs = [
+    ...gitVisibleDocPaths(rootDir),
+    ...requiredDocPaths,
+    ...commandDocs(rootDir),
+    ...(fs.existsSync(path.join(rootDir, generatedSkillProjectionPath)) ? [generatedSkillProjectionPath] : []),
+  ];
+  const docs = readDocs(rootDir, [...new Set(discoveredDocs)], errors);
 
   for (const { relativePath, text } of docs) {
     for (const command of mentionedCommands(text)) {
@@ -83,7 +115,7 @@ export function checkDocsContract({ rootDir = path.resolve(path.dirname(fileURLT
     }
   }
 
-  for (const relativePath of releaseDocPaths) {
+  for (const relativePath of docs.map(doc => doc.relativePath)) {
     const text = docs.find(doc => doc.relativePath === relativePath)?.text || '';
     if (mentionedCommands(text).some(command => command === 'command.list' || command === 'command.schema') && !compatibilityMarker.test(text)) {
       errors.push(`${relativePath}: command.list/schema must be described as bootstrap, compatibility, diagnostic, or debug only`);
@@ -93,16 +125,30 @@ export function checkDocsContract({ rootDir = path.resolve(path.dirname(fileURLT
       [/\bcanvas\.inspect\b/i, 'canvas.inspect'],
       [/\.flovart[\\/]command-queue\.json/i, 'file command queue'],
     ]) {
-      if (pattern.test(text)) errors.push(`${relativePath}: removed path ${label} is still documented`);
+      if (pattern.test(text) && !compatibilityMarker.test(text)) errors.push(`${relativePath}: removed path ${label} is still documented`);
+    }
+    if (publicDocPath.test(relativePath)) {
+      for (const [pattern, label] of retiredPublicPathPatterns) {
+        if (pattern.test(text)) errors.push(`${relativePath}: public documentation still contains retired path ${label}`);
+      }
+      for (const match of text.matchAll(installerVersion)) {
+        if (match[1] !== currentVersion) errors.push(`${relativePath}: installer version ${match[1]} does not match VERSION ${currentVersion}`);
+      }
+      for (const match of text.matchAll(tagVersion)) {
+        if (match[1] !== currentVersion) errors.push(`${relativePath}: release tag version ${match[1]} does not match VERSION ${currentVersion}`);
+      }
     }
   }
 
-  for (const relativePath of skillProjectionPaths) {
-    const text = docs.find(doc => doc.relativePath === relativePath)?.text || '';
-    for (const command of stableAgentSurface) {
-      if (!text.includes(`\`${command}\``)) errors.push(`${relativePath}: stable Agent command ${command} is missing`);
-    }
+for (const relativePath of skillProjectionPaths) {
+  const text = docs.find(doc => doc.relativePath === relativePath)?.text || '';
+  for (const command of stableAgentSurface) {
+    if (!text.includes(`\`${command}\``)) errors.push(`${relativePath}: stable Agent command ${command} is missing`);
   }
+  if (minimumNodeVersion && !text.includes(`Node.js ${minimumNodeVersion}`)) {
+    errors.push(`${relativePath}: minimum Node.js version is not aligned with package.json (${minimumNodeVersion})`);
+  }
+}
 
   const canonicalSkill = fs.existsSync(path.join(rootDir, skillProjectionPaths[0]))
     ? fs.readFileSync(path.join(rootDir, skillProjectionPaths[0]), 'utf8') : '';
@@ -110,6 +156,11 @@ export function checkDocsContract({ rootDir = path.resolve(path.dirname(fileURLT
     const projection = fs.existsSync(path.join(rootDir, relativePath))
       ? fs.readFileSync(path.join(rootDir, relativePath), 'utf8') : '';
     if (projection !== canonicalSkill) errors.push(`${relativePath} has drifted from ${skillProjectionPaths[0]}`);
+  }
+
+  if (fs.existsSync(path.join(rootDir, generatedSkillProjectionPath))) {
+    const generatedSkill = fs.readFileSync(path.join(rootDir, generatedSkillProjectionPath), 'utf8');
+    if (generatedSkill !== canonicalSkill) errors.push(`${generatedSkillProjectionPath} has drifted from ${skillProjectionPaths[0]}`);
   }
 
   return { errors, files: docs.map(doc => doc.relativePath) };

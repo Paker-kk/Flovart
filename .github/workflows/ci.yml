@@ -33,8 +33,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install DSH plugin dependencies
+        run: npm --prefix dsh-plugin ci
+
+      - name: Audit DSH plugin dependencies
+        run: npm audit --prefix dsh-plugin --audit-level=moderate
+
       - name: Docs contract
         run: npm run docs:check
+
+      - name: Verify release versions
+        run: npm run version:check
 
       - name: Release red-team invariants
         run: npm run release:red-team
@@ -78,6 +87,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install DSH plugin dependencies
+        run: npm --prefix dsh-plugin ci
+
+      - name: Audit DSH plugin dependencies
+        run: npm audit --prefix dsh-plugin --audit-level=moderate
 
       - name: Critical suite repeated ten times
         run: npm run test:critical

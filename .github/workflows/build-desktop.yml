@@ -1,9 +1,9 @@
 # Flovart - Tauri 桌面应用全平台构建 + 自动发布
 #
 # 触发条件：
-#   1. 推送到 main          → 出 Prerelease  (nightly 频道)
+#   1. 推送到 main          → 创建 Draft Prerelease（不自动公开）
 #   2. 推送 v* tag         → 出正式 Release  (stable 频道)
-#   3. workflow_dispatch   → 手动触发，默认 Prerelease
+#   3. workflow_dispatch   → 手动触发，默认只做 Draft dry-run
 #
 # 构建矩阵：Windows x64 / Linux x64（macOS 暂不占用 CI 配额）
 #
@@ -34,11 +34,13 @@ on:
         description: '标记为 Prerelease（nightly 频道）'
         type: boolean
         default: true
+      publish:
+        description: '仅在完成外部发布审批后公开 Draft Release'
+        type: boolean
+        default: false
 
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 # 串行跑同一组的 job，避免 prerelease 标签 race condition
 concurrency:
@@ -51,8 +53,10 @@ jobs:
   # built tag from becoming a public release.
   release-gate:
     name: Release gate
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
     runs-on: windows-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,8 +73,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install DSH plugin dependencies
+        run: npm --prefix dsh-plugin ci
+
       - name: Docs contract
         run: npm run docs:check
+
+      - name: Verify release versions
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            node scripts/check-release-version.mjs "${GITHUB_REF_NAME}"
+          else
+            npm run version:check
+          fi
 
       - name: Release red-team invariants
         run: npm run release:red-team
@@ -104,12 +120,13 @@ jobs:
 
   security-gate:
     name: Hosted security gate
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/security.yml
     permissions:
       actions: read
       contents: read
       packages: read
+      pull-requests: read
       security-events: write
 
   build:
@@ -142,6 +159,11 @@ jobs:
             label: Linux x64
 
     runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
 
     steps:
       - name: Checkout
@@ -179,6 +201,17 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: node scripts/check-release-version.mjs "${{ github.ref_name }}"
 
+      - name: Require production updater signing key for stable tags
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]]; then
+            echo 'Stable tag builds require TAURI_SIGNING_PRIVATE_KEY; refusing unsigned updater artifacts.' >&2
+            exit 1
+          fi
+
       # ── Sidecar pre-build ──
       # 从 src/bin/host.rs 编译 flovart-host（Chrome Native Messaging 宿主），
       # 放到 src-tauri/binaries/，文件名带 target triple 后缀，供 Tauri externalBin 查找。
@@ -186,12 +219,27 @@ jobs:
         working-directory: src-tauri
         shell: bash
         run: |
+          # The host binary shares the Tauri crate, whose build script validates
+          # bundle.externalBin. Disable only that bundle copy step while the
+          # sidecar is being compiled; the following Tauri build uses the full
+          # release config and the freshly copied sidecar.
+          export TAURI_CONFIG='{"bundle":{"externalBin":[]}}'
           cargo build --bin flovart-host --target ${{ matrix.rust_target }} --release
           mkdir -p binaries
-          cp "target/${{ matrix.rust_target }}/release/${{ matrix.binary_name }}" \
-             "binaries/flovart-host-${{ matrix.rust_target }}${{ matrix.sidecar_ext }}"
+          source_path="target/${{ matrix.rust_target }}/release/${{ matrix.binary_name }}"
+          sidecar_path="binaries/flovart-host-${{ matrix.rust_target }}${{ matrix.sidecar_ext }}"
+          if [[ ! -s "$source_path" ]]; then
+            echo "Expected sidecar was not built: $source_path" >&2
+            exit 1
+          fi
+          cp "$source_path" "$sidecar_path"
+          if [[ ! -s "$sidecar_path" ]]; then
+            echo "Sidecar copy is empty or missing: $sidecar_path" >&2
+            exit 1
+          fi
           echo "=== Sidecar ready ==="
           ls -la binaries/
+          stat "$sidecar_path"
           file binaries/* 2>/dev/null || true
 
       # ── Tauri build + 自动签名 + 创建 release ──
@@ -220,6 +268,7 @@ jobs:
               echo "EOF"
               echo "prerelease=false"
               echo "updater=true"
+              echo "tauri_config=src-tauri/tauri.conf.json"
             } >> "$GITHUB_OUTPUT"
           else
             {
@@ -241,8 +290,13 @@ jobs:
               echo "- NSIS 安装器支持 11 种语言（英 / 简中 / 繁中 / 日 / 韩 / 法 / 德 / 西 / 意 / 葡 / 俄）"
               echo "- 这是预发布版本，可能不稳定"
               echo "EOF"
-              echo "prerelease=true"
+              if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+                echo "prerelease=${{ inputs.prerelease }}"
+              else
+                echo "prerelease=true"
+              fi
               echo "updater=false"
+              echo "tauri_config=src-tauri/tauri.local.conf.json"
             } >> "$GITHUB_OUTPUT"
           fi
           echo "=== GITHUB_OUTPUT ==="
@@ -261,7 +315,32 @@ jobs:
           releaseDraft: true
           prerelease: ${{ steps.meta.outputs.prerelease }}
           includeUpdaterJson: ${{ steps.meta.outputs.updater }}
-          args: --target ${{ matrix.rust_target }} ${{ matrix.bundle_args }}
+          args: --config ${{ steps.meta.outputs.tauri_config }} --target ${{ matrix.rust_target }} ${{ matrix.bundle_args }}
+
+      # Tauri's action uploads updater assets to the draft release. Keep a
+      # local copy in each matrix job; the complete feed is verified after all
+      # platform jobs finish, because latest.json accumulates platform entries
+      # as those jobs upload their assets.
+      - name: Stage signed updater metadata
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_dir='dist/release-artifacts'
+          mkdir -p "$artifact_dir"
+          if [[ ! -s latest.json ]]; then
+            echo 'Stable tag build did not produce latest.json.' >&2
+            exit 1
+          fi
+          cp latest.json "$artifact_dir/latest.json"
+          mapfile -t signatures < <(find src-tauri/target -type f -name '*.sig' -path '*/bundle/*' -print)
+          if [[ "${#signatures[@]}" -eq 0 ]]; then
+            echo 'Stable tag build did not produce an updater .sig sidecar.' >&2
+            exit 1
+          fi
+          for signature in "${signatures[@]}"; do
+            cp "$signature" "$artifact_dir/$(basename "$signature")"
+          done
 
       # 将 Tauri 产物收敛到稳定目录，供 checksum、SBOM 和 provenance 使用。
       # 只复制 bundle 目录中的安装包，避免把 sidecar 当作发布物。
@@ -311,6 +390,13 @@ jobs:
           artifact-name: flovart-${{ matrix.platform }}-${{ matrix.rust_target }}-sbom
           upload-artifact: false
           upload-release-assets: false
+
+      - name: Verify staged release artifacts
+        shell: bash
+        run: |
+          node scripts/check-release-artifacts.mjs \
+            --artifact-dir "dist/release-artifacts" \
+            --sbom "dist/release-artifacts/flovart-${{ matrix.platform }}-sbom.spdx.json"
 
       - name: Attest release artifacts and SBOM
         if: startsWith(github.ref, 'refs/tags/v')
@@ -366,9 +452,71 @@ jobs:
   publish-release:
     name: Publish verified release
     needs: build
-    if: ${{ (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && needs.build.result == 'success' }}
+    if: ${{ needs.build.result == 'success' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish == true)) }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+
+      # Verify the final draft, not one partial matrix job. The Tauri action
+      # builds latest.json from the assets already uploaded to this draft, so
+      # this job downloads the complete feed and every updater artifact before
+      # the draft can become public.
+      - name: Download draft updater assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          artifact_dir='dist/release-artifacts'
+          mkdir -p "$artifact_dir"
+          mapfile -t release_ids < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq '.[] | select(.tag_name == env.RELEASE_TAG) | .id'
+          )
+          release_id="${release_ids[0]:-}"
+          if [[ -z "$release_id" ]]; then
+            echo "Draft release not found for ${RELEASE_TAG}." >&2
+            exit 1
+          fi
+          mapfile -t assets < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?per_page=100" \
+              --jq '.[] | [.id, .name] | @tsv'
+          )
+          for asset_line in "${assets[@]}"; do
+            IFS=$'\t' read -r asset_id asset_name <<< "$asset_line"
+            [[ -n "$asset_id" && -n "$asset_name" ]] || continue
+            if [[ "$asset_name" == */* || "$asset_name" == *'..'* ]]; then
+              echo "Unsafe release asset name: ${asset_name}" >&2
+              exit 1
+            fi
+            case "$asset_name" in
+              latest.json|*.sig|*.exe|*.msi|*.deb|*.AppImage|*.zip|*.tar.gz) ;;
+              *) continue ;;
+            esac
+            curl --fail --location --silent --show-error \
+              --header "Accept: application/octet-stream" \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" \
+              --output "${artifact_dir}/${asset_name}"
+          done
+          if [[ ! -s "${artifact_dir}/latest.json" ]]; then
+            echo 'Draft release did not contain latest.json.' >&2
+            exit 1
+          fi
+
+      - name: Verify signed updater artifacts
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          node scripts/check-updater-artifacts.mjs \
+            --artifact-dir "dist/release-artifacts" \
+            --version "${{ github.ref_name }}"
+
       - name: Publish completed draft
         shell: bash
         env:
