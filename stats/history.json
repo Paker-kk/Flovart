@@ -274,15 +274,63 @@
       "watchers": 0,
       "releases": 1,
       "downloads": 34
+    },
+    {
+      "date": "2026-09-01",
+      "stars": 135,
+      "forks": 34,
+      "watchers": 0,
+      "releases": 1,
+      "downloads": 35
+    },
+    {
+      "date": "2026-09-02",
+      "stars": 135,
+      "forks": 34,
+      "watchers": 0,
+      "releases": 1,
+      "downloads": 35
+    },
+    {
+      "date": "2026-09-03",
+      "stars": 135,
+      "forks": 34,
+      "watchers": 0,
+      "releases": 1,
+      "downloads": 35
+    },
+    {
+      "date": "2026-09-04",
+      "stars": 135,
+      "forks": 34,
+      "watchers": 0,
+      "releases": 1,
+      "downloads": 35
+    },
+    {
+      "date": "2026-09-05",
+      "stars": 135,
+      "forks": 34,
+      "watchers": 0,
+      "releases": 1,
+      "downloads": 35
+    },
+    {
+      "date": "2026-09-06",
+      "stars": 135,
+      "forks": 34,
+      "watchers": 0,
+      "releases": 1,
+      "downloads": 36
     }
   ],
   "releaseAssets": [
     {
       "release": "v0.2.0-test",
       "name": "Flovart_0.2.0_x64-setup.exe",
-      "downloads": 34,
+      "downloads": 36,
       "updatedAt": "2026-06-02T08:23:17Z"
     }
   ],
-  "updatedAt": "2026-08-31T05:45:05.241Z"
+  "updatedAt": "2026-09-06T04:47:20.642Z"
 }
